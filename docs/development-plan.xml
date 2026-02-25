@@ -453,7 +453,7 @@
       <step-5 module="M-TRANSPORT">Implemented MCP transport registration for the public tool surface.</step-5>
     </Phase-1>
 
-    <Phase-2 name="OAuth Contract Rewrite" status="planned">
+    <Phase-2 name="OAuth Contract Rewrite" status="done">
       <step-1 module="M-CONFIG">Extend config contract with PUBLIC_URL and OAuth validation settings.</step-1>
       <step-2 module="M-MCP-AUTH-GUARD">Replace API key authorization contract with OAuth-only guard contract.</step-2>
       <step-3 module="M-ADMIN-UI">Replace API key management scope with operator diagnostics scope.</step-3>
