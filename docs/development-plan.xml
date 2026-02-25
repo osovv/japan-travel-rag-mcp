@@ -406,7 +406,7 @@
       <step-2 module="M-ADMIN-UI">Implement admin layout, sidebar, and HTMX API keys CRUD interactions.</step-2>
     </Phase-5>
 
-    <Phase-6 name="MCP Authorization Integration" status="pending">
+    <Phase-6 name="MCP Authorization Integration" status="done">
       <step-1 module="M-MCP-AUTH-GUARD">Implement Bearer API key guard with expiry/revocation checks.</step-1>
       <step-2 module="M-SERVER">Wire /mcp guard and /admin routes into server fetch handler.</step-2>
       <step-3 module="M-TRANSPORT">Add integration smoke tests for unauthorized/authorized /mcp requests.</step-3>
