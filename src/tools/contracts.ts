@@ -1,8 +1,8 @@
 // FILE: src/tools/contracts.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Define and export MCP tool schemas and tool allowlist for the proxy surface.
-//   SCOPE: Provide input types, tool metadata schemas, and runtime validators for proxied MCP tool inputs.
+//   SCOPE: Provide input types, tool metadata schemas, and zod-based runtime validators for proxied MCP tool inputs.
 //   DEPENDS: M-LOGGER
 //   LINKS: M-TOOLS-CONTRACTS, M-LOGGER
 // END_MODULE_CONTRACT
@@ -25,27 +25,11 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-TOOLS-CONTRACTS.
+//   LAST_CHANGE: v1.1.0 - Refactored runtime validation layer to zod while preserving module API.
 // END_CHANGE_SUMMARY
 
+import { z } from "zod";
 import type { Logger } from "../logger/index";
-
-export interface SearchMessagesInputPublic {
-  filters?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export interface GetMessageContextInput {
-  message_id: string;
-  [key: string]: unknown;
-}
-
-export interface GetRelatedMessagesInput {
-  message_id: string;
-  [key: string]: unknown;
-}
-
-export type ListSourcesInput = Record<string, never>;
 
 export const PROXIED_TOOL_NAMES = [
   "search_messages",
@@ -113,23 +97,6 @@ export class SchemaValidationError extends Error {
   }
 }
 
-// START_CONTRACT: isPlainObject
-//   PURPOSE: Check whether a value is a plain object suitable for runtime input validation.
-//   INPUTS: { value: unknown - Candidate input value }
-//   OUTPUTS: { boolean - True when value is a non-null plain object }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-TOOLS-CONTRACTS]
-// END_CONTRACT: isPlainObject
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  // START_BLOCK_CHECK_PLAIN_OBJECT_SHAPE_M_TOOLS_CONTRACTS_001
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-  // END_BLOCK_CHECK_PLAIN_OBJECT_SHAPE_M_TOOLS_CONTRACTS_001
-}
-
 // START_CONTRACT: hasForbiddenChatIdsInFilters
 //   PURPOSE: Detect forbidden chat_ids keys anywhere inside the filters subtree.
 //   INPUTS: { filtersValue: unknown - filters subtree candidate }
@@ -138,7 +105,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 //   LINKS: [M-TOOLS-CONTRACTS]
 // END_CONTRACT: hasForbiddenChatIdsInFilters
 function hasForbiddenChatIdsInFilters(filtersValue: unknown): boolean {
-  // START_BLOCK_TRAVERSE_FILTERS_SUBTREE_FOR_CHAT_IDS_M_TOOLS_CONTRACTS_002
+  // START_BLOCK_TRAVERSE_FILTERS_SUBTREE_FOR_CHAT_IDS_M_TOOLS_CONTRACTS_001
   const stack: unknown[] = [filtersValue];
   const seen = new Set<unknown>();
 
@@ -172,8 +139,51 @@ function hasForbiddenChatIdsInFilters(filtersValue: unknown): boolean {
   }
 
   return false;
-  // END_BLOCK_TRAVERSE_FILTERS_SUBTREE_FOR_CHAT_IDS_M_TOOLS_CONTRACTS_002
+  // END_BLOCK_TRAVERSE_FILTERS_SUBTREE_FOR_CHAT_IDS_M_TOOLS_CONTRACTS_001
 }
+
+export const SearchMessagesInputPublicSchema = z
+  .object({
+    filters: z.unknown().optional(),
+  })
+  .passthrough()
+  .superRefine((value, ctx) => {
+    if (
+      Object.prototype.hasOwnProperty.call(value, "filters") &&
+      hasForbiddenChatIdsInFilters(value.filters)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "search_messages input forbids filters.chat_ids at the public boundary.",
+        path: ["filters"],
+      });
+    }
+  });
+
+export const GetMessageContextInputSchema = z
+  .object({
+    message_id: z
+      .string()
+      .trim()
+      .min(1, "get_message_context requires non-empty string field message_id."),
+  })
+  .passthrough();
+
+export const GetRelatedMessagesInputSchema = z
+  .object({
+    message_id: z
+      .string()
+      .trim()
+      .min(1, "get_related_messages requires non-empty string field message_id."),
+  })
+  .passthrough();
+
+export const ListSourcesInputSchema = z.object({}).strict();
+
+export type SearchMessagesInputPublic = z.infer<typeof SearchMessagesInputPublicSchema>;
+export type GetMessageContextInput = z.infer<typeof GetMessageContextInputSchema>;
+export type GetRelatedMessagesInput = z.infer<typeof GetRelatedMessagesInputSchema>;
+export type ListSourcesInput = Record<string, never>;
 
 // START_CONTRACT: buildSchemaValidationError
 //   PURPOSE: Build and throw typed schema validation errors with optional diagnostics logging.
@@ -188,7 +198,7 @@ function buildSchemaValidationError(
   functionName: string,
   blockName: string,
 ): never {
-  // START_BLOCK_EMIT_DIAGNOSTICS_AND_THROW_SCHEMA_ERROR_M_TOOLS_CONTRACTS_003
+  // START_BLOCK_EMIT_DIAGNOSTICS_AND_THROW_SCHEMA_ERROR_M_TOOLS_CONTRACTS_002
   if (logger) {
     logger.warn(
       "Schema validation failed.",
@@ -198,34 +208,57 @@ function buildSchemaValidationError(
     );
   }
   throw new SchemaValidationError(details);
-  // END_BLOCK_EMIT_DIAGNOSTICS_AND_THROW_SCHEMA_ERROR_M_TOOLS_CONTRACTS_003
+  // END_BLOCK_EMIT_DIAGNOSTICS_AND_THROW_SCHEMA_ERROR_M_TOOLS_CONTRACTS_002
 }
 
-// START_CONTRACT: assertPlainObjectInput
-//   PURPOSE: Enforce plain object input requirement for tool argument validation.
-//   INPUTS: { rawArgs: unknown - Untrusted tool args, toolName: string - Tool identifier for error context, logger: Logger | undefined - Optional diagnostics logger, functionName: string - Current function name, blockName: string - Current block name }
-//   OUTPUTS: { Record<string, unknown> - Validated plain object input }
-//   SIDE_EFFECTS: [Throws SchemaValidationError when input is not a plain object]
+// START_CONTRACT: formatZodIssues
+//   PURPOSE: Convert zod issues into stable human-readable validation detail strings.
+//   INPUTS: { toolName: string - Tool identifier for fallback text, error: z.ZodError - Zod parse error }
+//   OUTPUTS: { string[] - Normalized validation detail lines }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-TOOLS-CONTRACTS]
+// END_CONTRACT: formatZodIssues
+function formatZodIssues(toolName: string, error: z.ZodError): string[] {
+  // START_BLOCK_FORMAT_ZOD_ISSUES_TO_DETAILS_M_TOOLS_CONTRACTS_003
+  if (error.issues.length === 0) {
+    return [`${toolName} input is invalid.`];
+  }
+
+  return error.issues.map((issue) => {
+    const pathPrefix =
+      issue.path.length > 0 ? `${issue.path.map((segment) => String(segment)).join(".")}: ` : "";
+    return `${pathPrefix}${issue.message}`;
+  });
+  // END_BLOCK_FORMAT_ZOD_ISSUES_TO_DETAILS_M_TOOLS_CONTRACTS_003
+}
+
+// START_CONTRACT: parseWithSchema
+//   PURPOSE: Parse raw args with a zod schema and map parse failures to SchemaValidationError.
+//   INPUTS: { rawArgs: unknown - Untrusted tool args, schema: z.ZodType<T> - Target zod schema, toolName: string - Tool identifier, logger: Logger | undefined - Optional diagnostics logger, functionName: string - Current function, blockName: string - Semantic block name }
+//   OUTPUTS: { T - Parsed and validated tool arguments }
+//   SIDE_EFFECTS: [Throws SchemaValidationError on parse failures]
 //   LINKS: [M-TOOLS-CONTRACTS, M-LOGGER]
-// END_CONTRACT: assertPlainObjectInput
-function assertPlainObjectInput(
+// END_CONTRACT: parseWithSchema
+function parseWithSchema<T>(
   rawArgs: unknown,
+  schema: z.ZodType<T>,
   toolName: string,
   logger: Logger | undefined,
   functionName: string,
   blockName: string,
-): Record<string, unknown> {
-  // START_BLOCK_VALIDATE_ROOT_ARGUMENT_IS_PLAIN_OBJECT_M_TOOLS_CONTRACTS_004
-  if (!isPlainObject(rawArgs)) {
+): T {
+  // START_BLOCK_PARSE_INPUT_WITH_ZOD_SCHEMA_M_TOOLS_CONTRACTS_004
+  const parsed = schema.safeParse(rawArgs);
+  if (!parsed.success) {
     buildSchemaValidationError(
-      [`${toolName} input must be a plain object.`],
+      formatZodIssues(toolName, parsed.error),
       logger,
       functionName,
       blockName,
     );
   }
-  return rawArgs;
-  // END_BLOCK_VALIDATE_ROOT_ARGUMENT_IS_PLAIN_OBJECT_M_TOOLS_CONTRACTS_004
+  return parsed.data;
+  // END_BLOCK_PARSE_INPUT_WITH_ZOD_SCHEMA_M_TOOLS_CONTRACTS_004
 }
 
 // START_CONTRACT: isProxiedToolName
@@ -252,33 +285,16 @@ export function validateSearchMessagesInputPublic(
   rawArgs: unknown,
   logger?: Logger,
 ): SearchMessagesInputPublic {
-  // START_BLOCK_VALIDATE_SEARCH_MESSAGES_ROOT_OBJECT_M_TOOLS_CONTRACTS_006
-  const args = assertPlainObjectInput(
+  // START_BLOCK_VALIDATE_SEARCH_MESSAGES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_006
+  return parseWithSchema(
     rawArgs,
+    SearchMessagesInputPublicSchema,
     "search_messages",
     logger,
     "validateSearchMessagesInputPublic",
-    "VALIDATE_SEARCH_MESSAGES_ROOT_OBJECT",
+    "VALIDATE_SEARCH_MESSAGES_INPUT_WITH_ZOD",
   );
-  // END_BLOCK_VALIDATE_SEARCH_MESSAGES_ROOT_OBJECT_M_TOOLS_CONTRACTS_006
-
-  // START_BLOCK_ENFORCE_FORBIDDEN_SEARCH_FILTERS_CHAT_IDS_M_TOOLS_CONTRACTS_007
-  if (Object.prototype.hasOwnProperty.call(args, "filters")) {
-    const filtersValue = args["filters"];
-    if (hasForbiddenChatIdsInFilters(filtersValue)) {
-      buildSchemaValidationError(
-        ["search_messages input forbids filters.chat_ids at the public boundary."],
-        logger,
-        "validateSearchMessagesInputPublic",
-        "ENFORCE_FORBIDDEN_SEARCH_FILTERS_CHAT_IDS",
-      );
-    }
-  }
-  // END_BLOCK_ENFORCE_FORBIDDEN_SEARCH_FILTERS_CHAT_IDS_M_TOOLS_CONTRACTS_007
-
-  // START_BLOCK_RETURN_SEARCH_MESSAGES_VALIDATED_INPUT_M_TOOLS_CONTRACTS_008
-  return { ...args };
-  // END_BLOCK_RETURN_SEARCH_MESSAGES_VALIDATED_INPUT_M_TOOLS_CONTRACTS_008
+  // END_BLOCK_VALIDATE_SEARCH_MESSAGES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_006
 }
 
 // START_CONTRACT: validateGetMessageContextInput
@@ -292,31 +308,16 @@ export function validateGetMessageContextInput(
   rawArgs: unknown,
   logger?: Logger,
 ): GetMessageContextInput {
-  // START_BLOCK_VALIDATE_MESSAGE_CONTEXT_ROOT_OBJECT_M_TOOLS_CONTRACTS_009
-  const args = assertPlainObjectInput(
+  // START_BLOCK_VALIDATE_GET_MESSAGE_CONTEXT_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_007
+  return parseWithSchema(
     rawArgs,
+    GetMessageContextInputSchema,
     "get_message_context",
     logger,
     "validateGetMessageContextInput",
-    "VALIDATE_MESSAGE_CONTEXT_ROOT_OBJECT",
+    "VALIDATE_GET_MESSAGE_CONTEXT_INPUT_WITH_ZOD",
   );
-  // END_BLOCK_VALIDATE_MESSAGE_CONTEXT_ROOT_OBJECT_M_TOOLS_CONTRACTS_009
-
-  // START_BLOCK_VALIDATE_REQUIRED_MESSAGE_ID_FOR_CONTEXT_M_TOOLS_CONTRACTS_010
-  const messageId = typeof args["message_id"] === "string" ? args["message_id"].trim() : "";
-  if (!messageId) {
-    buildSchemaValidationError(
-      ["get_message_context requires non-empty string field message_id."],
-      logger,
-      "validateGetMessageContextInput",
-      "VALIDATE_REQUIRED_MESSAGE_ID_FOR_CONTEXT",
-    );
-  }
-  // END_BLOCK_VALIDATE_REQUIRED_MESSAGE_ID_FOR_CONTEXT_M_TOOLS_CONTRACTS_010
-
-  // START_BLOCK_RETURN_MESSAGE_CONTEXT_VALIDATED_INPUT_M_TOOLS_CONTRACTS_011
-  return { ...args, message_id: messageId };
-  // END_BLOCK_RETURN_MESSAGE_CONTEXT_VALIDATED_INPUT_M_TOOLS_CONTRACTS_011
+  // END_BLOCK_VALIDATE_GET_MESSAGE_CONTEXT_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_007
 }
 
 // START_CONTRACT: validateGetRelatedMessagesInput
@@ -330,31 +331,16 @@ export function validateGetRelatedMessagesInput(
   rawArgs: unknown,
   logger?: Logger,
 ): GetRelatedMessagesInput {
-  // START_BLOCK_VALIDATE_RELATED_MESSAGES_ROOT_OBJECT_M_TOOLS_CONTRACTS_012
-  const args = assertPlainObjectInput(
+  // START_BLOCK_VALIDATE_GET_RELATED_MESSAGES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_008
+  return parseWithSchema(
     rawArgs,
+    GetRelatedMessagesInputSchema,
     "get_related_messages",
     logger,
     "validateGetRelatedMessagesInput",
-    "VALIDATE_RELATED_MESSAGES_ROOT_OBJECT",
+    "VALIDATE_GET_RELATED_MESSAGES_INPUT_WITH_ZOD",
   );
-  // END_BLOCK_VALIDATE_RELATED_MESSAGES_ROOT_OBJECT_M_TOOLS_CONTRACTS_012
-
-  // START_BLOCK_VALIDATE_REQUIRED_MESSAGE_ID_FOR_RELATED_M_TOOLS_CONTRACTS_013
-  const messageId = typeof args["message_id"] === "string" ? args["message_id"].trim() : "";
-  if (!messageId) {
-    buildSchemaValidationError(
-      ["get_related_messages requires non-empty string field message_id."],
-      logger,
-      "validateGetRelatedMessagesInput",
-      "VALIDATE_REQUIRED_MESSAGE_ID_FOR_RELATED",
-    );
-  }
-  // END_BLOCK_VALIDATE_REQUIRED_MESSAGE_ID_FOR_RELATED_M_TOOLS_CONTRACTS_013
-
-  // START_BLOCK_RETURN_RELATED_MESSAGES_VALIDATED_INPUT_M_TOOLS_CONTRACTS_014
-  return { ...args, message_id: messageId };
-  // END_BLOCK_RETURN_RELATED_MESSAGES_VALIDATED_INPUT_M_TOOLS_CONTRACTS_014
+  // END_BLOCK_VALIDATE_GET_RELATED_MESSAGES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_008
 }
 
 // START_CONTRACT: validateListSourcesInput
@@ -365,33 +351,21 @@ export function validateGetRelatedMessagesInput(
 //   LINKS: [M-TOOLS-CONTRACTS, M-LOGGER]
 // END_CONTRACT: validateListSourcesInput
 export function validateListSourcesInput(rawArgs: unknown, logger?: Logger): ListSourcesInput {
-  // START_BLOCK_NORMALIZE_LIST_SOURCES_UNDEFINED_INPUT_M_TOOLS_CONTRACTS_015
+  // START_BLOCK_VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_009
   if (rawArgs === undefined) {
     return {};
   }
-  // END_BLOCK_NORMALIZE_LIST_SOURCES_UNDEFINED_INPUT_M_TOOLS_CONTRACTS_015
 
-  // START_BLOCK_VALIDATE_LIST_SOURCES_EMPTY_OBJECT_ONLY_M_TOOLS_CONTRACTS_016
-  const args = assertPlainObjectInput(
+  parseWithSchema(
     rawArgs,
+    ListSourcesInputSchema,
     "list_sources",
     logger,
     "validateListSourcesInput",
-    "VALIDATE_LIST_SOURCES_EMPTY_OBJECT_ONLY",
+    "VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD",
   );
-  if (Object.keys(args).length > 0) {
-    buildSchemaValidationError(
-      ["list_sources allows only an empty object input."],
-      logger,
-      "validateListSourcesInput",
-      "VALIDATE_LIST_SOURCES_EMPTY_OBJECT_ONLY",
-    );
-  }
-  // END_BLOCK_VALIDATE_LIST_SOURCES_EMPTY_OBJECT_ONLY_M_TOOLS_CONTRACTS_016
-
-  // START_BLOCK_RETURN_LIST_SOURCES_NORMALIZED_OBJECT_M_TOOLS_CONTRACTS_017
   return {};
-  // END_BLOCK_RETURN_LIST_SOURCES_NORMALIZED_OBJECT_M_TOOLS_CONTRACTS_017
+  // END_BLOCK_VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_009
 }
 
 // START_CONTRACT: validateToolInput
@@ -410,7 +384,7 @@ export function validateToolInput(
   | GetMessageContextInput
   | GetRelatedMessagesInput
   | ListSourcesInput {
-  // START_BLOCK_DISPATCH_TOOL_INPUT_VALIDATION_BY_TOOL_NAME_M_TOOLS_CONTRACTS_018
+  // START_BLOCK_DISPATCH_TOOL_INPUT_VALIDATION_BY_TOOL_NAME_M_TOOLS_CONTRACTS_010
   switch (toolName) {
     case "search_messages":
       return validateSearchMessagesInputPublic(rawArgs, logger);
@@ -428,5 +402,5 @@ export function validateToolInput(
         "DISPATCH_TOOL_INPUT_VALIDATION_BY_TOOL_NAME",
       );
   }
-  // END_BLOCK_DISPATCH_TOOL_INPUT_VALIDATION_BY_TOOL_NAME_M_TOOLS_CONTRACTS_018
+  // END_BLOCK_DISPATCH_TOOL_INPUT_VALIDATION_BY_TOOL_NAME_M_TOOLS_CONTRACTS_010
 }
