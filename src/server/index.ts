@@ -21,7 +21,7 @@
 
 import { createApiKeyRepository } from "../admin/api-key-repository";
 import { handleAdminRequest } from "../admin/ui-routes";
-import { authorizeMcpRequest } from "../auth/mcp-auth-guard";
+import { authorizeMcpRequest, buildWwwAuthenticateHeader } from "../auth/mcp-auth-guard";
 import { loadConfig } from "../config/index";
 import { createDb } from "../db/index";
 import { createLogger } from "../logger/index";
@@ -160,8 +160,32 @@ export async function main(): Promise<Bun.Server<unknown>> {
       logger: logger.child({ route: "admin", component: "adminUiRoutes" }),
       apiKeyRepository,
     };
+    const mcpResourceUrl = new URL("/mcp", config.publicUrl).toString();
     const mcpAuthDeps = {
-      apiKeyRepository,
+      oauthTokenValidator: {
+        validateAccessToken: async (
+          accessToken: string,
+          context: { requiredScopes: string[]; issuer?: string; resource?: string },
+        ) => {
+          const resolvedRecord = await apiKeyRepository.resolveApiKey(accessToken);
+          if (!resolvedRecord) {
+            return {
+              isValid: false as const,
+              error: "invalid_token" as const,
+              errorDescription: "Access token is invalid or expired.",
+            };
+          }
+
+          return {
+            isValid: true as const,
+            subject: resolvedRecord.id,
+            grantedScopes: context.requiredScopes,
+          };
+        },
+      },
+      requiredScopes: config.oauth.requiredScopes,
+      issuer: config.oauth.issuer,
+      resource: mcpResourceUrl,
       logger: mcpLogger.child({ component: "mcpAuthGuard" }),
     };
     // END_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
@@ -235,12 +259,27 @@ export async function main(): Promise<Bun.Server<unknown>> {
                 cause: error instanceof Error ? error.message : String(error),
               },
             );
-            return createJsonResponse(401, {
-              error: {
-                code: "UNAUTHORIZED",
-                message: "Invalid or missing MCP API key.",
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: "UNAUTHORIZED",
+                  message: "Invalid or missing MCP API key.",
+                },
+              }),
+              {
+                status: 401,
+                headers: {
+                  "content-type": "application/json; charset=utf-8",
+                  "www-authenticate": buildWwwAuthenticateHeader({
+                    error: "invalid_token",
+                    errorDescription: "Access token validation failed due to internal authorization error.",
+                    requiredScopes: config.oauth.requiredScopes,
+                    issuer: config.oauth.issuer,
+                    resource: mcpResourceUrl,
+                  }),
+                },
               },
-            });
+            );
           }
 
           if (!authDecision.isAuthorized) {
@@ -252,12 +291,21 @@ export async function main(): Promise<Bun.Server<unknown>> {
                 reason: authDecision.reason,
               },
             );
-            return createJsonResponse(401, {
-              error: {
-                code: "UNAUTHORIZED",
-                message: "Invalid or missing MCP API key.",
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: "UNAUTHORIZED",
+                  message: "Invalid or missing MCP API key.",
+                },
+              }),
+              {
+                status: 401,
+                headers: {
+                  "content-type": "application/json; charset=utf-8",
+                  "www-authenticate": buildWwwAuthenticateHeader(authDecision.challenge),
+                },
               },
-            });
+            );
           }
 
           logger.info(
@@ -267,8 +315,8 @@ export async function main(): Promise<Bun.Server<unknown>> {
             {
               method: request.method,
               pathname: url.pathname,
-              apiKeyId: authDecision.apiKeyId,
-              keyPrefix: authDecision.keyPrefix,
+              authSubject: authDecision.subject ?? null,
+              grantedScopes: authDecision.grantedScopes,
             },
           );
 
@@ -276,8 +324,8 @@ export async function main(): Promise<Bun.Server<unknown>> {
             return await handleMcpRequest(request, {
               ...transportDeps,
               logger: transportDeps.logger.child({
-                apiKeyId: authDecision.apiKeyId,
-                keyPrefix: authDecision.keyPrefix,
+                authSubject: authDecision.subject ?? null,
+                grantedScopes: authDecision.grantedScopes,
               }),
             });
           } catch (error: unknown) {
