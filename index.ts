@@ -1,5 +1,5 @@
 // FILE: index.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Root runtime entrypoint that boots MCP HTTP server.
 //   SCOPE: Invoke server main function and fail fast on startup errors.
@@ -12,7 +12,7 @@
 // END_MODULE_MAP
 
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Replaced Bun init placeholder with server bootstrap entrypoint.
+//   LAST_CHANGE: v1.1.0 - Added startup error details logging to expose wrapped ServerStartError causes in fatal bootstrap logs.
 // END_CHANGE_SUMMARY
 
 import { main } from "./src/server/index";
@@ -29,8 +29,27 @@ async function bootstrap(): Promise<void> {
   try {
     await main();
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    console.error(`[RootEntrypoint][bootstrap][START_SERVER_AND_HANDLE_FATAL_ERRORS] ${message}`);
+    if (error instanceof Error) {
+      const details = (error as { details?: unknown }).details;
+      let detailsSuffix = "";
+
+      if (details && typeof details === "object") {
+        try {
+          detailsSuffix = ` details=${JSON.stringify(details)}`;
+        } catch {
+          detailsSuffix = " details=<unserializable>";
+        }
+      }
+
+      const message = error.stack ?? error.message;
+      console.error(
+        `[RootEntrypoint][bootstrap][START_SERVER_AND_HANDLE_FATAL_ERRORS] ${message}${detailsSuffix}`,
+      );
+    } else {
+      console.error(
+        `[RootEntrypoint][bootstrap][START_SERVER_AND_HANDLE_FATAL_ERRORS] ${String(error)}`,
+      );
+    }
     process.exitCode = 1;
   }
   // END_BLOCK_START_SERVER_AND_HANDLE_FATAL_ERRORS_ROOT_ENTRYPOINT_001

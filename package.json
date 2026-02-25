@@ -3,6 +3,10 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "db:push": "drizzle-kit push --dialect=postgresql --schema=./src/admin/api-key-repository.ts --url=$DATABASE_URL",
+    "db:studio": "drizzle-kit studio --dialect=postgresql --schema=./src/admin/api-key-repository.ts --url=$DATABASE_URL"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

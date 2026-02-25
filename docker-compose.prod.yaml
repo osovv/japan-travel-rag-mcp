@@ -1,5 +1,5 @@
 # FILE: docker-compose.prod.yaml
-# VERSION: 1.1.0
+# VERSION: 1.2.0
 # START_MODULE_CONTRACT
 #   PURPOSE: Production compose stack for a single MCP HTTP service
 #   SCOPE: Runs the Bun-based MCP server with explicit required env vars on external coolify network
@@ -8,7 +8,8 @@
 # END_MODULE_CONTRACT
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: [v1.1.0 - Switch mcp service to build-based image to ensure index.ts is present at runtime]
+#   LAST_CHANGE: [v1.2.0 - Add required ROOT_AUTH_TOKEN and DATABASE_URL env bindings for post-Phase-4 config contract]
+#   PREVIOUS: [v1.1.0 - Switch mcp service to build-based image to ensure index.ts is present at runtime]
 #   PREVIOUS: [v1.0.0 - Initial production compose definition for single mcp service]
 # END_CHANGE_SUMMARY
 
@@ -17,6 +18,8 @@ x-shared-env: &shared-env
     TG_CHAT_RAG_BASE_URL: ${TG_CHAT_RAG_BASE_URL:?}
     TG_CHAT_RAG_BEARER_TOKEN: ${TG_CHAT_RAG_BEARER_TOKEN:?}
     TG_CHAT_RAG_CHAT_IDS: ${TG_CHAT_RAG_CHAT_IDS:?}
+    ROOT_AUTH_TOKEN: ${ROOT_AUTH_TOKEN:?}
+    DATABASE_URL: ${DATABASE_URL:?}
     PORT: ${PORT:-3000}
     TG_CHAT_RAG_TIMEOUT_MS: ${TG_CHAT_RAG_TIMEOUT_MS:-15000}
   networks:

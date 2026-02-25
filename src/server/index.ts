@@ -1,5 +1,5 @@
 // FILE: src/server/index.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, and /healthz routes.
 //   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport dependencies, serve guarded HTTP routes, and handle process shutdown signals.
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Wired /mcp authorization guard and /admin route handling with DB-backed API key repository bootstrap.
+//   LAST_CHANGE: v1.2.0 - Enriched startup failure propagation with explicit cause details for faster fatal boot diagnostics.
 // END_CHANGE_SUMMARY
 
 import { createApiKeyRepository } from "../admin/api-key-repository";
@@ -353,8 +353,11 @@ export async function main(): Promise<Bun.Server<unknown>> {
     if (error instanceof ServerStartError) {
       throw error;
     }
-    throw new ServerStartError("Server startup failed.", {
-      cause: error instanceof Error ? error.message : String(error),
+    const cause = error instanceof Error ? error.message : String(error);
+    const causeName = error instanceof Error ? error.name : "UnknownError";
+    throw new ServerStartError(`Server startup failed: ${causeName}: ${cause}`, {
+      cause,
+      causeName,
     });
     // END_BLOCK_MAP_STARTUP_FAILURE_TO_SERVER_START_ERROR_M_SERVER_006
   }

@@ -12,6 +12,7 @@
 //   ApiKeyRecord - Public API key metadata shape for admin and auth layers.
 //   ApiKeyList - API key list payload for admin UI rendering.
 //   CreateApiKeyResult - One-time API key creation response with raw key and stored metadata.
+//   apiKeysTable - Drizzle pg-core schema for api_keys table used by runtime queries and db tooling.
 //   ApiKeyRepository - Repository interface for create/list/revoke/resolve lifecycle operations.
 //   createApiKeyRepository - Build API key repository backed by Drizzle PostgreSQL and structured logs.
 // END_MODULE_MAP
@@ -33,7 +34,7 @@ const API_KEY_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RAW_API_KEY_PATTERN = /^(?<prefix>jp_[a-f0-9]{12})_(?<secret>[a-f0-9]{64})$/;
 
-const apiKeysTable = pgTable(API_KEYS_TABLE_NAME, {
+export const apiKeysTable = pgTable(API_KEYS_TABLE_NAME, {
   id: text("id").primaryKey(),
   key_hash: text("key_hash").notNull().unique(),
   key_prefix: text("key_prefix").notNull(),
