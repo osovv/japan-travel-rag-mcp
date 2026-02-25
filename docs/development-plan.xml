@@ -229,7 +229,7 @@
       <step-2 module="M-TOOL-PROXY">Implement validation, chat_ids policy injection, forwarding, and response mapping.</step-2>
     </Phase-2>
 
-    <Phase-3 name="Entrypoints">
+    <Phase-3 name="Entrypoints" status="done">
       <step-1 module="M-TRANSPORT">Register 4 tools and wire tool calls to proxy service.</step-1>
       <step-2 module="M-SERVER">Start Bun HTTP server for /mcp and /healthz with graceful shutdown.</step-2>
       <step-3 module="M-TRANSPORT">Add smoke checks: 4 allowed tools pass, list_chats is not exposed.</step-3>

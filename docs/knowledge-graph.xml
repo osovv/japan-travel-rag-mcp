@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="0.4.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="0.5.0">
     <keywords>japan-travel, mcp, proxy, tg-chat-rag, bearer-auth, tool-forwarding, contract-first, chat-allowlist</keywords>
     <annotation>v1 architecture is a thin MCP proxy over tg-chat-rag methods API. Public MCP surface exposes search_messages, get_message_context, get_related_messages, list_sources. list_chats is intentionally excluded. search_messages chat scope is enforced only from TG_CHAT_RAG_CHAT_IDS env.</annotation>
 
@@ -75,6 +75,24 @@
       </annotations>
     </M-SERVER>
 
+    <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT">
+      <purpose>Root runtime bootstrap that invokes server main and maps fatal startup failures to process exit code.</purpose>
+      <path>index.ts</path>
+      <depends>M-SERVER</depends>
+      <annotations>
+        <fn-bootstrap description="Run server main() and handle fatal startup errors" />
+      </annotations>
+    </M-ROOT-ENTRYPOINT>
+
+    <M-TRANSPORT-SMOKE NAME="McpTransportSmokeTests" TYPE="TEST">
+      <purpose>Smoke validation for MCP transport tool surface and routing behavior.</purpose>
+      <path>src/transport/mcp-transport.smoke.test.ts</path>
+      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER</depends>
+      <annotations>
+        <fn-TransportSmokeTests description="Smoke checks for tools/list and tools/call over registered transport surface" />
+      </annotations>
+    </M-TRANSPORT-SMOKE>
+
     <DataFlows>
       <DF-PROXY-SEARCH NAME="search_messages proxy flow">
         <step-1>MCP caller invokes search_messages without chat_ids input.</step-1>
@@ -122,5 +140,7 @@
     <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server port and startup settings" />
     <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp request handler" />
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
+    <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
+    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies transport tool exposure and request routing smoke behavior" />
   </Project>
 </KnowledgeGraph>
