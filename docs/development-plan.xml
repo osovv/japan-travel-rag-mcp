@@ -1,511 +1,260 @@
-<DevelopmentPlan VERSION="0.3.0">
+<DevelopmentPlan VERSION="0.4.0">
+  <Context>
+    <purpose>Ship v1 as a thin MCP proxy that forwards selected tools to tg-chat-rag HTTP methods API.</purpose>
+    <scope>Expose only search_messages, get_message_context, get_related_messages, and list_sources. Do not expose list_chats.</scope>
+    <constraints>
+      <constraint-1>External MCP callers cannot provide filters.chat_ids.</constraint-1>
+      <constraint-2>search_messages always uses chat IDs from TG_CHAT_RAG_CHAT_IDS env.</constraint-2>
+      <constraint-3>All upstream calls use Bearer token from TG_CHAT_RAG_BEARER_TOKEN.</constraint-3>
+    </constraints>
+  </Context>
+
   <Modules>
     <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1">
       <contract>
-        <purpose>Load and validate runtime configuration, provider keys, and feature flags</purpose>
+        <purpose>Load and validate runtime configuration for MCP transport and tg-chat-rag upstream connectivity.</purpose>
         <inputs>
-          <param name="env" type="NodeJS.ProcessEnv" />
+          <param-1 name="env" type="NodeJS.ProcessEnv" />
         </inputs>
         <outputs>
-          <param name="AppConfig" type="object" />
+          <param-1 name="AppConfig" type="object" />
         </outputs>
         <errors>
-          <error code="CONFIG_VALIDATION_ERROR" />
+          <error-CONFIG_VALIDATION_ERROR code="CONFIG_VALIDATION_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-loadConfig PURPOSE="Validate and return typed app configuration" />
+        <export-loadConfig PURPOSE="Validate env and return typed runtime config" />
+        <type-AppConfig PURPOSE="Typed app config with port, upstream URL, token, and chat ID allowlist" />
       </interface>
       <depends>none</depends>
+      <notes>
+        <note-1>Required env: TG_CHAT_RAG_BASE_URL</note-1>
+        <note-2>Required env: TG_CHAT_RAG_BEARER_TOKEN</note-2>
+        <note-3>Required env: TG_CHAT_RAG_CHAT_IDS (CSV, non-empty)</note-3>
+      </notes>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY" LAYER="0" ORDER="2">
       <contract>
-        <purpose>Provide structured logging and audit helpers for all modules</purpose>
+        <purpose>Provide structured logs for MCP requests, validation decisions, upstream calls, and failures.</purpose>
         <inputs>
-          <param name="config" type="AppConfig" />
+          <param-1 name="config" type="AppConfig" />
         </inputs>
         <outputs>
-          <param name="logger" type="LoggerInstance" />
+          <param-1 name="Logger" type="object" />
         </outputs>
         <errors>
-          <error code="LOGGER_INIT_ERROR" />
+          <error-LOGGER_INIT_ERROR code="LOGGER_INIT_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-createLogger PURPOSE="Create module-scoped logger with audit fields" />
+        <export-createLogger PURPOSE="Create module-scoped logger" />
       </interface>
       <depends>M-CONFIG</depends>
     </M-LOGGER>
 
-    <M-WORKSPACE-CONTEXT NAME="WorkspaceContext" TYPE="UTILITY" LAYER="0" ORDER="3">
+    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="1">
       <contract>
-        <purpose>Resolve and validate workspace scope from request/job context</purpose>
+        <purpose>Define and export MCP tool schemas and tool allowlist for the proxy surface.</purpose>
         <inputs>
-          <param name="requestContext" type="object" />
+          <param-1 name="rawArgs" type="unknown" />
         </inputs>
         <outputs>
-          <param name="WorkspaceContext" type="object" />
+          <param-1 name="validatedArgs" type="object" />
+          <param-2 name="allowedToolNames" type="string[]" />
         </outputs>
         <errors>
-          <error code="WORKSPACE_CONTEXT_MISSING" />
-          <error code="WORKSPACE_CONTEXT_INVALID" />
+          <error-SCHEMA_VALIDATION_ERROR code="SCHEMA_VALIDATION_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-resolveWorkspaceContext PURPOSE="Resolve canonical workspace identity and auth scope" />
+        <export-SearchMessagesInputPublic PURPOSE="Public schema for search_messages with filters.chat_ids forbidden" />
+        <export-GetMessageContextInput PURPOSE="Schema for get_message_context" />
+        <export-GetRelatedMessagesInput PURPOSE="Schema for get_related_messages" />
+        <export-ListSourcesInput PURPOSE="Schema for list_sources" />
+        <export-PROXIED_TOOL_NAMES PURPOSE="Constant allowlist for proxied tool names" />
+      </interface>
+      <depends>M-LOGGER</depends>
+      <notes>
+        <note-1>search_messages schema is intentionally not 1:1 with upstream: filters.chat_ids is forbidden at public boundary.</note-1>
+      </notes>
+    </M-TOOLS-CONTRACTS>
+
+    <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION" LAYER="2" ORDER="1">
+      <contract>
+        <purpose>Call tg-chat-rag methods API via POST /api/v1/methods/&lt;tool_name&gt; with Bearer auth.</purpose>
+        <inputs>
+          <param-1 name="toolName" type="string" />
+          <param-2 name="payload" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="upstreamResponse" type="object" />
+        </outputs>
+        <errors>
+          <error-UPSTREAM_HTTP_ERROR code="UPSTREAM_HTTP_ERROR" />
+          <error-UPSTREAM_TIMEOUT code="UPSTREAM_TIMEOUT" />
+          <error-UPSTREAM_PROTOCOL_ERROR code="UPSTREAM_PROTOCOL_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-callMethod PURPOSE="Execute proxied tool call to tg-chat-rag methods API" />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
-    </M-WORKSPACE-CONTEXT>
+      <notes>
+        <note-1>Path template: /api/v1/methods/&lt;tool_name&gt;</note-1>
+        <note-2>Authorization header: Bearer TG_CHAT_RAG_BEARER_TOKEN</note-2>
+      </notes>
+    </M-TG-CHAT-RAG-CLIENT>
 
-    <M-REGION-PACK-REGISTRY NAME="RegionPackRegistry" TYPE="UTILITY" LAYER="0" ORDER="4">
+    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
       <contract>
-        <purpose>Manage region packs, curated source lists, and source_list_version lineage</purpose>
+        <purpose>Apply policy-safe normalization and proxy supported MCP tool calls to tg-chat-rag.</purpose>
         <inputs>
-          <param name="packRequest" type="RegionPackRequest" />
+          <param-1 name="toolName" type="string" />
+          <param-2 name="rawArgs" type="unknown" />
         </inputs>
         <outputs>
-          <param name="RegionPackConfig" type="object" />
+          <param-1 name="mcpToolResult" type="object" />
         </outputs>
         <errors>
-          <error code="REGION_PACK_NOT_FOUND" />
-          <error code="SOURCE_LIST_VERSION_NOT_FOUND" />
+          <error-VALIDATION_ERROR code="VALIDATION_ERROR" />
+          <error-UNSUPPORTED_TOOL code="UNSUPPORTED_TOOL" />
+          <error-UPSTREAM_ERROR code="UPSTREAM_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-getRegionPack PURPOSE="Return region pack config and source list policy" />
-        <export-listPackSources PURPOSE="Return source list for region pack version" />
+        <export-executeTool PURPOSE="Validate args, inject internal chat_ids policy, call upstream, normalize result" />
       </interface>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-REGION-PACK-REGISTRY>
+      <depends>M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER</depends>
+      <notes>
+        <note-1>Defense-in-depth: reject requests containing filters.chat_ids at public input level.</note-1>
+        <note-2>For search_messages, always set filters.chat_ids from TG_CHAT_RAG_CHAT_IDS after validation.</note-2>
+      </notes>
+    </M-TOOL-PROXY>
 
-    <M-SOURCE-POLICY NAME="SourcePolicy" TYPE="CORE_LOGIC" LAYER="0" ORDER="5">
+    <M-TRANSPORT NAME="McpTransport" TYPE="ENTRY_POINT" LAYER="4" ORDER="1">
       <contract>
-        <purpose>Apply source usage policy, PII redaction rules, and query abuse guardrails</purpose>
+        <purpose>Register MCP tools and route tool calls into ToolProxyService.</purpose>
         <inputs>
-          <param name="policyInput" type="PolicyInput" />
+          <param-1 name="mcpRequest" type="Request" />
         </inputs>
         <outputs>
-          <param name="PolicyDecision" type="object" />
+          <param-1 name="mcpResponse" type="Response" />
         </outputs>
         <errors>
-          <error code="SOURCE_POLICY_BLOCKED" />
-          <error code="QUERY_POLICY_BLOCKED" />
+          <error-TRANSPORT_ERROR code="TRANSPORT_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-validateSourcePolicy PURPOSE="Validate source operation against policy matrix" />
-        <export-redactPii PURPOSE="Apply regex-based redaction at ingest stage" />
-        <export-validateQueryAbuse PURPOSE="Block phone/email/person lookup abuse patterns" />
+        <export-registerTools PURPOSE="Register proxied MCP tools except list_chats" />
+        <export-handleMcpRequest PURPOSE="Handle /mcp requests with streamable transport" />
       </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
-    </M-SOURCE-POLICY>
+      <depends>M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER</depends>
+      <notes>
+        <note-1>Registered tools: search_messages, get_message_context, get_related_messages, list_sources.</note-1>
+        <note-2>Excluded tool: list_chats.</note-2>
+      </notes>
+    </M-TRANSPORT>
 
-    <M-INDEX-STORE NAME="IndexStore" TYPE="DATA_LAYER" LAYER="1" ORDER="1">
+    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Persist indexed chunks, embeddings, lexical indices, and POI entities under workspace/pack/version scope</purpose>
+        <purpose>Boot Bun HTTP server, expose /mcp and /healthz, and provide graceful shutdown.</purpose>
         <inputs>
-          <param name="dbConfig" type="DatabaseConfig" />
+          <param-1 name="processSignals" type="SIGTERM|SIGINT" />
         </inputs>
         <outputs>
-          <param name="IndexStoreAPI" type="object" />
+          <param-1 name="runningHttpServer" type="object" />
         </outputs>
         <errors>
-          <error code="DB_CONNECTION_ERROR" />
-          <error code="STORE_QUERY_ERROR" />
+          <error-SERVER_START_ERROR code="SERVER_START_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-upsertChunks PURPOSE="Store chunks with metadata lineage" />
-        <export-searchLexical PURPOSE="Run lexical retrieval" />
-        <export-searchVector PURPOSE="Run vector retrieval" />
-        <export-upsertPoiEntities PURPOSE="Store canonical/provisional POI entities and links" />
+        <export-main PURPOSE="Boot sequence and lifecycle wiring" />
       </interface>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-INDEX-STORE>
-
-    <M-EMBEDDING-ADAPTER NAME="EmbeddingAdapter" TYPE="INTEGRATION" LAYER="1" ORDER="2">
-      <contract>
-        <purpose>Generate multilingual embeddings using Voyage AI</purpose>
-        <inputs>
-          <param name="texts" type="string[]" />
-        </inputs>
-        <outputs>
-          <param name="vectors" type="number[][]" />
-        </outputs>
-        <errors>
-          <error code="EMBEDDING_PROVIDER_ERROR" />
-          <error code="EMBEDDING_RATE_LIMIT" />
-        </errors>
-      </contract>
-      <interface>
-        <export-embedTexts PURPOSE="Return embeddings for index/query text" />
-      </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
-    </M-EMBEDDING-ADAPTER>
-
-    <M-RERANK-ADAPTER NAME="RerankAdapter" TYPE="INTEGRATION" LAYER="1" ORDER="3">
-      <contract>
-        <purpose>Rerank candidate evidence passages with provider reranker</purpose>
-        <inputs>
-          <param name="query" type="string" />
-          <param name="candidates" type="object[]" />
-        </inputs>
-        <outputs>
-          <param name="reranked" type="object[]" />
-        </outputs>
-        <errors>
-          <error code="RERANK_PROVIDER_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-rerankCandidates PURPOSE="Return reranked candidate list" />
-      </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
-    </M-RERANK-ADAPTER>
-
-    <M-INGEST-CONNECTORS NAME="IngestConnectors" TYPE="INTEGRATION" LAYER="2" ORDER="1">
-      <contract>
-        <purpose>Fetch raw records from Telegram, Reddit, Tabelog, and curated web connectors</purpose>
-        <inputs>
-          <param name="connectorRequest" type="ConnectorRequest" />
-        </inputs>
-        <outputs>
-          <param name="RawSourceRecords" type="object[]" />
-          <param name="SyncCursor" type="object" />
-        </outputs>
-        <errors>
-          <error code="CONNECTOR_NOT_SUPPORTED" />
-          <error code="CONNECTOR_FETCH_ERROR" />
-          <error code="CONNECTOR_RATE_LIMIT" />
-        </errors>
-      </contract>
-      <interface>
-        <export-fetchSourceRecords PURPOSE="Fetch records for incremental or backfill mode" />
-      </interface>
-      <depends>M-REGION-PACK-REGISTRY, M-WORKSPACE-CONTEXT, M-CONFIG, M-LOGGER</depends>
-    </M-INGEST-CONNECTORS>
-
-    <M-DEDUP-ENGINE NAME="DedupEngine" TYPE="CORE_LOGIC" LAYER="2" ORDER="2">
-      <contract>
-        <purpose>Deduplicate records using exact hash, near-dup signatures, and canonical URL normalization</purpose>
-        <inputs>
-          <param name="records" type="object[]" />
-        </inputs>
-        <outputs>
-          <param name="DedupResult" type="object" />
-        </outputs>
-        <errors>
-          <error code="DEDUP_EXECUTION_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-deduplicateRecords PURPOSE="Return unique records and duplicate clusters" />
-      </interface>
-      <depends>M-SOURCE-POLICY, M-LOGGER</depends>
-    </M-DEDUP-ENGINE>
-
-    <M-INGEST-PIPELINE NAME="IngestPipeline" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
-      <contract>
-        <purpose>Run end-to-end ingest pipeline fetch -> normalize -> detect language -> redact PII -> dedup -> chunk -> embed -> index</purpose>
-        <inputs>
-          <param name="ingestRequest" type="IngestRequest" />
-        </inputs>
-        <outputs>
-          <param name="IngestResult" type="object" />
-        </outputs>
-        <errors>
-          <error code="INGEST_VALIDATION_ERROR" />
-          <error code="INGEST_STORAGE_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-runIngest PURPOSE="Execute one ingest run for source and scope" />
-      </interface>
-      <depends>M-INGEST-CONNECTORS, M-DEDUP-ENGINE, M-EMBEDDING-ADAPTER, M-INDEX-STORE, M-SOURCE-POLICY, M-REGION-PACK-REGISTRY, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-INGEST-PIPELINE>
-
-    <M-BACKFILL-JOBS NAME="BackfillJobs" TYPE="CORE_LOGIC" LAYER="3" ORDER="2">
-      <contract>
-        <purpose>Schedule and monitor per-source backfill jobs with checkpointed resume/retry behavior</purpose>
-        <inputs>
-          <param name="backfillRequest" type="BackfillRequest" />
-        </inputs>
-        <outputs>
-          <param name="BackfillStatus" type="object" />
-        </outputs>
-        <errors>
-          <error code="BACKFILL_REQUEST_INVALID" />
-          <error code="BACKFILL_JOB_FAILED" />
-        </errors>
-      </contract>
-      <interface>
-        <export-startBackfill PURPOSE="Start backfill for source and time window" />
-        <export-getBackfillStatus PURPOSE="Get progress/checkpoint state" />
-        <export-cancelBackfill PURPOSE="Cancel active backfill" />
-      </interface>
-      <depends>M-REGION-PACK-REGISTRY, M-INGEST-CONNECTORS, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-BACKFILL-JOBS>
-
-    <M-QUERY-EXPANDER NAME="QueryExpander" TYPE="CORE_LOGIC" LAYER="3" ORDER="3">
-      <contract>
-        <purpose>Build query expansion variants for lexical retrieval (RU↔EN and alias hooks)</purpose>
-        <inputs>
-          <param name="query" type="string" />
-        </inputs>
-        <outputs>
-          <param name="QueryVariants" type="object" />
-        </outputs>
-        <errors>
-          <error code="QUERY_EXPANSION_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-expandQuery PURPOSE="Return lexical variants and normalized forms" />
-      </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
-    </M-QUERY-EXPANDER>
-
-    <M-RETRIEVAL-ENGINE NAME="RetrievalEngine" TYPE="CORE_LOGIC" LAYER="4" ORDER="1">
-      <contract>
-        <purpose>Run hybrid retrieval and candidate fusion with dedup and rerank for evidence-first output</purpose>
-        <inputs>
-          <param name="searchRequest" type="SearchContextRequest" />
-        </inputs>
-        <outputs>
-          <param name="RetrievalCandidates" type="object[]" />
-        </outputs>
-        <errors>
-          <error code="RETRIEVAL_REQUEST_INVALID" />
-          <error code="RETRIEVAL_EXECUTION_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-runRetrieval PURPOSE="Return ranked evidence candidates with match signals" />
-      </interface>
-      <depends>M-INDEX-STORE, M-EMBEDDING-ADAPTER, M-RERANK-ADAPTER, M-QUERY-EXPANDER, M-REGION-PACK-REGISTRY, M-WORKSPACE-CONTEXT, M-SOURCE-POLICY, M-LOGGER</depends>
-    </M-RETRIEVAL-ENGINE>
-
-    <M-EVIDENCE-BUILDER NAME="EvidenceBuilder" TYPE="CORE_LOGIC" LAYER="4" ORDER="2">
-      <contract>
-        <purpose>Build stable evidence object payloads for MCP tool responses</purpose>
-        <inputs>
-          <param name="candidates" type="object[]" />
-        </inputs>
-        <outputs>
-          <param name="EvidenceList" type="object[]" />
-        </outputs>
-        <errors>
-          <error code="EVIDENCE_BUILD_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-buildEvidence PURPOSE="Format deterministic evidence objects with citations and context" />
-      </interface>
-      <depends>M-RETRIEVAL-ENGINE, M-SOURCE-POLICY, M-LOGGER</depends>
-    </M-EVIDENCE-BUILDER>
-
-    <M-PLACE-LOOKUP-ADAPTER NAME="PlaceLookupAdapter" TYPE="INTEGRATION" LAYER="4" ORDER="3">
-      <contract>
-        <purpose>Lookup place candidates from Google Maps/Tabelog adapters for verification and enrichment</purpose>
-        <inputs>
-          <param name="lookupRequest" type="PlaceLookupRequest" />
-        </inputs>
-        <outputs>
-          <param name="PlaceCandidates" type="object[]" />
-        </outputs>
-        <errors>
-          <error code="PLACE_LOOKUP_UNAVAILABLE" />
-          <error code="PLACE_LOOKUP_TIMEOUT" />
-        </errors>
-      </contract>
-      <interface>
-        <export-lookupPlace PURPOSE="Resolve external place candidates by URL/id/name+geo" />
-      </interface>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-PLACE-LOOKUP-ADAPTER>
-
-    <M-POI-RESOLVER NAME="PoiResolver" TYPE="CORE_LOGIC" LAYER="5" ORDER="1">
-      <contract>
-        <purpose>Resolve canonical place, create provisional place when unknown, and maintain lazy POI graph</purpose>
-        <inputs>
-          <param name="resolveRequest" type="PoiResolveRequest" />
-        </inputs>
-        <outputs>
-          <param name="PoiResolutionResult" type="object" />
-        </outputs>
-        <errors>
-          <error code="POI_RESOLUTION_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-resolveOrCreatePlace PURPOSE="Resolve canonical place or create provisional record" />
-        <export-mergePlaceClusters PURPOSE="Merge duplicate place clusters" />
-      </interface>
-      <depends>M-INDEX-STORE, M-PLACE-LOOKUP-ADAPTER, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-POI-RESOLVER>
-
-    <M-VERIFICATION-ENGINE NAME="VerificationEngine" TYPE="CORE_LOGIC" LAYER="5" ORDER="2">
-      <contract>
-        <purpose>Provide deterministic verification primitives for map and Tabelog links</purpose>
-        <inputs>
-          <param name="verificationRequest" type="VerificationRequest" />
-        </inputs>
-        <outputs>
-          <param name="VerificationResponse" type="object" />
-        </outputs>
-        <errors>
-          <error code="VERIFICATION_REQUEST_INVALID" />
-          <error code="VERIFICATION_EXECUTION_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-validateGoogleMapLink PURPOSE="Validate map URL against expected attributes" />
-        <export-verifyTabelog PURPOSE="Validate Tabelog entity against expected attributes" />
-      </interface>
-      <depends>M-POI-RESOLVER, M-PLACE-LOOKUP-ADAPTER, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-VERIFICATION-ENGINE>
-
-    <M-HITL-QUEUE NAME="HitlQueue" TYPE="CORE_LOGIC" LAYER="5" ORDER="3">
-      <contract>
-        <purpose>Route uncertain verification cases to reviewer queue and apply review decisions</purpose>
-        <inputs>
-          <param name="reviewEvent" type="PoiReviewEvent" />
-        </inputs>
-        <outputs>
-          <param name="ReviewQueueState" type="object" />
-        </outputs>
-        <errors>
-          <error code="HITL_QUEUE_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-enqueueReview PURPOSE="Queue uncertain POI case" />
-        <export-applyReviewDecision PURPOSE="Apply approve/merge/split/reject decision" />
-      </interface>
-      <depends>M-POI-RESOLVER, M-INDEX-STORE, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-    </M-HITL-QUEUE>
-
-    <M-SERVER NAME="McpServerEntry" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
-      <contract>
-        <purpose>Expose public MCP retrieval/verification tools and admin/internal operational tools</purpose>
-        <inputs>
-          <param name="stdin/stdout" type="TransportStream" />
-        </inputs>
-        <outputs>
-          <param name="ToolRegistry" type="object" />
-        </outputs>
-        <errors>
-          <error code="SERVER_BOOT_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-startServer PURPOSE="Boot MCP transport and register tools" />
-        <export-registerSearchContextTool PURPOSE="Register public search_context tool" />
-        <export-registerVerificationTools PURPOSE="Register public verify tools" />
-        <export-registerAdminBackfillTools PURPOSE="Register admin/internal backfill tools" />
-        <export-registerInternalReviewTools PURPOSE="Register internal HITL review tools" />
-      </interface>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-REGION-PACK-REGISTRY, M-SOURCE-POLICY, M-INGEST-PIPELINE, M-BACKFILL-JOBS, M-EVIDENCE-BUILDER, M-VERIFICATION-ENGINE, M-HITL-QUEUE, M-LOGGER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-TRANSPORT</depends>
     </M-SERVER>
   </Modules>
 
-  <DataFlow>
-    <DF-INGEST-INCREMENTAL NAME="Incremental Ingestion" TRIGGER="Scheduled or manual source sync">
-      <step-1>Resolve workspace scope and region pack version</step-1>
-      <step-2>Fetch records from connector using source cursor</step-2>
-      <step-3>Normalize text, detect language, redact PII</step-3>
-      <step-4>Run exact and near-dup deduplication</step-4>
-      <step-5>Chunk, embed, and index records with lineage (`workspace_id`,`region_pack_id`,`source_list_version`)</step-5>
-      <step-6>Persist sync cursor and ingest audit logs</step-6>
-    </DF-INGEST-INCREMENTAL>
+  <DataFlows>
+    <DF-PROXY-SEARCH NAME="search_messages Proxy Flow" TRIGGER="MCP tool search_messages">
+      <step-1>Client calls MCP tool search_messages.</step-1>
+      <step-2>M-TRANSPORT validates against public schema that forbids filters.chat_ids.</step-2>
+      <step-3>M-TOOL-PROXY injects filters.chat_ids from TG_CHAT_RAG_CHAT_IDS.</step-3>
+      <step-4>M-TG-CHAT-RAG-CLIENT sends POST {TG_CHAT_RAG_BASE_URL}/api/v1/methods/search_messages with Bearer token.</step-4>
+      <step-5>Response is normalized and returned to MCP client.</step-5>
+    </DF-PROXY-SEARCH>
 
-    <DF-BACKFILL NAME="Source Backfill" TRIGGER="Admin/internal backfill command">
-      <step-1>Validate admin/internal access and scope</step-1>
-      <step-2>Load source windows (default=last_2_years, optional=from_start_of_time)</step-2>
-      <step-3>Create checkpointed jobs by source and time slice</step-3>
-      <step-4>Fetch/index historical records with resume/retry support</step-4>
-      <step-5>Expose progress status and checkpoint state</step-5>
-    </DF-BACKFILL>
+    <DF-PROXY-CONTEXT NAME="get_message_context Proxy Flow" TRIGGER="MCP tool get_message_context">
+      <step-1>Client calls MCP tool get_message_context.</step-1>
+      <step-2>M-TRANSPORT validates payload with M-TOOLS-CONTRACTS.</step-2>
+      <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
+      <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/get_message_context.</step-4>
+      <step-5>Upstream response returns unchanged in MCP result envelope.</step-5>
+    </DF-PROXY-CONTEXT>
 
-    <DF-SEARCH-CONTEXT NAME="Evidence Search" TRIGGER="External agent calls search_context">
-      <step-1>Validate workspace/pack/version and query abuse policy</step-1>
-      <step-2>Build RU/EN lexical query variants</step-2>
-      <step-3>Run lexical retrieval over variants and vector retrieval over multilingual embedding</step-3>
-      <step-4>Merge candidates, deduplicate, rerank top-N</step-4>
-      <step-5>Build and return deterministic evidence objects (no truth/final score)</step-5>
-    </DF-SEARCH-CONTEXT>
+    <DF-PROXY-RELATED NAME="get_related_messages Proxy Flow" TRIGGER="MCP tool get_related_messages">
+      <step-1>Client calls MCP tool get_related_messages.</step-1>
+      <step-2>M-TRANSPORT validates payload with M-TOOLS-CONTRACTS.</step-2>
+      <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
+      <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/get_related_messages.</step-4>
+      <step-5>Upstream response returns unchanged in MCP result envelope.</step-5>
+    </DF-PROXY-RELATED>
 
-    <DF-VERIFY-LINKS NAME="Link and POI Verification" TRIGGER="External agent calls verify tool">
-      <step-1>Validate request scope and parse expected attributes</step-1>
-      <step-2>Lookup provider candidates from map/tabelog adapter</step-2>
-      <step-3>Resolve canonical or provisional POI</step-3>
-      <step-4>Apply deterministic verdict rules (`match|partial|mismatch|inconclusive`)</step-4>
-      <step-5>If uncertain, enqueue HITL review and return confidence + reasons</step-5>
-    </DF-VERIFY-LINKS>
+    <DF-PROXY-SOURCES NAME="list_sources Proxy Flow" TRIGGER="MCP tool list_sources">
+      <step-1>Client calls MCP tool list_sources.</step-1>
+      <step-2>M-TRANSPORT validates payload with M-TOOLS-CONTRACTS.</step-2>
+      <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
+      <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/list_sources.</step-4>
+      <step-5>Upstream response returns unchanged in MCP result envelope.</step-5>
+    </DF-PROXY-SOURCES>
 
-    <DF-HITL-REVIEW NAME="POI Human Review" TRIGGER="Verification confidence in review range">
-      <step-1>Route cases by confidence thresholds</step-1>
-      <step-2>Reviewer applies approve/merge/split/reject action</step-2>
-      <step-3>Update canonical/provisional entities and link mappings</step-3>
-      <step-4>Persist decision for audit and resolver improvements</step-4>
-    </DF-HITL-REVIEW>
-
-    <DF-WEEKLY-GUARDRAILS NAME="Weekly Quality Guardrails" TRIGGER="Weekly quality run">
-      <step-1>Execute smoke set (30-50 queries)</step-1>
-      <step-2>Compute evidence/citation coverage</step-2>
-      <step-3>Run connector replay fixtures and contract checks</step-3>
-      <step-4>Perform manual validator error audit sample</step-4>
-      <step-5>Block release if any guardrail threshold is violated</step-5>
-    </DF-WEEKLY-GUARDRAILS>
-  </DataFlow>
+    <DF-TOOL-EXCLUSION NAME="list_chats Exclusion Flow" TRIGGER="MCP tool list_chats attempt">
+      <step-1>Client attempts to call list_chats.</step-1>
+      <step-2>M-TRANSPORT has no registration for list_chats.</step-2>
+      <step-3>Client receives MCP tool-not-found behavior; no upstream call is performed.</step-3>
+    </DF-TOOL-EXCLUSION>
+  </DataFlows>
 
   <ImplementationOrder>
-    <Phase-1 name="Foundation" status="pending">
-      <step-1 module="M-CONFIG">Implement typed config and feature flag loading</step-1>
-      <step-2 module="M-LOGGER">Implement structured logging and audit fields</step-2>
-      <step-3 module="M-WORKSPACE-CONTEXT">Implement workspace scope resolution</step-3>
-      <step-4 module="M-REGION-PACK-REGISTRY">Implement region pack + source list version registry</step-4>
-      <step-5 module="M-SOURCE-POLICY">Implement source policy matrix, PII redaction, abuse filters</step-5>
+    <Phase-1 name="Foundation">
+      <step-1 module="M-CONFIG">Implement typed env parsing and strict validation for TG_CHAT_RAG_* variables.</step-1>
+      <step-2 module="M-LOGGER">Implement structured logger and request-scoped fields.</step-2>
+      <step-3 module="M-TOOLS-CONTRACTS">Implement public schemas and proxied tool allowlist constants.</step-3>
     </Phase-1>
 
-    <Phase-2 name="Ingest and Storage" status="pending">
-      <step-1 module="M-INDEX-STORE">Implement scoped Postgres/pgvector schema</step-1>
-      <step-2 module="M-EMBEDDING-ADAPTER">Implement multilingual embedding adapter</step-2>
-      <step-3 module="M-INGEST-CONNECTORS">Implement Telegram and Reddit connectors first</step-3>
-      <step-4 module="M-DEDUP-ENGINE">Implement exact and near-dup dedup pipeline</step-4>
-      <step-5 module="M-INGEST-PIPELINE">Implement full ingest pipeline with lineage fields</step-5>
-      <step-6 module="M-BACKFILL-JOBS">Implement admin/internal backfill orchestration</step-6>
+    <Phase-2 name="Proxy Core">
+      <step-1 module="M-TG-CHAT-RAG-CLIENT">Implement Bearer-auth upstream client and error normalization.</step-1>
+      <step-2 module="M-TOOL-PROXY">Implement validation, chat_ids policy injection, forwarding, and response mapping.</step-2>
     </Phase-2>
 
-    <Phase-3 name="Retrieval Surface" status="pending">
-      <step-1 module="M-QUERY-EXPANDER">Implement RU↔EN expansion and alias hooks</step-1>
-      <step-2 module="M-RERANK-ADAPTER">Implement reranker integration</step-2>
-      <step-3 module="M-RETRIEVAL-ENGINE">Implement hybrid retrieval, merge, rerank</step-3>
-      <step-4 module="M-EVIDENCE-BUILDER">Implement stable evidence object builder</step-4>
-      <step-5 module="M-SERVER">Expose public `search_context` and admin backfill tools</step-5>
+    <Phase-3 name="Entrypoints">
+      <step-1 module="M-TRANSPORT">Register 4 tools and wire tool calls to proxy service.</step-1>
+      <step-2 module="M-SERVER">Start Bun HTTP server for /mcp and /healthz with graceful shutdown.</step-2>
+      <step-3 module="M-TRANSPORT">Add smoke checks: 4 allowed tools pass, list_chats is not exposed.</step-3>
     </Phase-3>
-
-    <Phase-4 name="Verification Surface" status="pending">
-      <step-1 module="M-PLACE-LOOKUP-ADAPTER">Implement Google Maps and Tabelog lookup adapters</step-1>
-      <step-2 module="M-POI-RESOLVER">Implement lazy canonical + provisional POI model</step-2>
-      <step-3 module="M-VERIFICATION-ENGINE">Implement deterministic verify tools</step-3>
-      <step-4 module="M-HITL-QUEUE">Implement uncertain case review queue</step-4>
-      <step-5 module="M-SERVER">Expose public verify tools and internal review tools</step-5>
-    </Phase-4>
-
-    <Phase-5 name="Guardrails v1" status="pending">
-      <step-1 module="M-INGEST-CONNECTORS">Add connector contract tests and replay fixtures</step-1>
-      <step-2 module="M-EVIDENCE-BUILDER">Add weekly evidence coverage report</step-2>
-      <step-3 module="M-VERIFICATION-ENGINE">Add weekly manual validator audit output</step-3>
-    </Phase-5>
   </ImplementationOrder>
 
   <RiskAssessment>
-    <RISK-001 severity="high">Schema/contract drift between MCP tools and downstream agent expectations</RISK-001>
-    <RISK-002 severity="high">Connector breakages due to source API/markup changes</RISK-002>
-    <RISK-003 severity="medium">Cross-language recall gaps if query expansion is weak</RISK-003>
-    <RISK-004 severity="medium">Policy non-compliance if source usage matrix is incomplete</RISK-004>
-    <RISK-005 severity="medium">Smoke-set overfitting due to small evaluation set</RISK-005>
+    <RISK-1 name="Upstream Schema Drift">
+      <impact>Proxy payload contracts can diverge from tg-chat-rag while that service is still evolving.</impact>
+      <mitigation>Keep schemas centralized in M-TOOLS-CONTRACTS and run smoke contract checks for all proxied tools.</mitigation>
+    </RISK-1>
+
+    <RISK-2 name="Upstream Availability">
+      <impact>Timeouts or 5xx from tg-chat-rag can degrade MCP reliability.</impact>
+      <mitigation>Use explicit request timeout, stable error mapping, and structured logs with tool_name and upstream status.</mitigation>
+    </RISK-2>
+
+    <RISK-3 name="Chat Scope Leakage">
+      <impact>If callers could pass chat_ids, they might bypass intended source scope.</impact>
+      <mitigation>Public schema forbids filters.chat_ids and proxy layer enforces reject-if-present plus internal injection.</mitigation>
+    </RISK-3>
+
+    <RISK-4 name="Token Rotation Handling">
+      <impact>Stale Bearer token causes widespread tool failures.</impact>
+      <mitigation>Fail-fast config validation at startup and clear auth failure logs for quick operator action.</mitigation>
+    </RISK-4>
   </RiskAssessment>
 </DevelopmentPlan>

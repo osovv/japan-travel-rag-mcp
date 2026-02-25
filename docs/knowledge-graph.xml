@@ -1,249 +1,126 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="0.3.0">
-    <keywords>mcp, retrieval, verification, evidence-first, curated-sources, workspace-id, region-pack, source-list-version, postgresql, pgvector, voyageai, telegram, reddit, tabelog, canonical-poi, provisional-poi, hitl</keywords>
-    <annotation>Сервис является MCP retrieval + verification infrastructure для внешних travel-агентов. Граница v1: индексировать curated public sources, выдавать evidence objects, и предоставлять детерминированные verify primitives. Оркестрация, correctness-решения и финальный ответ остаются у внешнего агента. Изоляция данных: workspace_id + region_pack_id + source_list_version.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="0.4.0">
+    <keywords>japan-travel, mcp, proxy, tg-chat-rag, bearer-auth, tool-forwarding, contract-first, chat-allowlist</keywords>
+    <annotation>v1 architecture is a thin MCP proxy over tg-chat-rag methods API. Public MCP surface exposes search_messages, get_message_context, get_related_messages, list_sources. list_chats is intentionally excluded. search_messages chat scope is enforced only from TG_CHAT_RAG_CHAT_IDS env.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY">
-      <purpose>Runtime configuration, feature flags, and provider credentials</purpose>
+      <purpose>Runtime config validation for MCP server and tg-chat-rag integration settings.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
       <annotations>
-        <fn-loadConfig PURPOSE="Load and validate typed configuration" />
-        <type-AppConfig PURPOSE="Typed runtime configuration" />
+        <fn-loadConfig description="Validate env and return typed AppConfig" />
+        <type-AppConfig description="Configuration object including TG_CHAT_RAG_BASE_URL, TG_CHAT_RAG_BEARER_TOKEN, TG_CHAT_RAG_CHAT_IDS" />
       </annotations>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY">
-      <purpose>Structured logging and audit context</purpose>
+      <purpose>Structured logging for boot lifecycle, tool proxying, validation decisions, and upstream errors.</purpose>
       <path>src/logger/index.ts</path>
       <depends>M-CONFIG</depends>
       <annotations>
-        <fn-createLogger PURPOSE="Create scoped logger with audit fields" />
+        <fn-createLogger description="Create module-scoped logger" />
       </annotations>
     </M-LOGGER>
 
-    <M-WORKSPACE-CONTEXT NAME="WorkspaceContext" TYPE="UTILITY">
-      <purpose>Resolve and validate workspace scope for all requests and jobs</purpose>
-      <path>src/workspace-context/index.ts</path>
+    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY">
+      <purpose>Schema and allowlist registry for MCP tools proxied in v1.</purpose>
+      <path>src/tools/contracts.ts</path>
+      <depends>M-LOGGER</depends>
+      <annotations>
+        <schema-SearchMessagesInputPublic description="Public search_messages schema that forbids filters.chat_ids" />
+        <schema-GetMessageContextInput description="Input schema for get_message_context" />
+        <schema-GetRelatedMessagesInput description="Input schema for get_related_messages" />
+        <schema-ListSourcesInput description="Input schema for list_sources" />
+        <const-PROXIED_TOOL_NAMES description="Allowed tools: search_messages, get_message_context, get_related_messages, list_sources" />
+      </annotations>
+    </M-TOOLS-CONTRACTS>
+
+    <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION">
+      <purpose>HTTP adapter for tg-chat-rag methods API with Bearer token authentication.</purpose>
+      <path>src/integrations/tg-chat-rag-client.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-resolveWorkspaceContext PURPOSE="Resolve workspace identity and access scope" />
+        <fn-callMethod description="POST to /api/v1/methods/&lt;tool_name&gt; and return parsed response" />
+        <type-UpstreamCallError description="Normalized error payload for timeout, auth, and protocol failures" />
       </annotations>
-    </M-WORKSPACE-CONTEXT>
+    </M-TG-CHAT-RAG-CLIENT>
 
-    <M-REGION-PACK-REGISTRY NAME="RegionPackRegistry" TYPE="UTILITY">
-      <purpose>Region pack and source list version registry for curated source configuration</purpose>
-      <path>src/region-pack-registry/index.ts</path>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
+    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC">
+      <purpose>Tool-level proxy orchestration: validate input, enforce internal chat scope, forward request, normalize response.</purpose>
+      <path>src/tools/proxy-service.ts</path>
+      <depends>M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER</depends>
       <annotations>
-        <fn-getRegionPack PURPOSE="Load region pack configuration" />
-        <fn-listPackSources PURPOSE="List sources for selected pack/version" />
+        <fn-executeTool description="Main proxy execution function for all exposed MCP tools" />
+        <fn-buildSearchPayload description="Inject filters.chat_ids from config and reject external chat_ids" />
+        <type-ProxyExecutionResult description="Normalized MCP tool response envelope" />
       </annotations>
-    </M-REGION-PACK-REGISTRY>
+    </M-TOOL-PROXY>
 
-    <M-SOURCE-POLICY NAME="SourcePolicy" TYPE="CORE_LOGIC">
-      <purpose>Source policy matrix enforcement, PII redaction, and query abuse blocking</purpose>
-      <path>src/source-policy/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
+    <M-TRANSPORT NAME="McpTransport" TYPE="ENTRY_POINT">
+      <purpose>MCP transport registration and request handling for the proxied tool set.</purpose>
+      <path>src/transport/mcp-transport.ts</path>
+      <depends>M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER</depends>
       <annotations>
-        <fn-validateSourcePolicy PURPOSE="Allow/deny source operations by policy matrix" />
-        <fn-redactPii PURPOSE="Regex-based PII redaction for ingest content" />
-        <fn-validateQueryAbuse PURPOSE="Block personal identifier lookup queries" />
+        <fn-registerTools description="Register four MCP tools and wire handlers to ToolProxyService" />
+        <fn-handleMcpRequest description="Handle /mcp requests using streamable MCP transport" />
       </annotations>
-    </M-SOURCE-POLICY>
+    </M-TRANSPORT>
 
-    <M-INDEX-STORE NAME="IndexStore" TYPE="DATA_LAYER">
-      <purpose>Scoped storage for chunks, vectors, lexical indexes, and POI entities</purpose>
-      <path>src/index-store/index.ts</path>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-      <annotations>
-        <fn-upsertChunks PURPOSE="Persist chunks with workspace/pack/version lineage" />
-        <fn-searchLexical PURPOSE="Execute lexical retrieval" />
-        <fn-searchVector PURPOSE="Execute vector retrieval" />
-        <fn-upsertPoiEntities PURPOSE="Persist canonical/provisional place entities" />
-      </annotations>
-    </M-INDEX-STORE>
-
-    <M-EMBEDDING-ADAPTER NAME="EmbeddingAdapter" TYPE="INTEGRATION">
-      <purpose>Multilingual embeddings via Voyage API</purpose>
-      <path>src/embeddings/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-embedTexts PURPOSE="Generate embeddings for chunks and query text" />
-      </annotations>
-    </M-EMBEDDING-ADAPTER>
-
-    <M-RERANK-ADAPTER NAME="RerankAdapter" TYPE="INTEGRATION">
-      <purpose>Candidate reranking adapter for top-N evidence candidates</purpose>
-      <path>src/rerank/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-rerankCandidates PURPOSE="Return reranked evidence candidates" />
-      </annotations>
-    </M-RERANK-ADAPTER>
-
-    <M-INGEST-CONNECTORS NAME="IngestConnectors" TYPE="INTEGRATION">
-      <purpose>Connector adapters for Telegram, Reddit, Tabelog, and curated web sources</purpose>
-      <path>src/ingest-connectors/index.ts</path>
-      <depends>M-REGION-PACK-REGISTRY, M-WORKSPACE-CONTEXT, M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-fetchSourceRecords PURPOSE="Fetch source records for incremental or backfill mode" />
-      </annotations>
-    </M-INGEST-CONNECTORS>
-
-    <M-DEDUP-ENGINE NAME="DedupEngine" TYPE="CORE_LOGIC">
-      <purpose>Exact and near-dup record deduplication plus URL canonicalization</purpose>
-      <path>src/dedup/index.ts</path>
-      <depends>M-SOURCE-POLICY, M-LOGGER</depends>
-      <annotations>
-        <fn-deduplicateRecords PURPOSE="Return unique records and duplicate clusters" />
-      </annotations>
-    </M-DEDUP-ENGINE>
-
-    <M-INGEST-PIPELINE NAME="IngestPipeline" TYPE="CORE_LOGIC">
-      <purpose>End-to-end ingest pipeline from fetch to indexed chunks with policy enforcement</purpose>
-      <path>src/ingest-pipeline/index.ts</path>
-      <depends>M-INGEST-CONNECTORS, M-DEDUP-ENGINE, M-EMBEDDING-ADAPTER, M-INDEX-STORE, M-SOURCE-POLICY, M-REGION-PACK-REGISTRY, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-      <annotations>
-        <fn-runIngest PURPOSE="Run one full ingest pass for source/scope" />
-      </annotations>
-    </M-INGEST-PIPELINE>
-
-    <M-BACKFILL-JOBS NAME="BackfillJobs" TYPE="CORE_LOGIC">
-      <purpose>Checkpointed source backfill orchestration and status tracking</purpose>
-      <path>src/backfill-jobs/index.ts</path>
-      <depends>M-REGION-PACK-REGISTRY, M-INGEST-CONNECTORS, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-      <annotations>
-        <fn-startBackfill PURPOSE="Start source backfill for window and scope" />
-        <fn-getBackfillStatus PURPOSE="Return progress/checkpoint state" />
-        <fn-cancelBackfill PURPOSE="Cancel active backfill" />
-      </annotations>
-    </M-BACKFILL-JOBS>
-
-    <M-QUERY-EXPANDER NAME="QueryExpander" TYPE="CORE_LOGIC">
-      <purpose>RU↔EN query expansion for lexical branch and alias normalization hooks</purpose>
-      <path>src/query-expander/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-expandQuery PURPOSE="Return normalized lexical variants" />
-      </annotations>
-    </M-QUERY-EXPANDER>
-
-    <M-RETRIEVAL-ENGINE NAME="RetrievalEngine" TYPE="CORE_LOGIC">
-      <purpose>Hybrid lexical+vector retrieval, candidate fusion, dedup, and rerank</purpose>
-      <path>src/retrieval/index.ts</path>
-      <depends>M-INDEX-STORE, M-EMBEDDING-ADAPTER, M-RERANK-ADAPTER, M-QUERY-EXPANDER, M-REGION-PACK-REGISTRY, M-WORKSPACE-CONTEXT, M-SOURCE-POLICY, M-LOGGER</depends>
-      <annotations>
-        <fn-runRetrieval PURPOSE="Return ranked retrieval candidates with match signals" />
-      </annotations>
-    </M-RETRIEVAL-ENGINE>
-
-    <M-EVIDENCE-BUILDER NAME="EvidenceBuilder" TYPE="CORE_LOGIC">
-      <purpose>Deterministic evidence object construction for MCP responses</purpose>
-      <path>src/evidence-builder/index.ts</path>
-      <depends>M-RETRIEVAL-ENGINE, M-SOURCE-POLICY, M-LOGGER</depends>
-      <annotations>
-        <fn-buildEvidence PURPOSE="Build evidence payload with citation context" />
-      </annotations>
-    </M-EVIDENCE-BUILDER>
-
-    <M-PLACE-LOOKUP-ADAPTER NAME="PlaceLookupAdapter" TYPE="INTEGRATION">
-      <purpose>Provider lookup layer for Maps and Tabelog place candidates</purpose>
-      <path>src/place-lookup/index.ts</path>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-      <annotations>
-        <fn-lookupPlace PURPOSE="Lookup place candidates from external providers" />
-      </annotations>
-    </M-PLACE-LOOKUP-ADAPTER>
-
-    <M-POI-RESOLVER NAME="PoiResolver" TYPE="CORE_LOGIC">
-      <purpose>Lazy canonical/provisional POI graph and deterministic place resolution policy</purpose>
-      <path>src/poi-resolver/index.ts</path>
-      <depends>M-INDEX-STORE, M-PLACE-LOOKUP-ADAPTER, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-      <annotations>
-        <fn-resolveOrCreatePlace PURPOSE="Resolve canonical POI or create provisional entry" />
-        <fn-mergePlaceClusters PURPOSE="Merge duplicate POI clusters" />
-      </annotations>
-    </M-POI-RESOLVER>
-
-    <M-VERIFICATION-ENGINE NAME="VerificationEngine" TYPE="CORE_LOGIC">
-      <purpose>Deterministic link verification primitives for maps and Tabelog</purpose>
-      <path>src/verification/index.ts</path>
-      <depends>M-POI-RESOLVER, M-PLACE-LOOKUP-ADAPTER, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-      <annotations>
-        <fn-validateGoogleMapLink PURPOSE="Validate map link against expected attributes" />
-        <fn-verifyTabelog PURPOSE="Validate Tabelog link against expected attributes" />
-      </annotations>
-    </M-VERIFICATION-ENGINE>
-
-    <M-HITL-QUEUE NAME="HitlQueue" TYPE="CORE_LOGIC">
-      <purpose>Human review queue for uncertain POI resolution outcomes</purpose>
-      <path>src/hitl-queue/index.ts</path>
-      <depends>M-POI-RESOLVER, M-INDEX-STORE, M-WORKSPACE-CONTEXT, M-LOGGER</depends>
-      <annotations>
-        <fn-enqueueReview PURPOSE="Queue uncertain verification case" />
-        <fn-applyReviewDecision PURPOSE="Apply reviewer decision and update POI graph" />
-      </annotations>
-    </M-HITL-QUEUE>
-
-    <M-SERVER NAME="McpServerEntry" TYPE="ENTRY_POINT">
-      <purpose>MCP entrypoint that exposes public retrieval/verification tools and internal operational tools</purpose>
+    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
+      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /healthz).</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-WORKSPACE-CONTEXT, M-REGION-PACK-REGISTRY, M-SOURCE-POLICY, M-INGEST-PIPELINE, M-BACKFILL-JOBS, M-EVIDENCE-BUILDER, M-VERIFICATION-ENGINE, M-HITL-QUEUE, M-LOGGER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-TRANSPORT</depends>
       <annotations>
-        <fn-startServer PURPOSE="Start MCP transport and register tools" />
-        <fn-registerSearchContextTool PURPOSE="Expose public search_context tool" />
-        <fn-registerVerificationTools PURPOSE="Expose public verification tools" />
-        <fn-registerAdminBackfillTools PURPOSE="Expose admin/internal backfill operations" />
-        <fn-registerInternalReviewTools PURPOSE="Expose internal HITL review operations" />
+        <fn-main description="Boot MCP proxy server and install graceful shutdown hooks" />
       </annotations>
     </M-SERVER>
 
-    <CrossLink from="M-LOGGER" to="M-CONFIG" relation="uses runtime config for logger initialization" />
-    <CrossLink from="M-WORKSPACE-CONTEXT" to="M-CONFIG" relation="uses auth and workspace config" />
-    <CrossLink from="M-WORKSPACE-CONTEXT" to="M-LOGGER" relation="emits workspace resolution logs" />
-    <CrossLink from="M-REGION-PACK-REGISTRY" to="M-WORKSPACE-CONTEXT" relation="loads pack configuration under workspace scope" />
-    <CrossLink from="M-REGION-PACK-REGISTRY" to="M-LOGGER" relation="emits region pack and source version logs" />
-    <CrossLink from="M-SOURCE-POLICY" to="M-LOGGER" relation="emits policy allow/deny decisions" />
-    <CrossLink from="M-INDEX-STORE" to="M-WORKSPACE-CONTEXT" relation="applies workspace/pack/version data isolation" />
-    <CrossLink from="M-INDEX-STORE" to="M-LOGGER" relation="emits DB storage and query logs" />
-    <CrossLink from="M-EMBEDDING-ADAPTER" to="M-LOGGER" relation="emits embedding provider calls" />
-    <CrossLink from="M-RERANK-ADAPTER" to="M-LOGGER" relation="emits rerank provider calls" />
-    <CrossLink from="M-INGEST-CONNECTORS" to="M-REGION-PACK-REGISTRY" relation="reads source configuration and versioned source list" />
-    <CrossLink from="M-INGEST-CONNECTORS" to="M-WORKSPACE-CONTEXT" relation="applies workspace-level credentials and limits" />
-    <CrossLink from="M-INGEST-CONNECTORS" to="M-LOGGER" relation="emits connector fetch status" />
-    <CrossLink from="M-DEDUP-ENGINE" to="M-SOURCE-POLICY" relation="applies policy-aware normalization before dedup" />
-    <CrossLink from="M-DEDUP-ENGINE" to="M-LOGGER" relation="emits dedup metrics" />
-    <CrossLink from="M-INGEST-PIPELINE" to="M-INGEST-CONNECTORS" relation="consumes raw source records" />
-    <CrossLink from="M-INGEST-PIPELINE" to="M-DEDUP-ENGINE" relation="uses exact and near-dup detection" />
-    <CrossLink from="M-INGEST-PIPELINE" to="M-EMBEDDING-ADAPTER" relation="embeds chunks" />
-    <CrossLink from="M-INGEST-PIPELINE" to="M-INDEX-STORE" relation="writes indexed chunks and metadata" />
-    <CrossLink from="M-INGEST-PIPELINE" to="M-SOURCE-POLICY" relation="applies PII redaction and source policy" />
-    <CrossLink from="M-BACKFILL-JOBS" to="M-INGEST-CONNECTORS" relation="orchestrates historical connector fetch jobs" />
-    <CrossLink from="M-BACKFILL-JOBS" to="M-WORKSPACE-CONTEXT" relation="scopes backfill commands" />
-    <CrossLink from="M-QUERY-EXPANDER" to="M-LOGGER" relation="emits expansion diagnostics" />
-    <CrossLink from="M-RETRIEVAL-ENGINE" to="M-QUERY-EXPANDER" relation="uses lexical variants for cross-language retrieval" />
-    <CrossLink from="M-RETRIEVAL-ENGINE" to="M-INDEX-STORE" relation="runs lexical and vector retrieval" />
-    <CrossLink from="M-RETRIEVAL-ENGINE" to="M-EMBEDDING-ADAPTER" relation="embeds query for vector branch" />
-    <CrossLink from="M-RETRIEVAL-ENGINE" to="M-RERANK-ADAPTER" relation="reranks fused candidates" />
-    <CrossLink from="M-RETRIEVAL-ENGINE" to="M-SOURCE-POLICY" relation="applies query abuse blocking" />
-    <CrossLink from="M-EVIDENCE-BUILDER" to="M-RETRIEVAL-ENGINE" relation="formats retrieval candidates into stable evidence objects" />
-    <CrossLink from="M-EVIDENCE-BUILDER" to="M-SOURCE-POLICY" relation="enforces output-level policy constraints" />
-    <CrossLink from="M-PLACE-LOOKUP-ADAPTER" to="M-WORKSPACE-CONTEXT" relation="uses workspace-scoped provider credentials" />
-    <CrossLink from="M-POI-RESOLVER" to="M-PLACE-LOOKUP-ADAPTER" relation="consumes external place lookup candidates" />
-    <CrossLink from="M-POI-RESOLVER" to="M-INDEX-STORE" relation="persists canonical and provisional place entities" />
-    <CrossLink from="M-VERIFICATION-ENGINE" to="M-POI-RESOLVER" relation="uses canonical/provisional resolution for verdict computation" />
-    <CrossLink from="M-VERIFICATION-ENGINE" to="M-PLACE-LOOKUP-ADAPTER" relation="retrieves provider evidence" />
-    <CrossLink from="M-HITL-QUEUE" to="M-POI-RESOLVER" relation="updates POI graph with reviewer decisions" />
-    <CrossLink from="M-HITL-QUEUE" to="M-INDEX-STORE" relation="persists review queue and audit records" />
-    <CrossLink from="M-SERVER" to="M-WORKSPACE-CONTEXT" relation="resolves request isolation scope" />
-    <CrossLink from="M-SERVER" to="M-REGION-PACK-REGISTRY" relation="validates requested region pack and source list version" />
-    <CrossLink from="M-SERVER" to="M-SOURCE-POLICY" relation="enforces request policy gates" />
-    <CrossLink from="M-SERVER" to="M-INGEST-PIPELINE" relation="exposes internal ingest operations" />
-    <CrossLink from="M-SERVER" to="M-BACKFILL-JOBS" relation="exposes admin/internal backfill operations" />
-    <CrossLink from="M-SERVER" to="M-EVIDENCE-BUILDER" relation="exposes public search_context evidence payload" />
-    <CrossLink from="M-SERVER" to="M-VERIFICATION-ENGINE" relation="exposes public verification tools" />
-    <CrossLink from="M-SERVER" to="M-HITL-QUEUE" relation="exposes internal review workflows" />
-    <CrossLink from="M-SERVER" to="M-LOGGER" relation="bootstraps transport and tool-level audit logs" />
+    <DataFlows>
+      <DF-PROXY-SEARCH NAME="search_messages proxy flow">
+        <step-1>MCP caller invokes search_messages without chat_ids input.</step-1>
+        <step-2>M-TOOL-PROXY injects chat IDs from TG_CHAT_RAG_CHAT_IDS.</step-2>
+        <step-3>M-TG-CHAT-RAG-CLIENT forwards request to /api/v1/methods/search_messages with Bearer token.</step-3>
+        <step-4>Response is returned to caller in MCP format.</step-4>
+      </DF-PROXY-SEARCH>
+
+      <DF-PROXY-CONTEXT NAME="get_message_context proxy flow">
+        <step-1>MCP caller invokes get_message_context.</step-1>
+        <step-2>M-TOOL-PROXY validates and forwards unchanged payload to /api/v1/methods/get_message_context.</step-2>
+        <step-3>Response is returned to caller in MCP format.</step-3>
+      </DF-PROXY-CONTEXT>
+
+      <DF-PROXY-RELATED NAME="get_related_messages proxy flow">
+        <step-1>MCP caller invokes get_related_messages.</step-1>
+        <step-2>M-TOOL-PROXY validates and forwards unchanged payload to /api/v1/methods/get_related_messages.</step-2>
+        <step-3>Response is returned to caller in MCP format.</step-3>
+      </DF-PROXY-RELATED>
+
+      <DF-PROXY-SOURCES NAME="list_sources proxy flow">
+        <step-1>MCP caller invokes list_sources.</step-1>
+        <step-2>M-TOOL-PROXY validates and forwards unchanged payload to /api/v1/methods/list_sources.</step-2>
+        <step-3>Response is returned to caller in MCP format.</step-3>
+      </DF-PROXY-SOURCES>
+
+      <DF-TOOL-EXCLUSION NAME="list_chats exclusion flow">
+        <step-1>Caller tries list_chats.</step-1>
+        <step-2>M-TRANSPORT has no list_chats registration.</step-2>
+        <step-3>No upstream call is made.</step-3>
+      </DF-TOOL-EXCLUSION>
+    </DataFlows>
+
+    <CrossLink FROM="M-LOGGER" TO="M-CONFIG" relation="reads runtime config for log setup" />
+    <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-LOGGER" relation="emits schema validation diagnostics" />
+    <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" relation="uses base URL, bearer token, and timeout settings" />
+    <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-LOGGER" relation="emits upstream request and failure logs" />
+    <CrossLink FROM="M-TOOL-PROXY" TO="M-CONFIG" relation="reads TG_CHAT_RAG_CHAT_IDS for enforced search scope" />
+    <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" relation="validates tool inputs and enforce allowlist" />
+    <CrossLink FROM="M-TOOL-PROXY" TO="M-TG-CHAT-RAG-CLIENT" relation="forwards validated tool calls to upstream methods API" />
+    <CrossLink FROM="M-TOOL-PROXY" TO="M-LOGGER" relation="emits proxy decisions and error mapping logs" />
+    <CrossLink FROM="M-TRANSPORT" TO="M-TOOLS-CONTRACTS" relation="registers MCP tools with public schemas" />
+    <CrossLink FROM="M-TRANSPORT" TO="M-TOOL-PROXY" relation="routes tool handlers to proxy execution" />
+    <CrossLink FROM="M-TRANSPORT" TO="M-LOGGER" relation="emits request lifecycle logs" />
+    <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server port and startup settings" />
+    <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp request handler" />
+    <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
   </Project>
 </KnowledgeGraph>
