@@ -1,27 +1,27 @@
 // FILE: src/admin/ui-routes.tsx
-// VERSION: 1.0.0
+// VERSION: 2.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Render admin HTML pages and HTMX fragments for login and API key lifecycle management.
-//   SCOPE: Route /admin/login and /admin/api-keys requests, enforce admin session checks, and render safe HTML for API key list/create/revoke flows.
+//   PURPOSE: Render admin login and authenticated operator diagnostics surfaces while deprecating legacy API-key management routes.
+//   SCOPE: Route /admin/login and /admin/ops requests, enforce admin session checks, render safe HTML diagnostics from runtime config, and return consistent deprecation responses for /admin/api-keys*.
 //   DEPENDS: M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER, M-CONFIG
-//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER, M-CONFIG
+//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG, M-API-KEY-REPOSITORY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   AdminUiError - Typed admin UI error wrapper with ADMIN_UI_ERROR code.
-//   AdminUiDependencies - Dependency contract for auth helpers, config, logger, and API key repository.
-//   handleAdminRequest - Route /admin/login and /admin/api-keys GET/POST/DELETE admin UI actions.
-//   renderAdminLayout - Render admin shell with sidebar and active Api Keys tab.
-//   renderApiKeysTable - Render HTMX-refreshable API keys table fragment with revoke controls.
+//   AdminUiDependencies - Dependency contract for auth helpers, config, logger, and compatibility repository wiring.
+//   renderAdminLayout - Render admin shell with Ops Diagnostics navigation.
+//   renderOpsStatus - Render operator diagnostics panel derived from runtime config.
+//   handleAdminRequest - Route login and ops diagnostics, enforce session checks, and return API-key route deprecation responses.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: [v1.0.0 - Initial generation for M-ADMIN-UI admin route handling and HTMX UI rendering.]
+//   LAST_CHANGE: v2.0.0 - Replaced API-key CRUD UI surface with operator diagnostics at /admin/ops and deprecated /admin/api-keys* routes.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
-import type { ApiKeyRecord, ApiKeyRepository } from "./api-key-repository";
+import type { ApiKeyRepository } from "./api-key-repository";
 import {
   authenticateAdmin as authenticateAdminHelper,
   clearAdminSession as clearAdminSessionHelper,
@@ -30,12 +30,13 @@ import {
 
 const ADMIN_ROOT_PATH = "/admin";
 const ADMIN_LOGIN_PATH = "/admin/login";
+export const ADMIN_OPS_PATH = "/admin/ops";
 const ADMIN_API_KEYS_PATH = "/admin/api-keys";
 const HX_REQUEST_HEADER = "HX-Request";
 const HTML_CONTENT_TYPE = "text/html; charset=utf-8";
-const API_KEYS_TAB_LABEL = "Api Keys";
+const OPS_TAB_LABEL = "Ops Diagnostics";
 
-type ActiveTab = "api-keys";
+type ActiveTab = "ops";
 
 type RenderAdminLayoutParams = {
   pageTitle: string;
@@ -43,18 +44,17 @@ type RenderAdminLayoutParams = {
   contentHtml: string;
 };
 
-type RenderApiKeysPanelParams = {
-  records: ApiKeyRecord[];
-  errorMessage?: string;
-  successMessage?: string;
-  revealedApiKey?: string;
-  draftLabel?: string;
-  draftExpiresAt?: string;
-};
-
-type RevokeRouteMatch = {
-  id: string;
-  source: "delete" | "post-revoke";
+type RenderOpsStatusModel = {
+  publicUrl: string;
+  oauthIssuer: string;
+  oauthAudience: string;
+  oauthRequiredScopes: string[];
+  oauthJwksCacheTtlMs: number;
+  oauthJwksTimeoutMs: number;
+  oauthClockSkewSec: number;
+  mcpUrl: string;
+  wellKnownResourceUrl: string;
+  wellKnownMcpResourceUrl: string;
 };
 
 type ResolvedAdminUiDependencies = {
@@ -88,7 +88,7 @@ export class AdminUiError extends Error {
 
 // START_CONTRACT: toAdminUiError
 //   PURPOSE: Normalize unknown failures into AdminUiError with safe diagnostics.
-//   INPUTS: { error: unknown - Caught runtime failure, message: string - Stable error message, details: Record<string, unknown>|undefined - Optional structured context }
+//   INPUTS: { error: unknown - Caught runtime failure, message: string - Stable error message, details: Record<string, unknown>|undefined - Optional context }
 //   OUTPUTS: { AdminUiError - Typed admin UI error value }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
@@ -98,7 +98,7 @@ function toAdminUiError(
   message: string,
   details?: Record<string, unknown>,
 ): AdminUiError {
-  // START_BLOCK_NORMALIZE_UNKNOWN_ERRORS_TO_ADMIN_UI_ERROR_M_ADMIN_UI_023
+  // START_BLOCK_NORMALIZE_UNKNOWN_ERRORS_TO_ADMIN_UI_ERROR_M_ADMIN_UI_101
   if (error instanceof AdminUiError) {
     return error;
   }
@@ -108,45 +108,29 @@ function toAdminUiError(
     ...details,
     cause,
   });
-  // END_BLOCK_NORMALIZE_UNKNOWN_ERRORS_TO_ADMIN_UI_ERROR_M_ADMIN_UI_023
+  // END_BLOCK_NORMALIZE_UNKNOWN_ERRORS_TO_ADMIN_UI_ERROR_M_ADMIN_UI_101
 }
 
 // START_CONTRACT: escapeHtml
-//   PURPOSE: Escape user-provided text before interpolation into HTML output.
-//   INPUTS: { value: string - Raw text value that may contain special HTML characters }
+//   PURPOSE: Escape text before interpolation into HTML output.
+//   INPUTS: { value: string - Raw text value that may contain special characters }
 //   OUTPUTS: { string - HTML-escaped text safe for text and attribute contexts }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: escapeHtml
 function escapeHtml(value: string): string {
-  // START_BLOCK_ESCAPE_USER_PROVIDED_HTML_TEXT_M_ADMIN_UI_001
+  // START_BLOCK_ESCAPE_TEXT_FOR_SAFE_HTML_RENDERING_M_ADMIN_UI_102
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-  // END_BLOCK_ESCAPE_USER_PROVIDED_HTML_TEXT_M_ADMIN_UI_001
-}
-
-// START_CONTRACT: formatDateTimeUtc
-//   PURPOSE: Render optional Date values in a stable UTC format for admin tables.
-//   INPUTS: { value: Date|null - Date value from repository metadata }
-//   OUTPUTS: { string - ISO timestamp string or em dash placeholder }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: formatDateTimeUtc
-function formatDateTimeUtc(value: Date | null): string {
-  // START_BLOCK_FORMAT_OPTIONAL_DATE_AS_UTC_STRING_M_ADMIN_UI_002
-  if (value === null) {
-    return "&mdash;";
-  }
-  return escapeHtml(value.toISOString());
-  // END_BLOCK_FORMAT_OPTIONAL_DATE_AS_UTC_STRING_M_ADMIN_UI_002
+  // END_BLOCK_ESCAPE_TEXT_FOR_SAFE_HTML_RENDERING_M_ADMIN_UI_102
 }
 
 // START_CONTRACT: buildHtmlResponse
-//   PURPOSE: Build HTML responses with optional extra headers.
+//   PURPOSE: Build HTML responses with optional custom headers.
 //   INPUTS: { status: number - HTTP status code, html: string - Response HTML body, headers: Record<string, string>|undefined - Additional headers }
 //   OUTPUTS: { Response - Bun-compatible HTML response object }
 //   SIDE_EFFECTS: [none]
@@ -157,15 +141,16 @@ function buildHtmlResponse(
   html: string,
   headers?: Record<string, string>,
 ): Response {
-  // START_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_ADMIN_UI_003
+  // START_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_ADMIN_UI_103
   const responseHeaders = new Headers({ "content-type": HTML_CONTENT_TYPE });
   if (headers) {
     for (const [key, value] of Object.entries(headers)) {
       responseHeaders.set(key, value);
     }
   }
+
   return new Response(html, { status, headers: responseHeaders });
-  // END_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_ADMIN_UI_003
+  // END_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_ADMIN_UI_103
 }
 
 // START_CONTRACT: buildRedirectResponse
@@ -176,18 +161,17 @@ function buildHtmlResponse(
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: buildRedirectResponse
 function buildRedirectResponse(location: string, setCookie?: string): Response {
-  // START_BLOCK_BUILD_REDIRECT_RESPONSE_WITH_OPTIONAL_COOKIE_M_ADMIN_UI_004
-  const headers: Record<string, string> = {
-    location,
-  };
+  // START_BLOCK_BUILD_REDIRECT_RESPONSE_WITH_OPTIONAL_COOKIE_M_ADMIN_UI_104
+  const headers: Record<string, string> = { location };
   if (setCookie) {
     headers["set-cookie"] = setCookie;
   }
+
   return new Response(null, {
     status: 302,
     headers,
   });
-  // END_BLOCK_BUILD_REDIRECT_RESPONSE_WITH_OPTIONAL_COOKIE_M_ADMIN_UI_004
+  // END_BLOCK_BUILD_REDIRECT_RESPONSE_WITH_OPTIONAL_COOKIE_M_ADMIN_UI_104
 }
 
 // START_CONTRACT: isHtmxRequest
@@ -198,110 +182,26 @@ function buildRedirectResponse(location: string, setCookie?: string): Response {
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: isHtmxRequest
 function isHtmxRequest(request: Request): boolean {
-  // START_BLOCK_DETECT_HTMX_REQUEST_HEADER_M_ADMIN_UI_005
+  // START_BLOCK_DETECT_HTMX_REQUEST_HEADER_M_ADMIN_UI_105
   const headerValue = request.headers.get(HX_REQUEST_HEADER);
   return typeof headerValue === "string" && headerValue.toLowerCase() === "true";
-  // END_BLOCK_DETECT_HTMX_REQUEST_HEADER_M_ADMIN_UI_005
+  // END_BLOCK_DETECT_HTMX_REQUEST_HEADER_M_ADMIN_UI_105
 }
 
 // START_CONTRACT: asFormString
-//   PURPOSE: Normalize FormData values to string values and trim surrounding whitespace.
+//   PURPOSE: Normalize FormData values to trimmed string text.
 //   INPUTS: { value: unknown - Raw form field value from request }
-//   OUTPUTS: { string - Trimmed string form of field value, empty when missing or non-text }
+//   OUTPUTS: { string - Trimmed string value or empty string when non-text }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: asFormString
 function asFormString(value: unknown): string {
-  // START_BLOCK_NORMALIZE_FORMDATA_FIELD_TO_STRING_M_ADMIN_UI_006
+  // START_BLOCK_NORMALIZE_FORMDATA_FIELD_TO_STRING_M_ADMIN_UI_106
   if (typeof value !== "string") {
     return "";
   }
   return value.trim();
-  // END_BLOCK_NORMALIZE_FORMDATA_FIELD_TO_STRING_M_ADMIN_UI_006
-}
-
-// START_CONTRACT: parseOptionalExpiryField
-//   PURPOSE: Parse optional expires_at form input into Date|null with validation feedback.
-//   INPUTS: { rawExpiresAt: string - Form field value for expires_at }
-//   OUTPUTS: { { expiresAt: Date|null, errorMessage?: string } - Parsed expiry data and validation error state }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: parseOptionalExpiryField
-function parseOptionalExpiryField(rawExpiresAt: string): { expiresAt: Date | null; errorMessage?: string } {
-  // START_BLOCK_PARSE_AND_VALIDATE_OPTIONAL_EXPIRY_FIELD_M_ADMIN_UI_007
-  if (!rawExpiresAt) {
-    return { expiresAt: null };
-  }
-
-  const parsed = new Date(rawExpiresAt);
-  if (Number.isNaN(parsed.getTime())) {
-    return {
-      expiresAt: null,
-      errorMessage: "Expiration timestamp is invalid.",
-    };
-  }
-
-  return { expiresAt: parsed };
-  // END_BLOCK_PARSE_AND_VALIDATE_OPTIONAL_EXPIRY_FIELD_M_ADMIN_UI_007
-}
-
-// START_CONTRACT: classifyApiKeyStatus
-//   PURPOSE: Build human-readable API key status from record lifecycle fields.
-//   INPUTS: { record: ApiKeyRecord - API key metadata record }
-//   OUTPUTS: { string - Status label for table rendering }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: classifyApiKeyStatus
-function classifyApiKeyStatus(record: ApiKeyRecord): string {
-  // START_BLOCK_CLASSIFY_API_KEY_STATUS_FOR_TABLE_M_ADMIN_UI_008
-  if (record.revokedAt !== null) {
-    return "Revoked";
-  }
-
-  if (record.expiresAt !== null && record.expiresAt.getTime() <= Date.now()) {
-    return "Expired";
-  }
-
-  return "Active";
-  // END_BLOCK_CLASSIFY_API_KEY_STATUS_FOR_TABLE_M_ADMIN_UI_008
-}
-
-// START_CONTRACT: parseRevokeRoute
-//   PURPOSE: Parse /admin/api-keys/:id and /admin/api-keys/:id/revoke route variants.
-//   INPUTS: { pathname: string - URL pathname, method: string - HTTP method in uppercase }
-//   OUTPUTS: { RevokeRouteMatch|null - Parsed key id and route source when route is a revoke action }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: parseRevokeRoute
-function parseRevokeRoute(pathname: string, method: string): RevokeRouteMatch | null {
-  // START_BLOCK_PARSE_API_KEY_REVOKE_ROUTE_VARIANTS_M_ADMIN_UI_009
-  const parts = pathname.split("/").filter((segment) => segment.length > 0);
-  if (parts.length < 3 || parts[0] !== "admin" || parts[1] !== "api-keys") {
-    return null;
-  }
-
-  const rawId = parts[2];
-  if (!rawId) {
-    return null;
-  }
-
-  let decodedId: string;
-  try {
-    decodedId = decodeURIComponent(rawId);
-  } catch {
-    return null;
-  }
-
-  if (method === "DELETE" && parts.length === 3) {
-    return { id: decodedId, source: "delete" };
-  }
-
-  if (method === "POST" && parts.length === 4 && parts[3] === "revoke") {
-    return { id: decodedId, source: "post-revoke" };
-  }
-
-  return null;
-  // END_BLOCK_PARSE_API_KEY_REVOKE_ROUTE_VARIANTS_M_ADMIN_UI_009
+  // END_BLOCK_NORMALIZE_FORMDATA_FIELD_TO_STRING_M_ADMIN_UI_106
 }
 
 // START_CONTRACT: resolveDependencies
@@ -312,7 +212,7 @@ function parseRevokeRoute(pathname: string, method: string): RevokeRouteMatch | 
 //   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
 // END_CONTRACT: resolveDependencies
 function resolveDependencies(deps: AdminUiDependencies): ResolvedAdminUiDependencies {
-  // START_BLOCK_RESOLVE_OPTIONAL_AUTH_HELPER_DEPENDENCIES_M_ADMIN_UI_010
+  // START_BLOCK_RESOLVE_OPTIONAL_AUTH_HELPER_DEPENDENCIES_M_ADMIN_UI_107
   return {
     config: deps.config,
     logger: deps.logger,
@@ -321,85 +221,123 @@ function resolveDependencies(deps: AdminUiDependencies): ResolvedAdminUiDependen
     requireAdminSession: deps.requireAdminSession ?? requireAdminSessionHelper,
     clearAdminSession: deps.clearAdminSession ?? clearAdminSessionHelper,
   };
-  // END_BLOCK_RESOLVE_OPTIONAL_AUTH_HELPER_DEPENDENCIES_M_ADMIN_UI_010
+  // END_BLOCK_RESOLVE_OPTIONAL_AUTH_HELPER_DEPENDENCIES_M_ADMIN_UI_107
 }
 
-// START_CONTRACT: renderFlash
-//   PURPOSE: Render status flash messages safely for admin UI panels.
-//   INPUTS: { message: string|undefined - Message content, tone: "error"|"success" - Visual tone }
-//   OUTPUTS: { string - HTML fragment for message or empty string }
+// START_CONTRACT: buildOpsStatusModel
+//   PURPOSE: Derive diagnostics fields and URLs from runtime configuration for operator panel rendering.
+//   INPUTS: { config: AppConfig - Runtime app configuration }
+//   OUTPUTS: { RenderOpsStatusModel - Diagnostics model with derived resource URLs }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI, M-CONFIG]
+// END_CONTRACT: buildOpsStatusModel
+function buildOpsStatusModel(config: AppConfig): RenderOpsStatusModel {
+  // START_BLOCK_DERIVE_DIAGNOSTICS_MODEL_FROM_RUNTIME_CONFIG_M_ADMIN_UI_108
+  return {
+    publicUrl: config.publicUrl,
+    oauthIssuer: config.oauth.issuer,
+    oauthAudience: config.oauth.audience,
+    oauthRequiredScopes: [...config.oauth.requiredScopes],
+    oauthJwksCacheTtlMs: config.oauth.jwksCacheTtlMs,
+    oauthJwksTimeoutMs: config.oauth.jwksTimeoutMs,
+    oauthClockSkewSec: config.oauth.clockSkewSec,
+    mcpUrl: new URL("/mcp", config.publicUrl).toString(),
+    wellKnownResourceUrl: new URL("/.well-known/oauth-protected-resource", config.publicUrl).toString(),
+    wellKnownMcpResourceUrl: new URL(
+      "/.well-known/oauth-protected-resource/mcp",
+      config.publicUrl,
+    ).toString(),
+  };
+  // END_BLOCK_DERIVE_DIAGNOSTICS_MODEL_FROM_RUNTIME_CONFIG_M_ADMIN_UI_108
+}
+
+// START_CONTRACT: renderDiagnosticsTableRows
+//   PURPOSE: Render escaped diagnostics key-value rows for operator status table.
+//   INPUTS: { rows: Array<[label: string, value: string]> - Diagnostics table rows }
+//   OUTPUTS: { string - HTML rows fragment }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: renderFlash
-function renderFlash(message: string | undefined, tone: "error" | "success"): string {
-  // START_BLOCK_RENDER_FLASH_MESSAGE_FRAGMENT_M_ADMIN_UI_011
-  if (!message) {
-    return "";
-  }
-
-  const toneClass = tone === "error" ? "flash flash-error" : "flash flash-success";
-  return `<div class="${toneClass}">${escapeHtml(message)}</div>`;
-  // END_BLOCK_RENDER_FLASH_MESSAGE_FRAGMENT_M_ADMIN_UI_011
+// END_CONTRACT: renderDiagnosticsTableRows
+function renderDiagnosticsTableRows(rows: Array<[label: string, value: string]>): string {
+  // START_BLOCK_RENDER_ESCAPED_DIAGNOSTICS_TABLE_ROWS_M_ADMIN_UI_109
+  return rows
+    .map(([label, value]) => {
+      return [
+        `<tr>`,
+        `<th scope="row">${escapeHtml(label)}</th>`,
+        `<td><code>${escapeHtml(value)}</code></td>`,
+        `</tr>`,
+      ].join("");
+    })
+    .join("");
+  // END_BLOCK_RENDER_ESCAPED_DIAGNOSTICS_TABLE_ROWS_M_ADMIN_UI_109
 }
 
-// START_CONTRACT: renderApiKeyReveal
-//   PURPOSE: Render one-time API key reveal panel used immediately after key creation.
-//   INPUTS: { revealedApiKey: string|undefined - Newly created raw key value }
-//   OUTPUTS: { string - HTML fragment for reveal panel or empty string }
+// START_CONTRACT: renderOpsStatus
+//   PURPOSE: Render operator diagnostics panel from config with OAuth runtime settings and derived endpoint URLs.
+//   INPUTS: { config: AppConfig - Runtime app configuration }
+//   OUTPUTS: { string - HTML diagnostics panel fragment }
 //   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: renderApiKeyReveal
-function renderApiKeyReveal(revealedApiKey: string | undefined): string {
-  // START_BLOCK_RENDER_ONE_TIME_API_KEY_REVEAL_PANEL_M_ADMIN_UI_012
-  if (!revealedApiKey) {
-    return "";
-  }
+//   LINKS: [M-ADMIN-UI, M-CONFIG]
+// END_CONTRACT: renderOpsStatus
+export function renderOpsStatus(config: AppConfig): string {
+  // START_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
+  const diagnostics = buildOpsStatusModel(config);
+  const requiredScopesDisplay = diagnostics.oauthRequiredScopes.length
+    ? diagnostics.oauthRequiredScopes.join(", ")
+    : "(none)";
+
+  const rows = renderDiagnosticsTableRows([
+    ["PUBLIC_URL", diagnostics.publicUrl],
+    ["OAUTH_ISSUER", diagnostics.oauthIssuer],
+    ["OAUTH_AUDIENCE", diagnostics.oauthAudience],
+    ["OAUTH_REQUIRED_SCOPES", requiredScopesDisplay],
+    ["OAUTH_JWKS_CACHE_TTL_MS", String(diagnostics.oauthJwksCacheTtlMs)],
+    ["OAUTH_JWKS_TIMEOUT_MS", String(diagnostics.oauthJwksTimeoutMs)],
+    ["OAUTH_CLOCK_SKEW_SEC", String(diagnostics.oauthClockSkewSec)],
+    ["Derived /mcp URL", diagnostics.mcpUrl],
+    ["Derived protected resource URL", diagnostics.wellKnownResourceUrl],
+    ["Derived MCP protected resource URL", diagnostics.wellKnownMcpResourceUrl],
+  ]);
 
   return [
-    `<section class="card reveal-card" aria-live="polite">`,
-    `<h3>New API key generated</h3>`,
-    `<p class="warning">Warning: this raw API key is shown exactly once. Copy it now.</p>`,
-    `<code class="raw-key">${escapeHtml(revealedApiKey)}</code>`,
-    `</section>`,
-  ].join("");
-  // END_BLOCK_RENDER_ONE_TIME_API_KEY_REVEAL_PANEL_M_ADMIN_UI_012
-}
-
-// START_CONTRACT: renderApiKeysPanel
-//   PURPOSE: Render API key management section including warning banner, create form, optional reveal, and table.
-//   INPUTS: { params: RenderApiKeysPanelParams - UI state for the API key management panel }
-//   OUTPUTS: { string - HTML fragment for panel body }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI, M-API-KEY-REPOSITORY]
-// END_CONTRACT: renderApiKeysPanel
-function renderApiKeysPanel(params: RenderApiKeysPanelParams): string {
-  // START_BLOCK_RENDER_API_KEY_MANAGEMENT_PANEL_M_ADMIN_UI_013
-  const draftLabel = escapeHtml(params.draftLabel ?? "");
-  const draftExpiresAt = escapeHtml(params.draftExpiresAt ?? "");
-
-  return [
-    `<section id="api-keys-panel" class="stack">`,
-    `<section class="card warning-card">`,
-    `<h2>API key lifecycle</h2>`,
-    `<p class="warning">Warning: raw API keys are displayed only once after creation.</p>`,
-    `</section>`,
-    renderFlash(params.errorMessage, "error"),
-    renderFlash(params.successMessage, "success"),
-    renderApiKeyReveal(params.revealedApiKey),
+    `<section id="ops-status-panel" class="stack">`,
     `<section class="card">`,
-    `<h3>Create API key</h3>`,
-    `<form method="post" action="${ADMIN_API_KEYS_PATH}" hx-post="${ADMIN_API_KEYS_PATH}" hx-target="#api-keys-panel" hx-swap="outerHTML" class="create-form">`,
-    `<label for="label">Label</label>`,
-    `<input id="label" name="label" type="text" maxlength="128" required value="${draftLabel}" />`,
-    `<label for="expires_at">Expires at (optional)</label>`,
-    `<input id="expires_at" name="expires_at" type="datetime-local" value="${draftExpiresAt}" />`,
-    `<button type="submit">Create API key</button>`,
-    `</form>`,
+    `<h2>Ops diagnostics</h2>`,
+    `<p class="muted">Runtime OAuth resource settings loaded from environment and used by server routing.</p>`,
     `</section>`,
-    renderApiKeysTable(params.records),
+    `<section class="card table-wrap">`,
+    `<h3>Configuration status</h3>`,
+    `<table class="diag-table">`,
+    `<tbody>`,
+    rows,
+    `</tbody>`,
+    `</table>`,
+    `</section>`,
     `</section>`,
   ].join("");
-  // END_BLOCK_RENDER_API_KEY_MANAGEMENT_PANEL_M_ADMIN_UI_013
+  // END_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
+}
+
+// START_CONTRACT: renderApiKeysDeprecatedPanel
+//   PURPOSE: Render deprecation message for legacy API-key routes with guidance to ops diagnostics.
+//   INPUTS: {}
+//   OUTPUTS: { string - HTML fragment for deprecated route responses }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI]
+// END_CONTRACT: renderApiKeysDeprecatedPanel
+function renderApiKeysDeprecatedPanel(): string {
+  // START_BLOCK_RENDER_API_KEYS_DEPRECATION_NOTICE_M_ADMIN_UI_111
+  return [
+    `<section id="api-keys-deprecated-panel" class="stack">`,
+    `<section class="card warning-card">`,
+    `<h2>API key management deprecated</h2>`,
+    `<p class="warning">This route is no longer available for key create/revoke operations in this phase.</p>`,
+    `<p>Use <a href="${ADMIN_OPS_PATH}">${escapeHtml(ADMIN_OPS_PATH)}</a> for operator diagnostics.</p>`,
+    `</section>`,
+    `</section>`,
+  ].join("");
+  // END_BLOCK_RENDER_API_KEYS_DEPRECATION_NOTICE_M_ADMIN_UI_111
 }
 
 // START_CONTRACT: renderLoginDocument
@@ -410,7 +348,7 @@ function renderApiKeysPanel(params: RenderApiKeysPanelParams): string {
 //   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
 // END_CONTRACT: renderLoginDocument
 function renderLoginDocument(errorMessage?: string): string {
-  // START_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_014
+  // START_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_112
   const escapedError = errorMessage ? `<div class="flash flash-error">${escapeHtml(errorMessage)}</div>` : "";
   return [
     `<!doctype html>`,
@@ -422,8 +360,8 @@ function renderLoginDocument(errorMessage?: string): string {
     `<style>`,
     `:root { color-scheme: light; --bg:#f4f7fb; --fg:#0f172a; --card:#ffffff; --line:#cbd5e1; --accent:#0f766e; --danger:#b91c1c; }`,
     `* { box-sizing: border-box; }`,
-    `body { margin:0; font-family: "IBM Plex Sans", ui-sans-serif, sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; display:grid; place-items:center; padding:1rem; }`,
-    `.card { width:min(28rem, 100%); background: var(--card); border:1px solid var(--line); border-radius:0.75rem; padding:1.25rem; display:grid; gap:0.75rem; }`,
+    `body { margin:0; font-family:"IBM Plex Sans", ui-sans-serif, sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; display:grid; place-items:center; padding:1rem; }`,
+    `.card { width:min(30rem, 100%); background: var(--card); border:1px solid var(--line); border-radius:0.75rem; padding:1.25rem; display:grid; gap:0.75rem; }`,
     `h1 { margin:0; font-size:1.5rem; }`,
     `label { font-weight:600; font-size:0.9rem; }`,
     `input, button { width:100%; border-radius:0.5rem; padding:0.65rem 0.75rem; border:1px solid var(--line); font: inherit; }`,
@@ -434,7 +372,7 @@ function renderLoginDocument(errorMessage?: string): string {
     `<body>`,
     `<main class="card">`,
     `<h1>Admin Login</h1>`,
-    `<p>Enter the root admin token to access API key management.</p>`,
+    `<p>Enter the root admin token to access operator diagnostics.</p>`,
     escapedError,
     `<form method="post" action="${ADMIN_LOGIN_PATH}">`,
     `<label for="token">ROOT_AUTH_TOKEN</label>`,
@@ -445,7 +383,7 @@ function renderLoginDocument(errorMessage?: string): string {
     `</body>`,
     `</html>`,
   ].join("");
-  // END_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_014
+  // END_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_112
 }
 
 // START_CONTRACT: renderAdminLayout
@@ -456,10 +394,10 @@ function renderLoginDocument(errorMessage?: string): string {
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: renderAdminLayout
 export function renderAdminLayout(params: RenderAdminLayoutParams): string {
-  // START_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_SIDEBAR_M_ADMIN_UI_015
+  // START_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
   const escapedPageTitle = escapeHtml(params.pageTitle);
-  const isApiKeysTab = params.activeTab === "api-keys";
-  const apiKeysTabClass = isApiKeysTab ? "nav-link nav-link-active" : "nav-link";
+  const isOpsTab = params.activeTab === "ops";
+  const opsTabClass = isOpsTab ? "nav-link nav-link-active" : "nav-link";
 
   return [
     `<!doctype html>`,
@@ -470,7 +408,7 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
     `<title>${escapedPageTitle}</title>`,
     `<script src="https://unpkg.com/htmx.org@1.9.12"></script>`,
     `<style>`,
-    `:root { color-scheme: light; --bg:#eef3f8; --fg:#1e293b; --card:#fff; --line:#cbd5e1; --accent:#0f766e; --accent-soft:#ccfbf1; --warning:#9a3412; --warning-bg:#fff7ed; --danger:#991b1b; --danger-bg:#fef2f2; --ok:#14532d; --ok-bg:#f0fdf4; }`,
+    `:root { color-scheme: light; --bg:#eef3f8; --fg:#1e293b; --card:#fff; --line:#cbd5e1; --accent:#0f766e; --accent-soft:#ccfbf1; --warning:#9a3412; --warning-bg:#fff7ed; --danger:#991b1b; --danger-bg:#fef2f2; }`,
     `* { box-sizing: border-box; }`,
     `body { margin:0; min-height:100vh; background: radial-gradient(circle at top left, #dbeafe 0%, #eef3f8 45%); color:var(--fg); font-family:"IBM Plex Sans", ui-sans-serif, sans-serif; }`,
     `.layout { display:grid; grid-template-columns: 16rem 1fr; min-height:100vh; }`,
@@ -485,21 +423,13 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
     `.warning { color:var(--warning); font-weight:600; }`,
     `.flash { border-radius:0.65rem; padding:0.65rem 0.75rem; border:1px solid transparent; }`,
     `.flash-error { background:var(--danger-bg); color:var(--danger); border-color:#fecaca; }`,
-    `.flash-success { background:var(--ok-bg); color:var(--ok); border-color:#bbf7d0; }`,
-    `.create-form { display:grid; gap:0.55rem; }`,
-    `label { font-weight:600; }`,
-    `input, button { font: inherit; border-radius:0.5rem; border:1px solid var(--line); padding:0.55rem 0.7rem; }`,
-    `button { cursor:pointer; background:var(--accent); color:#fff; border:none; font-weight:600; width:fit-content; }`,
+    `.muted { color:#475569; font-size:0.92rem; }`,
     `.table-wrap { overflow-x:auto; }`,
-    `table { width:100%; border-collapse:collapse; }`,
-    `th, td { text-align:left; border-bottom:1px solid var(--line); padding:0.6rem; vertical-align:top; }`,
-    `.status-pill { display:inline-block; border-radius:999px; padding:0.2rem 0.55rem; font-size:0.8rem; border:1px solid var(--line); background:#f8fafc; }`,
-    `.raw-key { display:block; border-radius:0.5rem; border:1px dashed #fb923c; background:#fff; color:#9a3412; padding:0.65rem; overflow-wrap:anywhere; margin-top:0.5rem; }`,
-    `.reveal-card { border-color:#fb923c; background:#fff7ed; }`,
-    `.muted { color:#475569; font-size:0.9rem; }`,
-    `.table-action { margin:0; }`,
-    `.table-action button { background:#b91c1c; }`,
-    `@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .sidebar { border-right:none; border-bottom:1px solid var(--line); } .content { padding:0.85rem; } }`,
+    `.diag-table { width:100%; border-collapse:collapse; }`,
+    `.diag-table th, .diag-table td { text-align:left; border-bottom:1px solid var(--line); padding:0.6rem; vertical-align:top; }`,
+    `.diag-table th { min-width: 18rem; width: 34%; }`,
+    `.diag-table code { overflow-wrap:anywhere; }`,
+    `@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .sidebar { border-right:none; border-bottom:1px solid var(--line); } .content { padding:0.85rem; } .diag-table th { min-width: auto; width: 45%; } }`,
     `</style>`,
     `</head>`,
     `<body>`,
@@ -507,7 +437,7 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
     `<aside class="sidebar">`,
     `<p class="brand">Admin Console</p>`,
     `<nav>`,
-    `<a class="${apiKeysTabClass}" href="${ADMIN_API_KEYS_PATH}">${API_KEYS_TAB_LABEL}</a>`,
+    `<a class="${opsTabClass}" href="${ADMIN_OPS_PATH}">${OPS_TAB_LABEL}</a>`,
     `</nav>`,
     `</aside>`,
     `<main class="content">`,
@@ -517,85 +447,46 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
     `</body>`,
     `</html>`,
   ].join("");
-  // END_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_SIDEBAR_M_ADMIN_UI_015
+  // END_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
 }
 
-// START_CONTRACT: renderApiKeysTable
-//   PURPOSE: Render API key metadata rows and revoke controls as an HTMX-refreshable table fragment.
-//   INPUTS: { records: ApiKeyRecord[] - API key metadata list }
-//   OUTPUTS: { string - HTML table container fragment }
+// START_CONTRACT: renderApiKeysDeprecatedResponse
+//   PURPOSE: Build deprecation response payload for /admin/api-keys* routes for HTMX and full-page requests.
+//   INPUTS: { htmx: boolean - Whether request originated from HTMX }
+//   OUTPUTS: { Response - HTTP 410 response with deprecation guidance }
 //   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI, M-API-KEY-REPOSITORY]
-// END_CONTRACT: renderApiKeysTable
-export function renderApiKeysTable(records: ApiKeyRecord[]): string {
-  // START_BLOCK_RENDER_API_KEYS_TABLE_FRAGMENT_M_ADMIN_UI_016
-  const rowsHtml = records.length
-    ? records
-        .map((record) => {
-          const encodedId = encodeURIComponent(record.id);
-          const escapedLabel = escapeHtml(record.label);
-          const escapedPrefix = escapeHtml(record.keyPrefix);
-          const status = classifyApiKeyStatus(record);
-          const canRevoke = record.revokedAt === null;
-          const actionHtml = canRevoke
-            ? [
-                `<form class="table-action" method="post" action="${ADMIN_API_KEYS_PATH}/${encodedId}/revoke" hx-post="${ADMIN_API_KEYS_PATH}/${encodedId}/revoke" hx-target="#api-keys-table-container" hx-swap="outerHTML">`,
-                `<button type="submit">Revoke</button>`,
-                `</form>`,
-              ].join("")
-            : `<span class="muted">Already revoked</span>`;
+//   LINKS: [M-ADMIN-UI]
+// END_CONTRACT: renderApiKeysDeprecatedResponse
+function renderApiKeysDeprecatedResponse(htmx: boolean): Response {
+  // START_BLOCK_BUILD_DEPRECATED_API_KEYS_ROUTE_RESPONSE_M_ADMIN_UI_114
+  const deprecationPanel = renderApiKeysDeprecatedPanel();
+  if (htmx) {
+    return buildHtmlResponse(410, deprecationPanel);
+  }
 
-          return [
-            `<tr>`,
-            `<td><code>${escapedPrefix}</code></td>`,
-            `<td>${escapedLabel}</td>`,
-            `<td><span class="status-pill">${escapeHtml(status)}</span></td>`,
-            `<td>${formatDateTimeUtc(record.expiresAt)}</td>`,
-            `<td>${formatDateTimeUtc(record.revokedAt)}</td>`,
-            `<td>${formatDateTimeUtc(record.createdAt)}</td>`,
-            `<td>${actionHtml}</td>`,
-            `</tr>`,
-          ].join("");
-        })
-        .join("")
-    : `<tr><td colspan="7" class="muted">No API keys created yet.</td></tr>`;
-
-  return [
-    `<section id="api-keys-table-container" class="card table-wrap">`,
-    `<h3>API keys</h3>`,
-    `<table>`,
-    `<thead>`,
-    `<tr>`,
-    `<th>Prefix</th>`,
-    `<th>Label</th>`,
-    `<th>Status</th>`,
-    `<th>Expires At (UTC)</th>`,
-    `<th>Revoked At (UTC)</th>`,
-    `<th>Created At (UTC)</th>`,
-    `<th>Actions</th>`,
-    `</tr>`,
-    `</thead>`,
-    `<tbody>`,
-    rowsHtml,
-    `</tbody>`,
-    `</table>`,
-    `</section>`,
-  ].join("");
-  // END_BLOCK_RENDER_API_KEYS_TABLE_FRAGMENT_M_ADMIN_UI_016
+  return buildHtmlResponse(
+    410,
+    renderAdminLayout({
+      pageTitle: "Admin - Deprecated Route",
+      activeTab: "ops",
+      contentHtml: deprecationPanel,
+    }),
+  );
+  // END_BLOCK_BUILD_DEPRECATED_API_KEYS_ROUTE_RESPONSE_M_ADMIN_UI_114
 }
 
 // START_CONTRACT: handleAdminRequest
-//   PURPOSE: Dispatch admin route requests for login, API key list/create actions, and API key revocation.
+//   PURPOSE: Dispatch admin route requests for login and authenticated ops diagnostics while deprecating API-key routes.
 //   INPUTS: { request: Request - Incoming admin HTTP request, deps: AdminUiDependencies - Runtime dependencies and auth helper hooks }
 //   OUTPUTS: { Promise<Response> - HTML response, HTMX fragment, or redirect response }
-//   SIDE_EFFECTS: [Calls auth and repository dependencies, emits structured logs]
-//   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER, M-CONFIG]
+//   SIDE_EFFECTS: [Calls auth dependencies, emits structured logs]
+//   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG]
 // END_CONTRACT: handleAdminRequest
 export async function handleAdminRequest(
   request: Request,
   deps: AdminUiDependencies,
 ): Promise<Response> {
-  // START_BLOCK_ROUTE_AND_DISPATCH_ADMIN_REQUESTS_M_ADMIN_UI_017
+  // START_BLOCK_ROUTE_AND_DISPATCH_ADMIN_REQUESTS_M_ADMIN_UI_115
   const resolvedDeps = resolveDependencies(deps);
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -613,10 +504,10 @@ export async function handleAdminRequest(
     method,
     htmx,
   });
-  // END_BLOCK_ROUTE_AND_DISPATCH_ADMIN_REQUESTS_M_ADMIN_UI_017
+  // END_BLOCK_ROUTE_AND_DISPATCH_ADMIN_REQUESTS_M_ADMIN_UI_115
 
   try {
-    // START_BLOCK_HANDLE_ADMIN_LOGIN_ROUTE_M_ADMIN_UI_018
+    // START_BLOCK_HANDLE_ADMIN_LOGIN_ROUTE_M_ADMIN_UI_116
     if (pathname === ADMIN_LOGIN_PATH) {
       if (method === "GET") {
         const sessionCheck = resolvedDeps.requireAdminSession(request, resolvedDeps.config, logger);
@@ -626,7 +517,7 @@ export async function handleAdminRequest(
             "handleAdminRequest",
             "HANDLE_ADMIN_LOGIN_ROUTE",
           );
-          return buildRedirectResponse(ADMIN_API_KEYS_PATH);
+          return buildRedirectResponse(ADMIN_OPS_PATH);
         }
 
         return buildHtmlResponse(
@@ -647,7 +538,7 @@ export async function handleAdminRequest(
             "handleAdminRequest",
             "HANDLE_ADMIN_LOGIN_ROUTE",
           );
-          return buildRedirectResponse(ADMIN_API_KEYS_PATH, authResult.sessionCookie);
+          return buildRedirectResponse(ADMIN_OPS_PATH, authResult.sessionCookie);
         }
 
         logger.warn(
@@ -669,9 +560,9 @@ export async function handleAdminRequest(
 
       return buildHtmlResponse(405, renderLoginDocument("Method not allowed."));
     }
-    // END_BLOCK_HANDLE_ADMIN_LOGIN_ROUTE_M_ADMIN_UI_018
+    // END_BLOCK_HANDLE_ADMIN_LOGIN_ROUTE_M_ADMIN_UI_116
 
-    // START_BLOCK_ENFORCE_ADMIN_SESSION_FOR_PROTECTED_ROUTES_M_ADMIN_UI_019
+    // START_BLOCK_ENFORCE_ADMIN_SESSION_FOR_PROTECTED_ROUTES_M_ADMIN_UI_117
     if (!pathname.startsWith(ADMIN_ROOT_PATH)) {
       return buildHtmlResponse(404, "<h1>Not Found</h1>");
     }
@@ -686,159 +577,47 @@ export async function handleAdminRequest(
       );
       return buildRedirectResponse(sessionCheck.location, sessionCheck.setCookie);
     }
-    // END_BLOCK_ENFORCE_ADMIN_SESSION_FOR_PROTECTED_ROUTES_M_ADMIN_UI_019
+    // END_BLOCK_ENFORCE_ADMIN_SESSION_FOR_PROTECTED_ROUTES_M_ADMIN_UI_117
 
-    // START_BLOCK_HANDLE_API_KEY_COLLECTION_ROUTES_M_ADMIN_UI_020
+    // START_BLOCK_HANDLE_ADMIN_OPS_ROUTE_M_ADMIN_UI_118
     if (pathname === ADMIN_ROOT_PATH && method === "GET") {
-      return buildRedirectResponse(ADMIN_API_KEYS_PATH);
+      return buildRedirectResponse(ADMIN_OPS_PATH);
     }
 
-    if (pathname === ADMIN_API_KEYS_PATH && method === "GET") {
-      const records = await resolvedDeps.apiKeyRepository.listApiKeys();
-      const panelHtml = renderApiKeysPanel({ records });
-
+    if (pathname === ADMIN_OPS_PATH && method === "GET") {
+      const opsPanelHtml = renderOpsStatus(resolvedDeps.config);
       if (htmx) {
-        return buildHtmlResponse(200, panelHtml);
+        return buildHtmlResponse(200, opsPanelHtml);
       }
 
       return buildHtmlResponse(
         200,
         renderAdminLayout({
-          pageTitle: "Admin - Api Keys",
-          activeTab: "api-keys",
-          contentHtml: panelHtml,
+          pageTitle: "Admin - Ops Diagnostics",
+          activeTab: "ops",
+          contentHtml: opsPanelHtml,
         }),
       );
     }
+    // END_BLOCK_HANDLE_ADMIN_OPS_ROUTE_M_ADMIN_UI_118
 
-    if (pathname === ADMIN_API_KEYS_PATH && method === "POST") {
-      const formData = await request.formData();
-      const label = asFormString(formData.get("label"));
-      const rawExpiresAt = asFormString(formData.get("expires_at"));
-      const parsedExpiry = parseOptionalExpiryField(rawExpiresAt);
-
-      if (!label) {
-        const records = await resolvedDeps.apiKeyRepository.listApiKeys();
-        const panelHtml = renderApiKeysPanel({
-          records,
-          errorMessage: "Label is required.",
-          draftLabel: label,
-          draftExpiresAt: rawExpiresAt,
-        });
-        if (htmx) {
-          return buildHtmlResponse(400, panelHtml);
-        }
-        return buildHtmlResponse(
-          400,
-          renderAdminLayout({
-            pageTitle: "Admin - Api Keys",
-            activeTab: "api-keys",
-            contentHtml: panelHtml,
-          }),
-        );
-      }
-
-      if (parsedExpiry.errorMessage) {
-        const records = await resolvedDeps.apiKeyRepository.listApiKeys();
-        const panelHtml = renderApiKeysPanel({
-          records,
-          errorMessage: parsedExpiry.errorMessage,
-          draftLabel: label,
-          draftExpiresAt: rawExpiresAt,
-        });
-        if (htmx) {
-          return buildHtmlResponse(400, panelHtml);
-        }
-        return buildHtmlResponse(
-          400,
-          renderAdminLayout({
-            pageTitle: "Admin - Api Keys",
-            activeTab: "api-keys",
-            contentHtml: panelHtml,
-          }),
-        );
-      }
-
-      const created = await resolvedDeps.apiKeyRepository.createApiKey(label, parsedExpiry.expiresAt);
-      const records = await resolvedDeps.apiKeyRepository.listApiKeys();
-
-      logger.info(
-        "Created API key via admin UI.",
-        "handleAdminRequest",
-        "HANDLE_API_KEY_COLLECTION_ROUTES",
-        {
-          id: created.record.id,
-          keyPrefix: created.record.keyPrefix,
-        },
-      );
-
-      const panelHtml = renderApiKeysPanel({
-        records,
-        successMessage: "API key created successfully.",
-        revealedApiKey: created.rawApiKey,
-      });
-
-      if (htmx) {
-        return buildHtmlResponse(200, panelHtml);
-      }
-
-      return buildHtmlResponse(
-        200,
-        renderAdminLayout({
-          pageTitle: "Admin - Api Keys",
-          activeTab: "api-keys",
-          contentHtml: panelHtml,
-        }),
-      );
-    }
-    // END_BLOCK_HANDLE_API_KEY_COLLECTION_ROUTES_M_ADMIN_UI_020
-
-    // START_BLOCK_HANDLE_API_KEY_REVOKE_ROUTES_M_ADMIN_UI_021
-    const revokeRoute = parseRevokeRoute(pathname, method);
-    if (revokeRoute) {
-      const revoked = await resolvedDeps.apiKeyRepository.revokeApiKey(revokeRoute.id);
-      const records = await resolvedDeps.apiKeyRepository.listApiKeys();
-
-      logger.info(
-        "Processed API key revoke action.",
-        "handleAdminRequest",
-        "HANDLE_API_KEY_REVOKE_ROUTES",
-        {
-          id: revokeRoute.id,
-          source: revokeRoute.source,
-          existed: revoked !== null,
-        },
-      );
-
-      if (htmx) {
-        return buildHtmlResponse(200, renderApiKeysTable(records));
-      }
-
-      const panelHtml = renderApiKeysPanel({
-        records,
-        successMessage: revoked ? "API key revoked." : "API key not found.",
-      });
-
-      return buildHtmlResponse(
-        200,
-        renderAdminLayout({
-          pageTitle: "Admin - Api Keys",
-          activeTab: "api-keys",
-          contentHtml: panelHtml,
-        }),
-      );
-    }
-    // END_BLOCK_HANDLE_API_KEY_REVOKE_ROUTES_M_ADMIN_UI_021
-
-    // START_BLOCK_RETURN_ADMIN_ROUTE_ERRORS_M_ADMIN_UI_022
+    // START_BLOCK_HANDLE_DEPRECATED_API_KEY_ROUTES_M_ADMIN_UI_119
     if (pathname.startsWith(ADMIN_API_KEYS_PATH)) {
-      return buildHtmlResponse(405, "<h1>Method Not Allowed</h1>");
+      logger.warn(
+        "Deprecated API-key admin route requested.",
+        "handleAdminRequest",
+        "HANDLE_DEPRECATED_API_KEY_ROUTES",
+        { pathname, method },
+      );
+      return renderApiKeysDeprecatedResponse(htmx);
     }
+    // END_BLOCK_HANDLE_DEPRECATED_API_KEY_ROUTES_M_ADMIN_UI_119
 
+    // START_BLOCK_RETURN_ADMIN_ROUTE_ERRORS_M_ADMIN_UI_120
     return buildHtmlResponse(404, "<h1>Not Found</h1>");
-    // END_BLOCK_RETURN_ADMIN_ROUTE_ERRORS_M_ADMIN_UI_022
+    // END_BLOCK_RETURN_ADMIN_ROUTE_ERRORS_M_ADMIN_UI_120
   } catch (error: unknown) {
-    // START_BLOCK_MAP_ROUTE_FAILURES_TO_SAFE_HTML_RESPONSES_M_ADMIN_UI_024
+    // START_BLOCK_MAP_ROUTE_FAILURES_TO_SAFE_HTML_RESPONSES_M_ADMIN_UI_121
     const adminUiError = toAdminUiError(error, "Admin UI request handling failed.", {
       pathname,
       method,
@@ -871,10 +650,10 @@ export async function handleAdminRequest(
       500,
       renderAdminLayout({
         pageTitle: "Admin - Error",
-        activeTab: "api-keys",
+        activeTab: "ops",
         contentHtml: `<section class="card"><h2>Unexpected admin error</h2><p class="warning">Try again or check server logs.</p></section>`,
       }),
     );
-    // END_BLOCK_MAP_ROUTE_FAILURES_TO_SAFE_HTML_RESPONSES_M_ADMIN_UI_024
+    // END_BLOCK_MAP_ROUTE_FAILURES_TO_SAFE_HTML_RESPONSES_M_ADMIN_UI_121
   }
 }
