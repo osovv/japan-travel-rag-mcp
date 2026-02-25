@@ -224,7 +224,7 @@
       <step-3 module="M-TOOLS-CONTRACTS">Implement public schemas and proxied tool allowlist constants.</step-3>
     </Phase-1>
 
-    <Phase-2 name="Proxy Core">
+    <Phase-2 name="Proxy Core" status="done">
       <step-1 module="M-TG-CHAT-RAG-CLIENT">Implement Bearer-auth upstream client and error normalization.</step-1>
       <step-2 module="M-TOOL-PROXY">Implement validation, chat_ids policy injection, forwarding, and response mapping.</step-2>
     </Phase-2>
