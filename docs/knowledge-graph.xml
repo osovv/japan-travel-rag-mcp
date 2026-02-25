@@ -1,20 +1,20 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="0.8.0">
-    <keywords>japan-travel, mcp, proxy, tg-chat-rag, bearer-auth, admin-ui, api-keys, postgres, drizzle, htmx, daisyui, contract-first</keywords>
-    <annotation>v1 architecture is a thin MCP proxy over tg-chat-rag methods API plus a protected admin UI for API key lifecycle management. /mcp requires Bearer API keys only. /admin/login uses ROOT_AUTH_TOKEN and unauthenticated admin routes are redirected to /admin/login.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="0.9.0">
+    <keywords>japan-travel, mcp, proxy, tg-chat-rag, oauth, logto, jwks, dcr, admin-ui, postgres, drizzle, contract-first</keywords>
+    <annotation>OAuth-only architecture for /mcp using Logto-issued access tokens and MCP OAuth discovery metadata. Admin login remains rooted in ROOT_AUTH_TOKEN for internal operator access.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY">
-      <purpose>Runtime config validation for MCP server, admin authentication, and PostgreSQL connectivity settings.</purpose>
+      <purpose>Runtime config validation for MCP server, admin authentication, and OAuth resource server settings.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
       <annotations>
         <fn-loadConfig description="Validate env and return typed AppConfig" />
-        <type-AppConfig description="Configuration object including TG_CHAT_RAG settings, ROOT_AUTH_TOKEN, and DATABASE_URL" />
+        <type-AppConfig description="Configuration object including tg-chat-rag, ROOT_AUTH_TOKEN, and OAuth settings" />
       </annotations>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY">
-      <purpose>Structured logging for boot lifecycle, proxying, admin auth decisions, and persistence failures.</purpose>
+      <purpose>Structured logging for boot lifecycle, OAuth guard decisions, admin auth decisions, and upstream failures.</purpose>
       <path>src/logger/index.ts</path>
       <depends>M-CONFIG</depends>
       <annotations>
@@ -23,7 +23,7 @@
     </M-LOGGER>
 
     <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER">
-      <purpose>Initialize and expose Drizzle PostgreSQL client from DATABASE_URL.</purpose>
+      <purpose>Initialize and expose Drizzle PostgreSQL client from DATABASE_URL for current and future persistence modules.</purpose>
       <path>src/db/index.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
@@ -31,19 +31,6 @@
         <type-DbClient description="Typed Drizzle DB handle" />
       </annotations>
     </M-DB>
-
-    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER">
-      <purpose>Persist API key hashes and lifecycle metadata for MCP authorization.</purpose>
-      <path>src/admin/api-key-repository.ts</path>
-      <depends>M-DB, M-LOGGER</depends>
-      <annotations>
-        <fn-createApiKey description="Generate one-time raw key, store hash+metadata, return reveal payload" />
-        <fn-listApiKeys description="List API key records for admin UI" />
-        <fn-revokeApiKey description="Mark API key as revoked" />
-        <fn-resolveApiKey description="Resolve Bearer token by hash with expiry/revocation checks" />
-        <type-ApiKeyRecord description="Stored API key metadata with label and nullable expires_at" />
-      </annotations>
-    </M-API-KEY-REPOSITORY>
 
     <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY">
       <purpose>Schema and allowlist registry for MCP tools proxied in v1.</purpose>
@@ -59,7 +46,7 @@
     </M-TOOLS-CONTRACTS>
 
     <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION">
-      <purpose>HTTP adapter for tg-chat-rag methods API with Bearer token authentication.</purpose>
+      <purpose>HTTP adapter for tg-chat-rag methods API with service-level Bearer token authentication.</purpose>
       <path>src/integrations/tg-chat-rag-client.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
@@ -67,6 +54,34 @@
         <type-UpstreamCallError description="Normalized error payload for timeout, auth, and protocol failures" />
       </annotations>
     </M-TG-CHAT-RAG-CLIENT>
+
+    <M-OAUTH-DISCOVERY NAME="OAuthDiscoveryRoutes" TYPE="ENTRY_POINT">
+      <purpose>Serve OAuth protected resource metadata for MCP OAuth client bootstrap.</purpose>
+      <path>src/auth/oauth-discovery-routes.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-handleOAuthProtectedResourceMetadata description="Return protected resource metadata for /.well-known/oauth-protected-resource routes" />
+      </annotations>
+    </M-OAUTH-DISCOVERY>
+
+    <M-OAUTH-JWKS NAME="OAuthJwksClient" TYPE="INTEGRATION">
+      <purpose>Fetch and cache issuer JWKS keys for access token signature verification.</purpose>
+      <path>src/auth/oauth-jwks-client.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-getSigningKey description="Resolve signing key by kid using cache-aware JWKS refresh" />
+        <fn-refreshJwks description="Refresh in-memory JWKS cache from OAuth issuer" />
+      </annotations>
+    </M-OAUTH-JWKS>
+
+    <M-OAUTH-TOKEN-VALIDATOR NAME="OAuthTokenValidator" TYPE="CORE_LOGIC">
+      <purpose>Validate OAuth Bearer access token signature and claims for /mcp authorization.</purpose>
+      <path>src/auth/oauth-token-validator.ts</path>
+      <depends>M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-validateAccessToken description="Validate Bearer token with iss/aud/exp/nbf/scope checks" />
+      </annotations>
+    </M-OAUTH-TOKEN-VALIDATOR>
 
     <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC">
       <purpose>Authenticate admin login attempts using ROOT_AUTH_TOKEN and enforce admin session cookie checks.</purpose>
@@ -80,11 +95,12 @@
     </M-ADMIN-AUTH>
 
     <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC">
-      <purpose>Authorize /mcp requests using API keys from ApiKeyRepository before transport execution.</purpose>
+      <purpose>Authorize /mcp requests using OAuth access tokens before transport execution.</purpose>
       <path>src/auth/mcp-auth-guard.ts</path>
-      <depends>M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <depends>M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
       <annotations>
-        <fn-authorizeMcpRequest description="Validate Bearer API key and return allow/deny decision" />
+        <fn-authorizeMcpRequest description="Validate OAuth Bearer token and return allow/deny decision" />
+        <fn-buildWwwAuthenticateHeader description="Build standards-compliant challenge header for denied requests" />
       </annotations>
     </M-MCP-AUTH-GUARD>
 
@@ -100,13 +116,13 @@
     </M-TOOL-PROXY>
 
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT">
-      <purpose>Render Bun JSX admin pages and HTMX fragments for API key management UI.</purpose>
+      <purpose>Render Bun JSX admin pages and HTMX fragments for operator login and OAuth diagnostics.</purpose>
       <path>src/admin/ui-routes.tsx</path>
-      <depends>M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-handleAdminRequest description="Dispatch /admin/login and /admin/api-keys route actions" />
-        <fn-renderAdminLayout description="Render admin layout with sidebar and Api Keys tab" />
-        <fn-renderApiKeysTable description="Render HTMX-refreshable API keys table fragment" />
+        <fn-handleAdminRequest description="Dispatch /admin/login and /admin/ops route actions" />
+        <fn-renderAdminLayout description="Render admin layout with OAuth ops tab" />
+        <fn-renderOpsStatus description="Render OAuth runtime status fragment" />
       </annotations>
     </M-ADMIN-UI>
 
@@ -121,11 +137,11 @@
     </M-TRANSPORT>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
-      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /admin/*, /healthz).</purpose>
+      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /.well-known/oauth-protected-resource*, /admin/*, /healthz).</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-OAUTH-DISCOVERY, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
       <annotations>
-        <fn-main description="Boot server, wire auth guards, and route MCP/admin requests" />
+        <fn-main description="Boot server, wire auth guards, and route MCP/admin/discovery requests" />
       </annotations>
     </M-SERVER>
 
@@ -139,11 +155,11 @@
     </M-ROOT-ENTRYPOINT>
 
     <M-TRANSPORT-SMOKE NAME="McpTransportSmokeTests" TYPE="TEST">
-      <purpose>Smoke validation for MCP transport tool surface and routing behavior.</purpose>
+      <purpose>Smoke validation for MCP transport tool surface and OAuth auth-gated routing behavior.</purpose>
       <path>src/transport/mcp-transport.smoke.test.ts</path>
       <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-GUARD, M-LOGGER</depends>
       <annotations>
-        <fn-TransportSmokeTests description="Smoke checks for tools/list and tools/call over registered transport surface" />
+        <fn-TransportSmokeTests description="Smoke checks for tools/list and tools/call with OAuth unauthorized/authorized scenarios" />
       </annotations>
     </M-TRANSPORT-SMOKE>
 
@@ -178,7 +194,7 @@
       <DF-ADMIN-LOGIN NAME="admin login flow">
         <step-1>Operator submits ROOT_AUTH_TOKEN via /admin/login form.</step-1>
         <step-2>M-ADMIN-AUTH validates token and sets signed admin session cookie.</step-2>
-        <step-3>Operator is redirected to /admin/api-keys.</step-3>
+        <step-3>Operator is redirected to /admin/ops.</step-3>
       </DF-ADMIN-LOGIN>
 
       <DF-ADMIN-GUARD NAME="admin route guard flow">
@@ -187,28 +203,23 @@
         <step-3>Unauthenticated request is redirected to /admin/login.</step-3>
       </DF-ADMIN-GUARD>
 
-      <DF-API-KEY-CREATE NAME="api key create flow">
-        <step-1>Admin submits label and optional expires_at from Api Keys tab.</step-1>
-        <step-2>M-API-KEY-REPOSITORY stores hash/prefix/metadata and returns one-time raw key.</step-2>
-        <step-3>M-ADMIN-UI returns updated list fragment and one-time reveal panel.</step-3>
-      </DF-API-KEY-CREATE>
+      <DF-OAUTH-DISCOVERY NAME="oauth protected resource discovery flow">
+        <step-1>Client requests /.well-known/oauth-protected-resource or /.well-known/oauth-protected-resource/mcp.</step-1>
+        <step-2>M-OAUTH-DISCOVERY returns issuer/resource/scope metadata.</step-2>
+        <step-3>Client initiates OAuth authorization at Logto.</step-3>
+      </DF-OAUTH-DISCOVERY>
 
-      <DF-API-KEY-REVOKE NAME="api key revoke flow">
-        <step-1>Admin triggers key revoke action.</step-1>
-        <step-2>M-API-KEY-REPOSITORY sets revoked_at.</step-2>
-        <step-3>M-ADMIN-UI refreshes key list fragment.</step-3>
-      </DF-API-KEY-REVOKE>
-
-      <DF-MCP-AUTH NAME="mcp bearer auth flow">
-        <step-1>Client calls /mcp with Authorization Bearer token.</step-1>
-        <step-2>M-MCP-AUTH-GUARD resolves token hash and validates expiry/revocation.</step-2>
-        <step-3>Unauthorized request is rejected before MCP transport handler.</step-3>
+      <DF-MCP-AUTH NAME="mcp oauth auth flow">
+        <step-1>Client calls /mcp with Authorization Bearer access token.</step-1>
+        <step-2>M-MCP-AUTH-GUARD delegates validation to M-OAUTH-TOKEN-VALIDATOR.</step-2>
+        <step-3>M-OAUTH-TOKEN-VALIDATOR verifies token using M-OAUTH-JWKS and claim checks.</step-3>
+        <step-4>Unauthorized request is rejected before MCP transport handler with WWW-Authenticate challenge.</step-4>
       </DF-MCP-AUTH>
 
       <DF-PROXY-SEARCH NAME="search_messages proxy flow">
         <step-1>Authorized MCP caller invokes search_messages without chat_ids input.</step-1>
         <step-2>M-TOOL-PROXY injects chat IDs from TG_CHAT_RAG_CHAT_IDS.</step-2>
-        <step-3>M-TG-CHAT-RAG-CLIENT forwards request to /api/v1/methods/search_messages with Bearer token.</step-3>
+        <step-3>M-TG-CHAT-RAG-CLIENT forwards request to /api/v1/methods/search_messages with service token.</step-3>
         <step-4>Response is returned to caller in MCP format.</step-4>
       </DF-PROXY-SEARCH>
 
@@ -240,14 +251,19 @@
     <CrossLink FROM="M-LOGGER" TO="M-CONFIG" relation="reads runtime config for log setup" />
     <CrossLink FROM="M-DB" TO="M-CONFIG" relation="uses DATABASE_URL to initialize Drizzle PostgreSQL client" />
     <CrossLink FROM="M-DB" TO="M-LOGGER" relation="emits db initialization and connectivity diagnostics" />
-    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-DB" relation="stores and queries API key records through Drizzle" />
-    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-LOGGER" relation="logs key lifecycle actions without exposing secrets" />
     <CrossLink FROM="M-ADMIN-AUTH" TO="M-CONFIG" relation="uses ROOT_AUTH_TOKEN for login validation" />
     <CrossLink FROM="M-ADMIN-AUTH" TO="M-LOGGER" relation="emits admin auth success and failure events" />
-    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-API-KEY-REPOSITORY" relation="resolves and validates Bearer API keys" />
-    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-LOGGER" relation="logs /mcp auth guard decisions" />
+    <CrossLink FROM="M-OAUTH-DISCOVERY" TO="M-CONFIG" relation="reads PUBLIC_URL, OAUTH_ISSUER, OAUTH_REQUIRED_SCOPES for metadata output" />
+    <CrossLink FROM="M-OAUTH-DISCOVERY" TO="M-LOGGER" relation="logs oauth discovery route behavior" />
+    <CrossLink FROM="M-OAUTH-JWKS" TO="M-CONFIG" relation="uses issuer and timeout/cache settings to load signing keys" />
+    <CrossLink FROM="M-OAUTH-JWKS" TO="M-LOGGER" relation="emits jwks fetch and cache diagnostics" />
+    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR" TO="M-OAUTH-JWKS" relation="retrieves signing key material for token verification" />
+    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR" TO="M-CONFIG" relation="validates token claims against configured issuer, audience, and required scopes" />
+    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR" TO="M-LOGGER" relation="logs token validation allow/deny decisions" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-OAUTH-TOKEN-VALIDATOR" relation="delegates bearer access token validation and maps results to auth decisions" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-LOGGER" relation="logs /mcp auth guard decisions and challenge metadata" />
     <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" relation="enforces admin session guard on protected UI routes" />
-    <CrossLink FROM="M-ADMIN-UI" TO="M-API-KEY-REPOSITORY" relation="handles create/list/revoke UI actions for API keys" />
+    <CrossLink FROM="M-ADMIN-UI" TO="M-CONFIG" relation="renders OAuth config diagnostics for operators" />
     <CrossLink FROM="M-ADMIN-UI" TO="M-LOGGER" relation="emits admin route and HTMX action logs" />
     <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-LOGGER" relation="emits schema validation diagnostics" />
     <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" relation="uses base URL, bearer token, and timeout settings" />
@@ -260,16 +276,16 @@
     <CrossLink FROM="M-TRANSPORT" TO="M-TOOL-PROXY" relation="routes tool handlers to proxy execution" />
     <CrossLink FROM="M-TRANSPORT" TO="M-LOGGER" relation="emits request lifecycle logs" />
     <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server and auth settings" />
-    <CrossLink FROM="M-SERVER" TO="M-DB" relation="initializes DB dependency for auth and key management" />
-    <CrossLink FROM="M-SERVER" TO="M-API-KEY-REPOSITORY" relation="wires key repository into admin and mcp auth paths" />
+    <CrossLink FROM="M-SERVER" TO="M-DB" relation="initializes DB dependency for runtime foundation" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-AUTH" relation="routes /admin/login and session guard checks" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="mounts admin route handlers" />
-    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces bearer authorization before transport" />
+    <CrossLink FROM="M-SERVER" TO="M-OAUTH-DISCOVERY" relation="mounts OAuth protected-resource metadata endpoints" />
+    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces OAuth authorization before transport" />
     <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp transport handler after auth checks" />
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies transport tool exposure and request routing smoke behavior" />
-    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies unauthorized and authorized /mcp behavior" />
+    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies unauthorized, insufficient-scope, and authorized /mcp behavior" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />

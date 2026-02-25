@@ -1,21 +1,24 @@
-<DevelopmentPlan VERSION="0.5.0">
+<DevelopmentPlan VERSION="0.6.0">
   <Context>
-    <purpose>Ship v1 as a thin MCP proxy over tg-chat-rag with an internal admin surface for API key lifecycle management.</purpose>
-    <scope>Expose search_messages, get_message_context, get_related_messages, and list_sources on /mcp; provide /admin/login and /admin/api-keys UI with key create/revoke controls.</scope>
+    <purpose>Ship v1 as a thin MCP proxy over tg-chat-rag with OAuth-only authorization for /mcp and an internal admin surface for operator login and diagnostics.</purpose>
+    <scope>Expose search_messages, get_message_context, get_related_messages, and list_sources on /mcp; provide /admin/login and /admin/ops while removing API key lifecycle from the product surface.</scope>
     <constraints>
       <constraint-1>External MCP callers cannot provide filters.chat_ids.</constraint-1>
       <constraint-2>search_messages always uses chat IDs from TG_CHAT_RAG_CHAT_IDS env.</constraint-2>
       <constraint-3>All upstream tg-chat-rag calls use Bearer token from TG_CHAT_RAG_BEARER_TOKEN.</constraint-3>
-      <constraint-4>/mcp accepts only Bearer API keys from the API key repository.</constraint-4>
+      <constraint-4>/mcp accepts only OAuth 2.0 access tokens issued by Logto and validated with issuer, audience, expiry, and required scopes.</constraint-4>
       <constraint-5>ROOT_AUTH_TOKEN is valid only for /admin/login and must never authorize /mcp.</constraint-5>
-      <constraint-6>API key raw secret is shown exactly once at creation time; only key hash is stored.</constraint-6>
+      <constraint-6>API key CRUD and API key repository are removed from runtime architecture.</constraint-6>
+      <constraint-7>OAuth metadata for protected resource is published at /.well-known/oauth-protected-resource and /.well-known/oauth-protected-resource/mcp.</constraint-7>
+      <constraint-8>OAuth client registration and refresh token lifecycle are owned by Logto; server acts only as resource server.</constraint-8>
+      <constraint-9>Refresh token policy target is 90 days at authorization server configuration level.</constraint-9>
     </constraints>
   </Context>
 
   <Modules>
     <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1">
       <contract>
-        <purpose>Load and validate runtime configuration for MCP proxy, admin authentication, and PostgreSQL connectivity.</purpose>
+        <purpose>Load and validate runtime configuration for MCP proxy transport, admin authentication, and OAuth resource server validation settings.</purpose>
         <inputs>
           <param-1 name="env" type="NodeJS.ProcessEnv" />
         </inputs>
@@ -28,7 +31,7 @@
       </contract>
       <interface>
         <export-loadConfig PURPOSE="Validate env and return typed runtime config" />
-        <type-AppConfig PURPOSE="Typed app config with TG_CHAT_RAG settings, ROOT_AUTH_TOKEN, and DATABASE_URL" />
+        <type-AppConfig PURPOSE="Typed app config with tg-chat-rag, admin auth, and OAuth resource server settings" />
       </interface>
       <depends>none</depends>
       <notes>
@@ -37,12 +40,19 @@
         <note-3>Required env: TG_CHAT_RAG_CHAT_IDS (CSV, non-empty)</note-3>
         <note-4>Required env: ROOT_AUTH_TOKEN</note-4>
         <note-5>Required env: DATABASE_URL</note-5>
+        <note-6>Required env: PUBLIC_URL</note-6>
+        <note-7>Required env: OAUTH_ISSUER</note-7>
+        <note-8>Required env: OAUTH_AUDIENCE</note-8>
+        <note-9>Required env: OAUTH_REQUIRED_SCOPES (CSV, default contains mcp:access)</note-9>
+        <note-10>Optional env: OAUTH_JWKS_CACHE_TTL_MS</note-10>
+        <note-11>Optional env: OAUTH_JWKS_TIMEOUT_MS</note-11>
+        <note-12>Optional env: OAUTH_CLOCK_SKEW_SEC</note-12>
       </notes>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY" LAYER="0" ORDER="2">
       <contract>
-        <purpose>Provide structured logs for MCP requests, admin actions, validation decisions, upstream calls, and failures.</purpose>
+        <purpose>Provide structured logs for MCP requests, OAuth validation decisions, admin actions, upstream calls, and failures.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
@@ -61,7 +71,7 @@
 
     <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" LAYER="1" ORDER="1">
       <contract>
-        <purpose>Create and expose Drizzle PostgreSQL database client from DATABASE_URL runtime configuration.</purpose>
+        <purpose>Create and expose Drizzle PostgreSQL database client from DATABASE_URL runtime configuration for current and upcoming data modules.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
@@ -79,36 +89,7 @@
       <depends>M-CONFIG, M-LOGGER</depends>
     </M-DB>
 
-    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER" LAYER="1" ORDER="2">
-      <contract>
-        <purpose>Persist and query API key lifecycle records used for MCP Bearer authentication.</purpose>
-        <inputs>
-          <param-1 name="label" type="string" />
-          <param-2 name="expires_at" type="Date|null" />
-          <param-3 name="rawApiKey" type="string" />
-        </inputs>
-        <outputs>
-          <param-1 name="ApiKeyRecord" type="object" />
-          <param-2 name="ApiKeyList" type="object[]" />
-        </outputs>
-        <errors>
-          <error-API_KEY_STORE_ERROR code="API_KEY_STORE_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-createApiKey PURPOSE="Generate raw key material, persist hashed key, and return one-time secret" />
-        <export-listApiKeys PURPOSE="List non-revoked and revoked API keys with label and expiry metadata" />
-        <export-revokeApiKey PURPOSE="Mark API key as revoked" />
-        <export-resolveApiKey PURPOSE="Resolve presented Bearer token by hash and expiry/revocation status" />
-      </interface>
-      <depends>M-DB, M-LOGGER</depends>
-      <notes>
-        <note-1>Table contract: id, key_hash (unique), key_prefix, label, expires_at (nullable), revoked_at (nullable), created_at.</note-1>
-        <note-2>Raw API key is never stored; only cryptographic hash and non-sensitive prefix are persisted.</note-2>
-      </notes>
-    </M-API-KEY-REPOSITORY>
-
-    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="3">
+    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="2">
       <contract>
         <purpose>Define and export MCP tool schemas and tool allowlist for the proxy surface.</purpose>
         <inputs>
@@ -137,7 +118,7 @@
 
     <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION" LAYER="2" ORDER="1">
       <contract>
-        <purpose>Call tg-chat-rag methods API via POST /api/v1/methods/&lt;tool_name&gt; with Bearer auth.</purpose>
+        <purpose>Call tg-chat-rag methods API via POST /api/v1/methods/&lt;tool_name&gt; with service-level Bearer auth.</purpose>
         <inputs>
           <param-1 name="toolName" type="string" />
           <param-2 name="payload" type="object" />
@@ -161,7 +142,54 @@
       </notes>
     </M-TG-CHAT-RAG-CLIENT>
 
-    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="2" ORDER="2">
+    <M-OAUTH-DISCOVERY NAME="OAuthDiscoveryRoutes" TYPE="ENTRY_POINT" LAYER="2" ORDER="2">
+      <contract>
+        <purpose>Expose OAuth protected resource metadata endpoints required by MCP OAuth clients.</purpose>
+        <inputs>
+          <param-1 name="request" type="Request" />
+        </inputs>
+        <outputs>
+          <param-1 name="response" type="Response" />
+        </outputs>
+        <errors>
+          <error-OAUTH_DISCOVERY_ERROR code="OAUTH_DISCOVERY_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-handleOAuthProtectedResourceMetadata PURPOSE="Serve protected resource metadata for OAuth discovery" />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <notes>
+        <note-1>Routes: GET /.well-known/oauth-protected-resource and GET /.well-known/oauth-protected-resource/mcp</note-1>
+        <note-2>Metadata references Logto issuer and mcp:access required scope.</note-2>
+      </notes>
+    </M-OAUTH-DISCOVERY>
+
+    <M-OAUTH-JWKS NAME="OAuthJwksClient" TYPE="INTEGRATION" LAYER="2" ORDER="3">
+      <contract>
+        <purpose>Fetch, cache, and rotate JWKS signing keys from the configured OAuth issuer.</purpose>
+        <inputs>
+          <param-1 name="kid" type="string" />
+        </inputs>
+        <outputs>
+          <param-1 name="jwksKey" type="CryptoKeyLike" />
+        </outputs>
+        <errors>
+          <error-OAUTH_JWKS_ERROR code="OAUTH_JWKS_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-getSigningKey PURPOSE="Resolve signing key by kid with cache-aware refresh" />
+        <export-refreshJwks PURPOSE="Force JWKS refresh when kid is not found or stale" />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <notes>
+        <note-1>JWKS is loaded from &lt;OAUTH_ISSUER&gt;/.well-known/jwks.json (or provider metadata equivalent).</note-1>
+        <note-2>Use bounded timeout and in-memory TTL cache to reduce auth latency.</note-2>
+      </notes>
+    </M-OAUTH-JWKS>
+
+    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
       <contract>
         <purpose>Authenticate admin operators with ROOT_AUTH_TOKEN and enforce cookie session checks for /admin routes.</purpose>
         <inputs>
@@ -184,13 +212,36 @@
       <depends>M-CONFIG, M-LOGGER</depends>
       <notes>
         <note-1>Default unauthenticated admin behavior: 302 redirect to /admin/login.</note-1>
-        <note-2>ROOT_AUTH_TOKEN is accepted only by admin login flow and never by MCP bearer auth.</note-2>
+        <note-2>ROOT_AUTH_TOKEN is accepted only by admin login flow and never by /mcp OAuth auth guard.</note-2>
       </notes>
     </M-ADMIN-AUTH>
 
-    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC" LAYER="2" ORDER="3">
+    <M-OAUTH-TOKEN-VALIDATOR NAME="OAuthTokenValidator" TYPE="CORE_LOGIC" LAYER="3" ORDER="2">
       <contract>
-        <purpose>Authorize /mcp requests using API keys only and reject unauthorized callers before transport handling.</purpose>
+        <purpose>Validate OAuth access tokens for /mcp using JWT signature and required claims checks.</purpose>
+        <inputs>
+          <param-1 name="authorizationHeader" type="string|null" />
+        </inputs>
+        <outputs>
+          <param-1 name="tokenValidationResult" type="object" />
+        </outputs>
+        <errors>
+          <error-OAUTH_TOKEN_VALIDATION_ERROR code="OAUTH_TOKEN_VALIDATION_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-validateAccessToken PURPOSE="Parse Bearer token and validate signature, issuer, audience, time claims, and scopes" />
+      </interface>
+      <depends>M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
+      <notes>
+        <note-1>Required claims: iss, aud, exp, nbf(optional), iat(optional), scope.</note-1>
+        <note-2>Required scope baseline: mcp:access.</note-2>
+      </notes>
+    </M-OAUTH-TOKEN-VALIDATOR>
+
+    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC" LAYER="3" ORDER="3">
+      <contract>
+        <purpose>Authorize /mcp requests using OAuth access tokens only and reject unauthorized callers before transport handling.</purpose>
         <inputs>
           <param-1 name="authorizationHeader" type="string|null" />
         </inputs>
@@ -202,15 +253,17 @@
         </errors>
       </contract>
       <interface>
-        <export-authorizeMcpRequest PURPOSE="Validate Bearer key against API key repository and return allow/deny" />
+        <export-authorizeMcpRequest PURPOSE="Validate OAuth Bearer token via OAuthTokenValidator and return allow/deny" />
+        <export-buildWwwAuthenticateHeader PURPOSE="Build standards-compliant WWW-Authenticate challenge values" />
       </interface>
-      <depends>M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <depends>M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
       <notes>
-        <note-1>No fallback credentials are allowed for /mcp; ROOT_AUTH_TOKEN is rejected by design.</note-1>
+        <note-1>No fallback credentials are allowed for /mcp.</note-1>
+        <note-2>Denied responses include WWW-Authenticate challenge with oauth metadata hint.</note-2>
       </notes>
     </M-MCP-AUTH-GUARD>
 
-    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
+    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="4" ORDER="1">
       <contract>
         <purpose>Apply policy-safe normalization and proxy supported MCP tool calls to tg-chat-rag.</purpose>
         <inputs>
@@ -236,9 +289,9 @@
       </notes>
     </M-TOOL-PROXY>
 
-    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="3" ORDER="2">
+    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
       <contract>
-        <purpose>Render admin HTML with Bun JSX and process HTMX actions for API key management.</purpose>
+        <purpose>Render admin HTML with Bun JSX for operator login and OAuth runtime diagnostics.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
         </inputs>
@@ -250,18 +303,18 @@
         </errors>
       </contract>
       <interface>
-        <export-handleAdminRequest PURPOSE="Route /admin/login and /admin/api-keys GET/POST/DELETE actions" />
-        <export-renderAdminLayout PURPOSE="Render sidebar layout with Api Keys tab" />
-        <export-renderApiKeysTable PURPOSE="Render HTMX-refreshable API keys list fragment" />
+        <export-handleAdminRequest PURPOSE="Route /admin/login and /admin/ops actions" />
+        <export-renderAdminLayout PURPOSE="Render operator layout with OAuth status tab" />
+        <export-renderOpsStatus PURPOSE="Render OAuth and MCP runtime status diagnostics" />
       </interface>
-      <depends>M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
       <notes>
         <note-1>UI stack: Bun JSX templating + HTMX progressive enhancement + daisyUI class primitives.</note-1>
-        <note-2>Sidebar contains one tab: Api Keys.</note-2>
+        <note-2>API key management tab is removed in OAuth-only architecture.</note-2>
       </notes>
     </M-ADMIN-UI>
 
-    <M-TRANSPORT NAME="McpTransport" TYPE="ENTRY_POINT" LAYER="4" ORDER="1">
+    <M-TRANSPORT NAME="McpTransport" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
         <purpose>Register MCP tools and route authorized tool calls into ToolProxyService.</purpose>
         <inputs>
@@ -285,9 +338,9 @@
       </notes>
     </M-TRANSPORT>
 
-    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
+    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
       <contract>
-        <purpose>Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, and /healthz routes.</purpose>
+        <purpose>Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth well-known routes, and /healthz.</purpose>
         <inputs>
           <param-1 name="processSignals" type="SIGTERM|SIGINT" />
         </inputs>
@@ -301,15 +354,34 @@
       <interface>
         <export-main PURPOSE="Boot sequence, dependency wiring, and route lifecycle" />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-OAUTH-DISCOVERY, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
     </M-SERVER>
+
+    <M-TRANSPORT-SMOKE NAME="McpTransportSmokeTests" TYPE="TEST" LAYER="6" ORDER="2">
+      <contract>
+        <purpose>Provide smoke coverage for MCP transport registration, OAuth auth-gated dispatch behavior, and expected failure modes.</purpose>
+        <inputs>
+          <param-1 name="testRuntime" type="bun:test" />
+        </inputs>
+        <outputs>
+          <param-1 name="testReport" type="object" />
+        </outputs>
+        <errors>
+          <error-TEST_FAILURE code="TEST_FAILURE" />
+        </errors>
+      </contract>
+      <interface>
+        <export-TransportSmokeTests PURPOSE="Validate unauthorized/insufficient-scope/authorized /mcp request flows" />
+      </interface>
+      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-GUARD, M-LOGGER</depends>
+    </M-TRANSPORT-SMOKE>
   </Modules>
 
   <DataFlows>
     <DF-ADMIN-LOGIN NAME="Admin Login Flow" TRIGGER="POST /admin/login">
       <step-1>Operator submits login form with ROOT_AUTH_TOKEN candidate.</step-1>
       <step-2>M-ADMIN-AUTH validates token and issues signed HTTP-only admin session cookie.</step-2>
-      <step-3>Server redirects authenticated operator to /admin/api-keys.</step-3>
+      <step-3>Server redirects authenticated operator to /admin/ops.</step-3>
     </DF-ADMIN-LOGIN>
 
     <DF-ADMIN-GUARD NAME="Admin Route Guard Flow" TRIGGER="GET /admin/*">
@@ -319,23 +391,18 @@
       <step-4>Authenticated request is routed to M-ADMIN-UI handlers.</step-4>
     </DF-ADMIN-GUARD>
 
-    <DF-API-KEY-CREATE NAME="API Key Create Flow" TRIGGER="HTMX create action on /admin/api-keys">
-      <step-1>Operator submits label and optional expires_at.</step-1>
-      <step-2>M-API-KEY-REPOSITORY generates raw secret, stores only hash+metadata in PostgreSQL, returns one-time secret payload.</step-2>
-      <step-3>M-ADMIN-UI returns updated key list fragment and one-time secret panel.</step-3>
-    </DF-API-KEY-CREATE>
+    <DF-OAUTH-DISCOVERY NAME="OAuth Protected Resource Discovery Flow" TRIGGER="GET /.well-known/oauth-protected-resource*">
+      <step-1>MCP client requests protected resource metadata for /mcp.</step-1>
+      <step-2>M-OAUTH-DISCOVERY returns issuer, resource, and required scopes bound to PUBLIC_URL.</step-2>
+      <step-3>Client starts OAuth authorization against Logto and obtains access token.</step-3>
+    </DF-OAUTH-DISCOVERY>
 
-    <DF-API-KEY-REVOKE NAME="API Key Revoke Flow" TRIGGER="HTMX revoke action on /admin/api-keys/:id/revoke">
-      <step-1>Operator revokes selected API key.</step-1>
-      <step-2>M-API-KEY-REPOSITORY sets revoked_at timestamp.</step-2>
-      <step-3>M-ADMIN-UI returns refreshed API key list fragment.</step-3>
-    </DF-API-KEY-REVOKE>
-
-    <DF-MCP-AUTH NAME="MCP Bearer Auth Flow" TRIGGER="POST /mcp">
-      <step-1>Client sends Authorization header with Bearer token.</step-1>
-      <step-2>M-MCP-AUTH-GUARD resolves token hash and checks expiry/revocation.</step-2>
-      <step-3>Unauthorized request is rejected before MCP transport invocation.</step-3>
-      <step-4>Authorized request is dispatched to M-TRANSPORT.</step-4>
+    <DF-MCP-AUTH NAME="MCP OAuth Auth Flow" TRIGGER="POST /mcp">
+      <step-1>Client sends Authorization header with OAuth Bearer access token.</step-1>
+      <step-2>M-MCP-AUTH-GUARD delegates token verification to M-OAUTH-TOKEN-VALIDATOR.</step-2>
+      <step-3>Validator verifies signature via JWKS and checks iss/aud/exp/nbf/scope claims.</step-3>
+      <step-4>Unauthorized request is rejected before MCP transport invocation with WWW-Authenticate challenge.</step-4>
+      <step-5>Authorized request is dispatched to M-TRANSPORT.</step-5>
     </DF-MCP-AUTH>
 
     <DF-PROXY-SEARCH NAME="search_messages Proxy Flow" TRIGGER="MCP tool search_messages">
@@ -379,79 +446,83 @@
 
   <ImplementationOrder>
     <Phase-1 name="Existing Proxy Foundation" status="done">
-      <step-1 module="M-CONFIG">Implement typed env parsing and strict validation for TG_CHAT_RAG_* variables.</step-1>
-      <step-2 module="M-LOGGER">Implement structured logger and request-scoped fields.</step-2>
-      <step-3 module="M-TOOLS-CONTRACTS">Implement public schemas and proxied tool allowlist constants.</step-3>
+      <step-1 module="M-CONFIG">Implemented typed env parsing and strict validation for TG_CHAT_RAG_* variables.</step-1>
+      <step-2 module="M-LOGGER">Implemented structured logger and request-scoped fields.</step-2>
+      <step-3 module="M-TOOLS-CONTRACTS">Implemented public schemas and proxied tool allowlist constants.</step-3>
+      <step-4 module="M-TG-CHAT-RAG-CLIENT">Implemented upstream tg-chat-rag adapter with timeout and normalized errors.</step-4>
+      <step-5 module="M-TRANSPORT">Implemented MCP transport registration for the public tool surface.</step-5>
     </Phase-1>
 
-    <Phase-2 name="Existing Proxy Core" status="done">
-      <step-1 module="M-TG-CHAT-RAG-CLIENT">Implement Bearer-auth upstream client and error normalization.</step-1>
-      <step-2 module="M-TOOL-PROXY">Implement validation, chat_ids policy injection, forwarding, and response mapping.</step-2>
+    <Phase-2 name="OAuth Contract Rewrite" status="planned">
+      <step-1 module="M-CONFIG">Extend config contract with PUBLIC_URL and OAuth validation settings.</step-1>
+      <step-2 module="M-MCP-AUTH-GUARD">Replace API key authorization contract with OAuth-only guard contract.</step-2>
+      <step-3 module="M-ADMIN-UI">Replace API key management scope with operator diagnostics scope.</step-3>
     </Phase-2>
 
-    <Phase-3 name="Existing Entrypoints" status="done">
-      <step-1 module="M-TRANSPORT">Register 4 tools and wire tool calls to proxy service.</step-1>
-      <step-2 module="M-SERVER">Start Bun HTTP server for /mcp and /healthz with graceful shutdown.</step-2>
-      <step-3 module="M-TRANSPORT">Add smoke checks: 4 allowed tools pass, list_chats is not exposed.</step-3>
+    <Phase-3 name="OAuth Core Validation" status="planned">
+      <step-1 module="M-OAUTH-JWKS">Implement issuer JWKS fetch + cache + refresh behavior.</step-1>
+      <step-2 module="M-OAUTH-TOKEN-VALIDATOR">Implement JWT validation with claim and scope checks.</step-2>
+      <step-3 module="M-MCP-AUTH-GUARD">Wire validator outputs to allow/deny decisions and challenge metadata.</step-3>
     </Phase-3>
 
-    <Phase-4 name="Admin Data Foundation" status="done">
-      <step-1 module="M-CONFIG">Extend config contract with ROOT_AUTH_TOKEN and DATABASE_URL validation.</step-1>
-      <step-2 module="M-DB">Implement Drizzle PostgreSQL client bootstrap.</step-2>
-      <step-3 module="M-API-KEY-REPOSITORY">Create API key schema and repository methods for create/list/revoke/resolve.</step-3>
+    <Phase-4 name="OAuth Protocol Surface" status="planned">
+      <step-1 module="M-OAUTH-DISCOVERY">Implement /.well-known/oauth-protected-resource endpoints.</step-1>
+      <step-2 module="M-SERVER">Mount discovery routes and ensure /mcp 401 responses include WWW-Authenticate.</step-2>
+      <step-3 module="M-SERVER">Verify OAuth challenge behavior with Claude-compatible flow.</step-3>
     </Phase-4>
 
-    <Phase-5 name="Admin Auth and UI" status="done">
-      <step-1 module="M-ADMIN-AUTH">Implement /admin/login authentication and cookie session checks.</step-1>
-      <step-2 module="M-ADMIN-UI">Implement admin layout, sidebar, and HTMX API keys CRUD interactions.</step-2>
+    <Phase-5 name="Legacy API Key Removal" status="planned">
+      <step-1 module="M-SERVER">Remove API key repository dependency from /mcp auth path and startup wiring.</step-1>
+      <step-2 module="M-ADMIN-UI">Remove /admin/api-keys routes, forms, and fragments from operator UI.</step-2>
+      <step-3 module="M-CONFIG">Remove obsolete API key-specific config notes and align runtime docs to OAuth-only.</step-3>
     </Phase-5>
 
-    <Phase-6 name="MCP Authorization Integration" status="done">
-      <step-1 module="M-MCP-AUTH-GUARD">Implement Bearer API key guard with expiry/revocation checks.</step-1>
-      <step-2 module="M-SERVER">Wire /mcp guard and /admin routes into server fetch handler.</step-2>
-      <step-3 module="M-TRANSPORT">Add integration smoke tests for unauthorized/authorized /mcp requests.</step-3>
+    <Phase-6 name="Cutover Validation" status="planned">
+      <step-1 module="M-TRANSPORT-SMOKE">Add OAuth smoke tests: missing token, invalid token, insufficient scope, authorized token.</step-1>
+      <step-2 module="M-SERVER">Validate end-to-end MCP OAuth handshake with Logto DCR-enabled client.</step-2>
+      <step-3 module="M-ADMIN-UI">Validate admin login and ops routes remain stable after API key removal.</step-3>
     </Phase-6>
   </ImplementationOrder>
 
   <RiskAssessment>
-    <RISK-1 name="Upstream Schema Drift">
-      <impact>Proxy payload contracts can diverge from tg-chat-rag while that service is still evolving.</impact>
-      <mitigation>Keep schemas centralized in M-TOOLS-CONTRACTS and run smoke contract checks for all proxied tools.</mitigation>
+    <RISK-1 name="OAuth Claim Misconfiguration">
+      <impact>Wrong issuer, audience, or required scope configuration will reject all /mcp requests.</impact>
+      <mitigation>Fail fast at startup for malformed config, log exact claim mismatch reason, and keep staging parity checks.</mitigation>
     </RISK-1>
 
-    <RISK-2 name="Upstream Availability">
-      <impact>Timeouts or 5xx from tg-chat-rag can degrade MCP reliability.</impact>
-      <mitigation>Use explicit request timeout, stable error mapping, and structured logs with tool_name and upstream status.</mitigation>
+    <RISK-2 name="JWKS Availability and Rotation">
+      <impact>Issuer JWKS downtime or stale cache during key rotation can block valid clients.</impact>
+      <mitigation>Use bounded retries, cache TTL tuning, and forced refresh on kid miss.</mitigation>
     </RISK-2>
 
-    <RISK-3 name="Chat Scope Leakage">
-      <impact>If callers could pass chat_ids, they might bypass intended source scope.</impact>
-      <mitigation>Public schema forbids filters.chat_ids and proxy layer enforces reject-if-present plus internal injection.</mitigation>
+    <RISK-3 name="OAuth Discovery Incompatibility">
+      <impact>Incorrect well-known metadata can break client authorization bootstrap.</impact>
+      <mitigation>Conform to MCP auth spec metadata fields and run integration checks with real clients.</mitigation>
     </RISK-3>
 
-    <RISK-4 name="One-Time Secret Handling">
-      <impact>Operator may lose newly generated API key if copied incorrectly.</impact>
-      <mitigation>Explicit one-time reveal panel with operator warning and clear regeneration path via create new key.</mitigation>
+    <RISK-4 name="Long-Lived Refresh Token Exposure">
+      <impact>90-day refresh policy increases exposure window for compromised refresh tokens.</impact>
+      <mitigation>Enable refresh token rotation and revocation controls in Logto; enforce TLS and secure client storage.</mitigation>
     </RISK-4>
 
-    <RISK-5 name="Session Cookie Security">
-      <impact>Weak admin session implementation can expose admin controls.</impact>
-      <mitigation>Use HTTP-only + SameSite cookie, signature validation, and strict redirect behavior for unauthenticated admin routes.</mitigation>
+    <RISK-5 name="Cutover Regression from API Key Removal">
+      <impact>Removing API key flows can regress existing admin pages and server boot assumptions.</impact>
+      <mitigation>Delete dependencies in controlled phases, keep smoke tests green, and verify /admin routes after each change.</mitigation>
     </RISK-5>
 
-    <RISK-6 name="Key Material Exposure">
-      <impact>Persisting raw keys or verbose logs could leak credentials.</impact>
-      <mitigation>Persist only hash+prefix, redact auth headers in logs, and never render full key except immediately after creation.</mitigation>
+    <RISK-6 name="Clock Drift and Time Claim Validation">
+      <impact>Clock skew can cause false negatives on exp/nbf validations.</impact>
+      <mitigation>Apply explicit skew tolerance and keep host time synchronized with NTP.</mitigation>
     </RISK-6>
 
-    <RISK-7 name="Clock Drift and Expiry Validation">
-      <impact>Expiry checks may be inconsistent across environments if time handling is naive.</impact>
-      <mitigation>Use database/server UTC timestamps and explicit expiry comparison semantics.</mitigation>
+    <RISK-7 name="Upstream Availability">
+      <impact>Timeouts or 5xx from tg-chat-rag can degrade MCP reliability after successful auth.</impact>
+      <mitigation>Keep explicit request timeout, stable error mapping, and request-scoped diagnostics.</mitigation>
     </RISK-7>
 
-    <RISK-8 name="Database Availability for Auth Path">
-      <impact>/mcp authorization depends on PostgreSQL; outages block all MCP calls.</impact>
-      <mitigation>Fail closed on auth checks, surface clear health diagnostics, and alert on DB connectivity failures.</mitigation>
+    <RISK-8 name="Chat Scope Leakage">
+      <impact>If callers could pass chat_ids, they might bypass intended source scope.</impact>
+      <mitigation>Public schema forbids filters.chat_ids and proxy layer enforces reject-if-present plus internal injection.</mitigation>
     </RISK-8>
   </RiskAssessment>
 </DevelopmentPlan>
