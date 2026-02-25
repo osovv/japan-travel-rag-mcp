@@ -395,7 +395,7 @@
       <step-3 module="M-TRANSPORT">Add smoke checks: 4 allowed tools pass, list_chats is not exposed.</step-3>
     </Phase-3>
 
-    <Phase-4 name="Admin Data Foundation" status="pending">
+    <Phase-4 name="Admin Data Foundation" status="done">
       <step-1 module="M-CONFIG">Extend config contract with ROOT_AUTH_TOKEN and DATABASE_URL validation.</step-1>
       <step-2 module="M-DB">Implement Drizzle PostgreSQL client bootstrap.</step-2>
       <step-3 module="M-API-KEY-REPOSITORY">Create API key schema and repository methods for create/list/revoke/resolve.</step-3>
