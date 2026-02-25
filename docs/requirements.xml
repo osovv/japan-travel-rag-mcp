@@ -1,4 +1,4 @@
-<RequirementsAnalysis VERSION="0.3.0">
+<RequirementsAnalysis VERSION="0.4.0">
   <UseCases>
     <UC-001>
       <Actor>External AI Agent</Actor>
@@ -97,5 +97,33 @@
       <Goal>Ship v1 quickly while preventing obvious quality regressions</Goal>
       <AcceptanceCriteria>Smoke set (30-50), evidence coverage >=95%, connector replay tests pass, validator obvious error &lt;=10%</AcceptanceCriteria>
     </UC-014>
+
+    <UC-015>
+      <Actor>Platform Operator</Actor>
+      <Action>Authenticates to `/admin/login` with `ROOT_AUTH_TOKEN` from environment variables</Action>
+      <Goal>Restrict admin surface access to operators with root-level secret</Goal>
+      <AcceptanceCriteria>Unauthenticated access to `/admin/*` is redirected to `/admin/login`; `ROOT_AUTH_TOKEN` is never accepted on `/mcp`</AcceptanceCriteria>
+    </UC-015>
+
+    <UC-016>
+      <Actor>Platform Operator</Actor>
+      <Action>Uses admin UI (Bun JSX + HTMX + daisyUI) to create and revoke API keys with `label` and optional `expires_at`</Action>
+      <Goal>Manage machine credentials that authorize MCP callers</Goal>
+      <AcceptanceCriteria>Created key secret is displayed exactly once, only hashed value is persisted, and revoked keys cannot authenticate</AcceptanceCriteria>
+    </UC-016>
+
+    <UC-017>
+      <Actor>External MCP Client</Actor>
+      <Action>Calls `/mcp` with `Authorization: Bearer &lt;api_key&gt;`</Action>
+      <Goal>Access MCP tools only with valid non-expired API key</Goal>
+      <AcceptanceCriteria>Requests without valid API key receive authorization error before transport handling</AcceptanceCriteria>
+    </UC-017>
+
+    <UC-018>
+      <Actor>System</Actor>
+      <Action>Stores and resolves API keys in PostgreSQL via Drizzle using `DATABASE_URL` runtime configuration</Action>
+      <Goal>Provide durable key management and auditable key lifecycle</Goal>
+      <AcceptanceCriteria>Startup fails fast when `DATABASE_URL` is missing or invalid and key CRUD uses PostgreSQL-backed persistence</AcceptanceCriteria>
+    </UC-018>
   </UseCases>
 </RequirementsAnalysis>

@@ -1,26 +1,49 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="0.7.0">
-    <keywords>japan-travel, mcp, proxy, tg-chat-rag, bearer-auth, tool-forwarding, contract-first, chat-allowlist</keywords>
-    <annotation>v1 architecture is a thin MCP proxy over tg-chat-rag methods API. Public MCP surface exposes search_messages, get_message_context, get_related_messages, list_sources. list_chats is intentionally excluded. search_messages chat scope is enforced only from TG_CHAT_RAG_CHAT_IDS env.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="0.8.0">
+    <keywords>japan-travel, mcp, proxy, tg-chat-rag, bearer-auth, admin-ui, api-keys, postgres, drizzle, htmx, daisyui, contract-first</keywords>
+    <annotation>v1 architecture is a thin MCP proxy over tg-chat-rag methods API plus a protected admin UI for API key lifecycle management. /mcp requires Bearer API keys only. /admin/login uses ROOT_AUTH_TOKEN and unauthenticated admin routes are redirected to /admin/login.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY">
-      <purpose>Runtime config validation for MCP server and tg-chat-rag integration settings.</purpose>
+      <purpose>Runtime config validation for MCP server, admin authentication, and PostgreSQL connectivity settings.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
       <annotations>
         <fn-loadConfig description="Validate env and return typed AppConfig" />
-        <type-AppConfig description="Configuration object including TG_CHAT_RAG_BASE_URL, TG_CHAT_RAG_BEARER_TOKEN, TG_CHAT_RAG_CHAT_IDS" />
+        <type-AppConfig description="Configuration object including TG_CHAT_RAG settings, ROOT_AUTH_TOKEN, and DATABASE_URL" />
       </annotations>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY">
-      <purpose>Structured logging for boot lifecycle, tool proxying, validation decisions, and upstream errors.</purpose>
+      <purpose>Structured logging for boot lifecycle, proxying, admin auth decisions, and persistence failures.</purpose>
       <path>src/logger/index.ts</path>
       <depends>M-CONFIG</depends>
       <annotations>
         <fn-createLogger description="Create module-scoped logger" />
       </annotations>
     </M-LOGGER>
+
+    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER">
+      <purpose>Initialize and expose Drizzle PostgreSQL client from DATABASE_URL.</purpose>
+      <path>src/db/index.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-createDb description="Create Drizzle database client and connection pool" />
+        <type-DbClient description="Typed Drizzle DB handle" />
+      </annotations>
+    </M-DB>
+
+    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER">
+      <purpose>Persist API key hashes and lifecycle metadata for MCP authorization.</purpose>
+      <path>src/admin/api-key-repository.ts</path>
+      <depends>M-DB, M-LOGGER</depends>
+      <annotations>
+        <fn-createApiKey description="Generate one-time raw key, store hash+metadata, return reveal payload" />
+        <fn-listApiKeys description="List API key records for admin UI" />
+        <fn-revokeApiKey description="Mark API key as revoked" />
+        <fn-resolveApiKey description="Resolve Bearer token by hash with expiry/revocation checks" />
+        <type-ApiKeyRecord description="Stored API key metadata with label and nullable expires_at" />
+      </annotations>
+    </M-API-KEY-REPOSITORY>
 
     <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY">
       <purpose>Schema and allowlist registry for MCP tools proxied in v1.</purpose>
@@ -45,6 +68,26 @@
       </annotations>
     </M-TG-CHAT-RAG-CLIENT>
 
+    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC">
+      <purpose>Authenticate admin login attempts using ROOT_AUTH_TOKEN and enforce admin session cookie checks.</purpose>
+      <path>src/admin/auth.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-authenticateAdmin description="Validate login token and issue signed session cookie" />
+        <fn-requireAdminSession description="Allow admin request or return redirect decision" />
+        <fn-clearAdminSession description="Invalidate admin session cookie" />
+      </annotations>
+    </M-ADMIN-AUTH>
+
+    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC">
+      <purpose>Authorize /mcp requests using API keys from ApiKeyRepository before transport execution.</purpose>
+      <path>src/auth/mcp-auth-guard.ts</path>
+      <depends>M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <annotations>
+        <fn-authorizeMcpRequest description="Validate Bearer API key and return allow/deny decision" />
+      </annotations>
+    </M-MCP-AUTH-GUARD>
+
     <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC">
       <purpose>Tool-level proxy orchestration: validate input, enforce internal chat scope, forward request, normalize response.</purpose>
       <path>src/tools/proxy-service.ts</path>
@@ -55,6 +98,17 @@
         <type-ProxyExecutionResult description="Normalized MCP tool response envelope" />
       </annotations>
     </M-TOOL-PROXY>
+
+    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT">
+      <purpose>Render Bun JSX admin pages and HTMX fragments for API key management UI.</purpose>
+      <path>src/admin/ui-routes.tsx</path>
+      <depends>M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <annotations>
+        <fn-handleAdminRequest description="Dispatch /admin/login and /admin/api-keys route actions" />
+        <fn-renderAdminLayout description="Render admin layout with sidebar and Api Keys tab" />
+        <fn-renderApiKeysTable description="Render HTMX-refreshable API keys table fragment" />
+      </annotations>
+    </M-ADMIN-UI>
 
     <M-TRANSPORT NAME="McpTransport" TYPE="ENTRY_POINT">
       <purpose>MCP transport registration and request handling for the proxied tool set.</purpose>
@@ -67,11 +121,11 @@
     </M-TRANSPORT>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
-      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /healthz).</purpose>
+      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /admin/*, /healthz).</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
       <annotations>
-        <fn-main description="Boot MCP proxy server and install graceful shutdown hooks" />
+        <fn-main description="Boot server, wire auth guards, and route MCP/admin requests" />
       </annotations>
     </M-SERVER>
 
@@ -87,7 +141,7 @@
     <M-TRANSPORT-SMOKE NAME="McpTransportSmokeTests" TYPE="TEST">
       <purpose>Smoke validation for MCP transport tool surface and routing behavior.</purpose>
       <path>src/transport/mcp-transport.smoke.test.ts</path>
-      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER</depends>
+      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-GUARD, M-LOGGER</depends>
       <annotations>
         <fn-TransportSmokeTests description="Smoke checks for tools/list and tools/call over registered transport surface" />
       </annotations>
@@ -121,27 +175,57 @@
     </M-DOCKER-IMAGE>
 
     <DataFlows>
+      <DF-ADMIN-LOGIN NAME="admin login flow">
+        <step-1>Operator submits ROOT_AUTH_TOKEN via /admin/login form.</step-1>
+        <step-2>M-ADMIN-AUTH validates token and sets signed admin session cookie.</step-2>
+        <step-3>Operator is redirected to /admin/api-keys.</step-3>
+      </DF-ADMIN-LOGIN>
+
+      <DF-ADMIN-GUARD NAME="admin route guard flow">
+        <step-1>Request targets /admin/* route.</step-1>
+        <step-2>M-ADMIN-AUTH checks session cookie validity.</step-2>
+        <step-3>Unauthenticated request is redirected to /admin/login.</step-3>
+      </DF-ADMIN-GUARD>
+
+      <DF-API-KEY-CREATE NAME="api key create flow">
+        <step-1>Admin submits label and optional expires_at from Api Keys tab.</step-1>
+        <step-2>M-API-KEY-REPOSITORY stores hash/prefix/metadata and returns one-time raw key.</step-2>
+        <step-3>M-ADMIN-UI returns updated list fragment and one-time reveal panel.</step-3>
+      </DF-API-KEY-CREATE>
+
+      <DF-API-KEY-REVOKE NAME="api key revoke flow">
+        <step-1>Admin triggers key revoke action.</step-1>
+        <step-2>M-API-KEY-REPOSITORY sets revoked_at.</step-2>
+        <step-3>M-ADMIN-UI refreshes key list fragment.</step-3>
+      </DF-API-KEY-REVOKE>
+
+      <DF-MCP-AUTH NAME="mcp bearer auth flow">
+        <step-1>Client calls /mcp with Authorization Bearer token.</step-1>
+        <step-2>M-MCP-AUTH-GUARD resolves token hash and validates expiry/revocation.</step-2>
+        <step-3>Unauthorized request is rejected before MCP transport handler.</step-3>
+      </DF-MCP-AUTH>
+
       <DF-PROXY-SEARCH NAME="search_messages proxy flow">
-        <step-1>MCP caller invokes search_messages without chat_ids input.</step-1>
+        <step-1>Authorized MCP caller invokes search_messages without chat_ids input.</step-1>
         <step-2>M-TOOL-PROXY injects chat IDs from TG_CHAT_RAG_CHAT_IDS.</step-2>
         <step-3>M-TG-CHAT-RAG-CLIENT forwards request to /api/v1/methods/search_messages with Bearer token.</step-3>
         <step-4>Response is returned to caller in MCP format.</step-4>
       </DF-PROXY-SEARCH>
 
       <DF-PROXY-CONTEXT NAME="get_message_context proxy flow">
-        <step-1>MCP caller invokes get_message_context.</step-1>
+        <step-1>Authorized MCP caller invokes get_message_context.</step-1>
         <step-2>M-TOOL-PROXY validates and forwards unchanged payload to /api/v1/methods/get_message_context.</step-2>
         <step-3>Response is returned to caller in MCP format.</step-3>
       </DF-PROXY-CONTEXT>
 
       <DF-PROXY-RELATED NAME="get_related_messages proxy flow">
-        <step-1>MCP caller invokes get_related_messages.</step-1>
+        <step-1>Authorized MCP caller invokes get_related_messages.</step-1>
         <step-2>M-TOOL-PROXY validates and forwards unchanged payload to /api/v1/methods/get_related_messages.</step-2>
         <step-3>Response is returned to caller in MCP format.</step-3>
       </DF-PROXY-RELATED>
 
       <DF-PROXY-SOURCES NAME="list_sources proxy flow">
-        <step-1>MCP caller invokes list_sources.</step-1>
+        <step-1>Authorized MCP caller invokes list_sources.</step-1>
         <step-2>M-TOOL-PROXY validates and forwards unchanged payload to /api/v1/methods/list_sources.</step-2>
         <step-3>Response is returned to caller in MCP format.</step-3>
       </DF-PROXY-SOURCES>
@@ -154,21 +238,38 @@
     </DataFlows>
 
     <CrossLink FROM="M-LOGGER" TO="M-CONFIG" relation="reads runtime config for log setup" />
+    <CrossLink FROM="M-DB" TO="M-CONFIG" relation="uses DATABASE_URL to initialize Drizzle PostgreSQL client" />
+    <CrossLink FROM="M-DB" TO="M-LOGGER" relation="emits db initialization and connectivity diagnostics" />
+    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-DB" relation="stores and queries API key records through Drizzle" />
+    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-LOGGER" relation="logs key lifecycle actions without exposing secrets" />
+    <CrossLink FROM="M-ADMIN-AUTH" TO="M-CONFIG" relation="uses ROOT_AUTH_TOKEN for login validation" />
+    <CrossLink FROM="M-ADMIN-AUTH" TO="M-LOGGER" relation="emits admin auth success and failure events" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-API-KEY-REPOSITORY" relation="resolves and validates Bearer API keys" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-LOGGER" relation="logs /mcp auth guard decisions" />
+    <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" relation="enforces admin session guard on protected UI routes" />
+    <CrossLink FROM="M-ADMIN-UI" TO="M-API-KEY-REPOSITORY" relation="handles create/list/revoke UI actions for API keys" />
+    <CrossLink FROM="M-ADMIN-UI" TO="M-LOGGER" relation="emits admin route and HTMX action logs" />
     <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-LOGGER" relation="emits schema validation diagnostics" />
     <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" relation="uses base URL, bearer token, and timeout settings" />
     <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-LOGGER" relation="emits upstream request and failure logs" />
     <CrossLink FROM="M-TOOL-PROXY" TO="M-CONFIG" relation="reads TG_CHAT_RAG_CHAT_IDS for enforced search scope" />
-    <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" relation="validates tool inputs and enforce allowlist" />
+    <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" relation="validates tool inputs and enforces allowlist" />
     <CrossLink FROM="M-TOOL-PROXY" TO="M-TG-CHAT-RAG-CLIENT" relation="forwards validated tool calls to upstream methods API" />
     <CrossLink FROM="M-TOOL-PROXY" TO="M-LOGGER" relation="emits proxy decisions and error mapping logs" />
     <CrossLink FROM="M-TRANSPORT" TO="M-TOOLS-CONTRACTS" relation="registers MCP tools with public schemas" />
     <CrossLink FROM="M-TRANSPORT" TO="M-TOOL-PROXY" relation="routes tool handlers to proxy execution" />
     <CrossLink FROM="M-TRANSPORT" TO="M-LOGGER" relation="emits request lifecycle logs" />
-    <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server port and startup settings" />
-    <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp request handler" />
+    <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server and auth settings" />
+    <CrossLink FROM="M-SERVER" TO="M-DB" relation="initializes DB dependency for auth and key management" />
+    <CrossLink FROM="M-SERVER" TO="M-API-KEY-REPOSITORY" relation="wires key repository into admin and mcp auth paths" />
+    <CrossLink FROM="M-SERVER" TO="M-ADMIN-AUTH" relation="routes /admin/login and session guard checks" />
+    <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="mounts admin route handlers" />
+    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces bearer authorization before transport" />
+    <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp transport handler after auth checks" />
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies transport tool exposure and request routing smoke behavior" />
+    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies unauthorized and authorized /mcp behavior" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />

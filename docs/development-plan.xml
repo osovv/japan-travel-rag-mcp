@@ -1,18 +1,21 @@
-<DevelopmentPlan VERSION="0.4.0">
+<DevelopmentPlan VERSION="0.5.0">
   <Context>
-    <purpose>Ship v1 as a thin MCP proxy that forwards selected tools to tg-chat-rag HTTP methods API.</purpose>
-    <scope>Expose only search_messages, get_message_context, get_related_messages, and list_sources. Do not expose list_chats.</scope>
+    <purpose>Ship v1 as a thin MCP proxy over tg-chat-rag with an internal admin surface for API key lifecycle management.</purpose>
+    <scope>Expose search_messages, get_message_context, get_related_messages, and list_sources on /mcp; provide /admin/login and /admin/api-keys UI with key create/revoke controls.</scope>
     <constraints>
       <constraint-1>External MCP callers cannot provide filters.chat_ids.</constraint-1>
       <constraint-2>search_messages always uses chat IDs from TG_CHAT_RAG_CHAT_IDS env.</constraint-2>
-      <constraint-3>All upstream calls use Bearer token from TG_CHAT_RAG_BEARER_TOKEN.</constraint-3>
+      <constraint-3>All upstream tg-chat-rag calls use Bearer token from TG_CHAT_RAG_BEARER_TOKEN.</constraint-3>
+      <constraint-4>/mcp accepts only Bearer API keys from the API key repository.</constraint-4>
+      <constraint-5>ROOT_AUTH_TOKEN is valid only for /admin/login and must never authorize /mcp.</constraint-5>
+      <constraint-6>API key raw secret is shown exactly once at creation time; only key hash is stored.</constraint-6>
     </constraints>
   </Context>
 
   <Modules>
     <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1">
       <contract>
-        <purpose>Load and validate runtime configuration for MCP transport and tg-chat-rag upstream connectivity.</purpose>
+        <purpose>Load and validate runtime configuration for MCP proxy, admin authentication, and PostgreSQL connectivity.</purpose>
         <inputs>
           <param-1 name="env" type="NodeJS.ProcessEnv" />
         </inputs>
@@ -25,19 +28,21 @@
       </contract>
       <interface>
         <export-loadConfig PURPOSE="Validate env and return typed runtime config" />
-        <type-AppConfig PURPOSE="Typed app config with port, upstream URL, token, and chat ID allowlist" />
+        <type-AppConfig PURPOSE="Typed app config with TG_CHAT_RAG settings, ROOT_AUTH_TOKEN, and DATABASE_URL" />
       </interface>
       <depends>none</depends>
       <notes>
         <note-1>Required env: TG_CHAT_RAG_BASE_URL</note-1>
         <note-2>Required env: TG_CHAT_RAG_BEARER_TOKEN</note-2>
         <note-3>Required env: TG_CHAT_RAG_CHAT_IDS (CSV, non-empty)</note-3>
+        <note-4>Required env: ROOT_AUTH_TOKEN</note-4>
+        <note-5>Required env: DATABASE_URL</note-5>
       </notes>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY" LAYER="0" ORDER="2">
       <contract>
-        <purpose>Provide structured logs for MCP requests, validation decisions, upstream calls, and failures.</purpose>
+        <purpose>Provide structured logs for MCP requests, admin actions, validation decisions, upstream calls, and failures.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
@@ -54,7 +59,56 @@
       <depends>M-CONFIG</depends>
     </M-LOGGER>
 
-    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="1">
+    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" LAYER="1" ORDER="1">
+      <contract>
+        <purpose>Create and expose Drizzle PostgreSQL database client from DATABASE_URL runtime configuration.</purpose>
+        <inputs>
+          <param-1 name="config" type="AppConfig" />
+        </inputs>
+        <outputs>
+          <param-1 name="db" type="DrizzleDatabase" />
+        </outputs>
+        <errors>
+          <error-DB_CONNECTION_ERROR code="DB_CONNECTION_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-createDb PURPOSE="Initialize Drizzle client and pooled PostgreSQL connection" />
+        <type-DbClient PURPOSE="Typed Drizzle database handle used by repositories" />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+    </M-DB>
+
+    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER" LAYER="1" ORDER="2">
+      <contract>
+        <purpose>Persist and query API key lifecycle records used for MCP Bearer authentication.</purpose>
+        <inputs>
+          <param-1 name="label" type="string" />
+          <param-2 name="expires_at" type="Date|null" />
+          <param-3 name="rawApiKey" type="string" />
+        </inputs>
+        <outputs>
+          <param-1 name="ApiKeyRecord" type="object" />
+          <param-2 name="ApiKeyList" type="object[]" />
+        </outputs>
+        <errors>
+          <error-API_KEY_STORE_ERROR code="API_KEY_STORE_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-createApiKey PURPOSE="Generate raw key material, persist hashed key, and return one-time secret" />
+        <export-listApiKeys PURPOSE="List non-revoked and revoked API keys with label and expiry metadata" />
+        <export-revokeApiKey PURPOSE="Mark API key as revoked" />
+        <export-resolveApiKey PURPOSE="Resolve presented Bearer token by hash and expiry/revocation status" />
+      </interface>
+      <depends>M-DB, M-LOGGER</depends>
+      <notes>
+        <note-1>Table contract: id, key_hash (unique), key_prefix, label, expires_at (nullable), revoked_at (nullable), created_at.</note-1>
+        <note-2>Raw API key is never stored; only cryptographic hash and non-sensitive prefix are persisted.</note-2>
+      </notes>
+    </M-API-KEY-REPOSITORY>
+
+    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="3">
       <contract>
         <purpose>Define and export MCP tool schemas and tool allowlist for the proxy surface.</purpose>
         <inputs>
@@ -107,6 +161,55 @@
       </notes>
     </M-TG-CHAT-RAG-CLIENT>
 
+    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="2" ORDER="2">
+      <contract>
+        <purpose>Authenticate admin operators with ROOT_AUTH_TOKEN and enforce cookie session checks for /admin routes.</purpose>
+        <inputs>
+          <param-1 name="loginToken" type="string" />
+          <param-2 name="request" type="Request" />
+        </inputs>
+        <outputs>
+          <param-1 name="sessionCookie" type="string" />
+          <param-2 name="isAuthenticated" type="boolean" />
+        </outputs>
+        <errors>
+          <error-ADMIN_AUTH_ERROR code="ADMIN_AUTH_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-authenticateAdmin PURPOSE="Verify login token and produce admin session cookie" />
+        <export-requireAdminSession PURPOSE="Check admin session and decide allow/redirect" />
+        <export-clearAdminSession PURPOSE="Clear admin auth cookie on logout" />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <notes>
+        <note-1>Default unauthenticated admin behavior: 302 redirect to /admin/login.</note-1>
+        <note-2>ROOT_AUTH_TOKEN is accepted only by admin login flow and never by MCP bearer auth.</note-2>
+      </notes>
+    </M-ADMIN-AUTH>
+
+    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC" LAYER="2" ORDER="3">
+      <contract>
+        <purpose>Authorize /mcp requests using API keys only and reject unauthorized callers before transport handling.</purpose>
+        <inputs>
+          <param-1 name="authorizationHeader" type="string|null" />
+        </inputs>
+        <outputs>
+          <param-1 name="authResult" type="object" />
+        </outputs>
+        <errors>
+          <error-MCP_AUTH_ERROR code="MCP_AUTH_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-authorizeMcpRequest PURPOSE="Validate Bearer key against API key repository and return allow/deny" />
+      </interface>
+      <depends>M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <notes>
+        <note-1>No fallback credentials are allowed for /mcp; ROOT_AUTH_TOKEN is rejected by design.</note-1>
+      </notes>
+    </M-MCP-AUTH-GUARD>
+
     <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
       <contract>
         <purpose>Apply policy-safe normalization and proxy supported MCP tool calls to tg-chat-rag.</purpose>
@@ -133,9 +236,34 @@
       </notes>
     </M-TOOL-PROXY>
 
+    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="3" ORDER="2">
+      <contract>
+        <purpose>Render admin HTML with Bun JSX and process HTMX actions for API key management.</purpose>
+        <inputs>
+          <param-1 name="request" type="Request" />
+        </inputs>
+        <outputs>
+          <param-1 name="response" type="Response" />
+        </outputs>
+        <errors>
+          <error-ADMIN_UI_ERROR code="ADMIN_UI_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-handleAdminRequest PURPOSE="Route /admin/login and /admin/api-keys GET/POST/DELETE actions" />
+        <export-renderAdminLayout PURPOSE="Render sidebar layout with Api Keys tab" />
+        <export-renderApiKeysTable PURPOSE="Render HTMX-refreshable API keys list fragment" />
+      </interface>
+      <depends>M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER</depends>
+      <notes>
+        <note-1>UI stack: Bun JSX templating + HTMX progressive enhancement + daisyUI class primitives.</note-1>
+        <note-2>Sidebar contains one tab: Api Keys.</note-2>
+      </notes>
+    </M-ADMIN-UI>
+
     <M-TRANSPORT NAME="McpTransport" TYPE="ENTRY_POINT" LAYER="4" ORDER="1">
       <contract>
-        <purpose>Register MCP tools and route tool calls into ToolProxyService.</purpose>
+        <purpose>Register MCP tools and route authorized tool calls into ToolProxyService.</purpose>
         <inputs>
           <param-1 name="mcpRequest" type="Request" />
         </inputs>
@@ -159,7 +287,7 @@
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Boot Bun HTTP server, expose /mcp and /healthz, and provide graceful shutdown.</purpose>
+        <purpose>Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, and /healthz routes.</purpose>
         <inputs>
           <param-1 name="processSignals" type="SIGTERM|SIGINT" />
         </inputs>
@@ -171,15 +299,47 @@
         </errors>
       </contract>
       <interface>
-        <export-main PURPOSE="Boot sequence and lifecycle wiring" />
+        <export-main PURPOSE="Boot sequence, dependency wiring, and route lifecycle" />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
     </M-SERVER>
   </Modules>
 
   <DataFlows>
+    <DF-ADMIN-LOGIN NAME="Admin Login Flow" TRIGGER="POST /admin/login">
+      <step-1>Operator submits login form with ROOT_AUTH_TOKEN candidate.</step-1>
+      <step-2>M-ADMIN-AUTH validates token and issues signed HTTP-only admin session cookie.</step-2>
+      <step-3>Server redirects authenticated operator to /admin/api-keys.</step-3>
+    </DF-ADMIN-LOGIN>
+
+    <DF-ADMIN-GUARD NAME="Admin Route Guard Flow" TRIGGER="GET /admin/*">
+      <step-1>Request arrives for admin route.</step-1>
+      <step-2>M-ADMIN-AUTH verifies session cookie.</step-2>
+      <step-3>Unauthenticated request receives 302 redirect to /admin/login.</step-3>
+      <step-4>Authenticated request is routed to M-ADMIN-UI handlers.</step-4>
+    </DF-ADMIN-GUARD>
+
+    <DF-API-KEY-CREATE NAME="API Key Create Flow" TRIGGER="HTMX create action on /admin/api-keys">
+      <step-1>Operator submits label and optional expires_at.</step-1>
+      <step-2>M-API-KEY-REPOSITORY generates raw secret, stores only hash+metadata in PostgreSQL, returns one-time secret payload.</step-2>
+      <step-3>M-ADMIN-UI returns updated key list fragment and one-time secret panel.</step-3>
+    </DF-API-KEY-CREATE>
+
+    <DF-API-KEY-REVOKE NAME="API Key Revoke Flow" TRIGGER="HTMX revoke action on /admin/api-keys/:id/revoke">
+      <step-1>Operator revokes selected API key.</step-1>
+      <step-2>M-API-KEY-REPOSITORY sets revoked_at timestamp.</step-2>
+      <step-3>M-ADMIN-UI returns refreshed API key list fragment.</step-3>
+    </DF-API-KEY-REVOKE>
+
+    <DF-MCP-AUTH NAME="MCP Bearer Auth Flow" TRIGGER="POST /mcp">
+      <step-1>Client sends Authorization header with Bearer token.</step-1>
+      <step-2>M-MCP-AUTH-GUARD resolves token hash and checks expiry/revocation.</step-2>
+      <step-3>Unauthorized request is rejected before MCP transport invocation.</step-3>
+      <step-4>Authorized request is dispatched to M-TRANSPORT.</step-4>
+    </DF-MCP-AUTH>
+
     <DF-PROXY-SEARCH NAME="search_messages Proxy Flow" TRIGGER="MCP tool search_messages">
-      <step-1>Client calls MCP tool search_messages.</step-1>
+      <step-1>Authorized client calls MCP tool search_messages.</step-1>
       <step-2>M-TRANSPORT validates against public schema that forbids filters.chat_ids.</step-2>
       <step-3>M-TOOL-PROXY injects filters.chat_ids from TG_CHAT_RAG_CHAT_IDS.</step-3>
       <step-4>M-TG-CHAT-RAG-CLIENT sends POST {TG_CHAT_RAG_BASE_URL}/api/v1/methods/search_messages with Bearer token.</step-4>
@@ -187,7 +347,7 @@
     </DF-PROXY-SEARCH>
 
     <DF-PROXY-CONTEXT NAME="get_message_context Proxy Flow" TRIGGER="MCP tool get_message_context">
-      <step-1>Client calls MCP tool get_message_context.</step-1>
+      <step-1>Authorized client calls MCP tool get_message_context.</step-1>
       <step-2>M-TRANSPORT validates payload with M-TOOLS-CONTRACTS.</step-2>
       <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
       <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/get_message_context.</step-4>
@@ -195,7 +355,7 @@
     </DF-PROXY-CONTEXT>
 
     <DF-PROXY-RELATED NAME="get_related_messages Proxy Flow" TRIGGER="MCP tool get_related_messages">
-      <step-1>Client calls MCP tool get_related_messages.</step-1>
+      <step-1>Authorized client calls MCP tool get_related_messages.</step-1>
       <step-2>M-TRANSPORT validates payload with M-TOOLS-CONTRACTS.</step-2>
       <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
       <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/get_related_messages.</step-4>
@@ -203,7 +363,7 @@
     </DF-PROXY-RELATED>
 
     <DF-PROXY-SOURCES NAME="list_sources Proxy Flow" TRIGGER="MCP tool list_sources">
-      <step-1>Client calls MCP tool list_sources.</step-1>
+      <step-1>Authorized client calls MCP tool list_sources.</step-1>
       <step-2>M-TRANSPORT validates payload with M-TOOLS-CONTRACTS.</step-2>
       <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
       <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/list_sources.</step-4>
@@ -218,22 +378,39 @@
   </DataFlows>
 
   <ImplementationOrder>
-    <Phase-1 name="Foundation" status="done">
+    <Phase-1 name="Existing Proxy Foundation" status="done">
       <step-1 module="M-CONFIG">Implement typed env parsing and strict validation for TG_CHAT_RAG_* variables.</step-1>
       <step-2 module="M-LOGGER">Implement structured logger and request-scoped fields.</step-2>
       <step-3 module="M-TOOLS-CONTRACTS">Implement public schemas and proxied tool allowlist constants.</step-3>
     </Phase-1>
 
-    <Phase-2 name="Proxy Core" status="done">
+    <Phase-2 name="Existing Proxy Core" status="done">
       <step-1 module="M-TG-CHAT-RAG-CLIENT">Implement Bearer-auth upstream client and error normalization.</step-1>
       <step-2 module="M-TOOL-PROXY">Implement validation, chat_ids policy injection, forwarding, and response mapping.</step-2>
     </Phase-2>
 
-    <Phase-3 name="Entrypoints" status="done">
+    <Phase-3 name="Existing Entrypoints" status="done">
       <step-1 module="M-TRANSPORT">Register 4 tools and wire tool calls to proxy service.</step-1>
       <step-2 module="M-SERVER">Start Bun HTTP server for /mcp and /healthz with graceful shutdown.</step-2>
       <step-3 module="M-TRANSPORT">Add smoke checks: 4 allowed tools pass, list_chats is not exposed.</step-3>
     </Phase-3>
+
+    <Phase-4 name="Admin Data Foundation" status="pending">
+      <step-1 module="M-CONFIG">Extend config contract with ROOT_AUTH_TOKEN and DATABASE_URL validation.</step-1>
+      <step-2 module="M-DB">Implement Drizzle PostgreSQL client bootstrap.</step-2>
+      <step-3 module="M-API-KEY-REPOSITORY">Create API key schema and repository methods for create/list/revoke/resolve.</step-3>
+    </Phase-4>
+
+    <Phase-5 name="Admin Auth and UI" status="pending">
+      <step-1 module="M-ADMIN-AUTH">Implement /admin/login authentication and cookie session checks.</step-1>
+      <step-2 module="M-ADMIN-UI">Implement admin layout, sidebar, and HTMX API keys CRUD interactions.</step-2>
+    </Phase-5>
+
+    <Phase-6 name="MCP Authorization Integration" status="pending">
+      <step-1 module="M-MCP-AUTH-GUARD">Implement Bearer API key guard with expiry/revocation checks.</step-1>
+      <step-2 module="M-SERVER">Wire /mcp guard and /admin routes into server fetch handler.</step-2>
+      <step-3 module="M-TRANSPORT">Add integration smoke tests for unauthorized/authorized /mcp requests.</step-3>
+    </Phase-6>
   </ImplementationOrder>
 
   <RiskAssessment>
@@ -252,9 +429,29 @@
       <mitigation>Public schema forbids filters.chat_ids and proxy layer enforces reject-if-present plus internal injection.</mitigation>
     </RISK-3>
 
-    <RISK-4 name="Token Rotation Handling">
-      <impact>Stale Bearer token causes widespread tool failures.</impact>
-      <mitigation>Fail-fast config validation at startup and clear auth failure logs for quick operator action.</mitigation>
+    <RISK-4 name="One-Time Secret Handling">
+      <impact>Operator may lose newly generated API key if copied incorrectly.</impact>
+      <mitigation>Explicit one-time reveal panel with operator warning and clear regeneration path via create new key.</mitigation>
     </RISK-4>
+
+    <RISK-5 name="Session Cookie Security">
+      <impact>Weak admin session implementation can expose admin controls.</impact>
+      <mitigation>Use HTTP-only + SameSite cookie, signature validation, and strict redirect behavior for unauthenticated admin routes.</mitigation>
+    </RISK-5>
+
+    <RISK-6 name="Key Material Exposure">
+      <impact>Persisting raw keys or verbose logs could leak credentials.</impact>
+      <mitigation>Persist only hash+prefix, redact auth headers in logs, and never render full key except immediately after creation.</mitigation>
+    </RISK-6>
+
+    <RISK-7 name="Clock Drift and Expiry Validation">
+      <impact>Expiry checks may be inconsistent across environments if time handling is naive.</impact>
+      <mitigation>Use database/server UTC timestamps and explicit expiry comparison semantics.</mitigation>
+    </RISK-7>
+
+    <RISK-8 name="Database Availability for Auth Path">
+      <impact>/mcp authorization depends on PostgreSQL; outages block all MCP calls.</impact>
+      <mitigation>Fail closed on auth checks, surface clear health diagnostics, and alert on DB connectivity failures.</mitigation>
+    </RISK-8>
   </RiskAssessment>
 </DevelopmentPlan>
