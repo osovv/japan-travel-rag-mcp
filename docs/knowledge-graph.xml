@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="0.6.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="0.7.0">
     <keywords>japan-travel, mcp, proxy, tg-chat-rag, bearer-auth, tool-forwarding, contract-first, chat-allowlist</keywords>
     <annotation>v1 architecture is a thin MCP proxy over tg-chat-rag methods API. Public MCP surface exposes search_messages, get_message_context, get_related_messages, list_sources. list_chats is intentionally excluded. search_messages chat scope is enforced only from TG_CHAT_RAG_CHAT_IDS env.</annotation>
 
@@ -96,7 +96,7 @@
     <M-DOCKER-DEV NAME="DockerComposeDev" TYPE="INFRA">
       <purpose>Development container orchestration for MCP server with local source mount and .env loading.</purpose>
       <path>docker-compose.yaml</path>
-      <depends>M-SERVER, M-CONFIG</depends>
+      <depends>M-DOCKER-IMAGE, M-SERVER, M-CONFIG</depends>
       <annotations>
         <cfg-mcp-service description="Single mcp service running bun run index.ts with /healthz healthcheck" />
       </annotations>
@@ -105,11 +105,20 @@
     <M-DOCKER-PROD NAME="DockerComposeProd" TYPE="INFRA">
       <purpose>Production container orchestration for MCP server with required runtime env vars and external network.</purpose>
       <path>docker-compose.prod.yaml</path>
-      <depends>M-SERVER, M-CONFIG</depends>
+      <depends>M-DOCKER-IMAGE, M-SERVER, M-CONFIG</depends>
       <annotations>
         <cfg-mcp-service description="Single mcp service running bun run index.ts on external coolify network" />
       </annotations>
     </M-DOCKER-PROD>
+
+    <M-DOCKER-IMAGE NAME="DockerImage" TYPE="INFRA">
+      <purpose>Container image build definition for MCP HTTP server runtime.</purpose>
+      <path>Dockerfile</path>
+      <depends>M-SERVER, M-CONFIG</depends>
+      <annotations>
+        <cfg-release-stage description="Builds Bun runtime image with sources and production dependencies" />
+      </annotations>
+    </M-DOCKER-IMAGE>
 
     <DataFlows>
       <DF-PROXY-SEARCH NAME="search_messages proxy flow">
@@ -160,9 +169,13 @@
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies transport tool exposure and request routing smoke behavior" />
+    <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
+    <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-CONFIG" relation="provides runtime env variables for config loading in development profile" />
+    <CrossLink FROM="M-DOCKER-DEV" TO="M-DOCKER-IMAGE" relation="builds MCP runtime image from local Dockerfile in development profile" />
     <CrossLink FROM="M-DOCKER-PROD" TO="M-SERVER" relation="runs MCP server process in production container profile" />
     <CrossLink FROM="M-DOCKER-PROD" TO="M-CONFIG" relation="provides required runtime env variables for production config loading" />
+    <CrossLink FROM="M-DOCKER-PROD" TO="M-DOCKER-IMAGE" relation="builds MCP runtime image from Dockerfile for production deployment" />
   </Project>
 </KnowledgeGraph>
