@@ -1,0 +1,97 @@
+<TechnologyStack VERSION="0.3.0">
+  <Runtime>Bun 1.3.8</Runtime>
+  <Language>TypeScript 5.x</Language>
+  <Framework>@modelcontextprotocol/sdk 1.x</Framework>
+
+  <Dependencies>
+    <dep name="@modelcontextprotocol/sdk" version="1.x" purpose="MCP transport and tool exposure" />
+    <dep name="pg" version="8.x" purpose="PostgreSQL data access" />
+    <dep name="pgvector" version="0.7.x (PostgreSQL extension)" purpose="Vector search" />
+    <dep name="pg-boss" version="9.x" purpose="Background jobs (ingest/backfill/enrichment/review)" />
+    <dep name="voyageai" version="TBD (pin before implementation)" purpose="Multilingual embeddings and reranker" />
+    <dep name="zod" version="3.x" purpose="Tool schema and policy validation" />
+    <dep name="pino" version="9.x" purpose="Structured logs and audit trails" />
+  </Dependencies>
+
+  <VersionConstraints>
+    <constraint lib="bun" min="1.3.8" max="1.3.x" reason="Runtime consistency" />
+    <constraint lib="typescript" min="5.0.0" max="5.x" reason="Type-safety and modern syntax" />
+    <constraint lib="@modelcontextprotocol/sdk" min="1.0.0" max="1.x" reason="MCP compatibility" />
+    <constraint lib="pg" min="8.11.0" max="8.x" reason="Stable PostgreSQL behavior" />
+    <constraint lib="pg-boss" min="9.0.0" max="9.x" reason="Reliable queue semantics" />
+    <constraint lib="voyageai" min="TBD" max="TBD" reason="Model and API pin required before production" />
+  </VersionConstraints>
+
+  <Tooling>
+    <tool name="package-manager" value="bun" version="1.3.x" />
+    <tool name="test-runner" value="bun test" version="1.3.x" />
+    <tool name="linter" value="eslint" version="9.x" />
+    <tool name="formatter" value="prettier" version="3.x" />
+    <tool name="migration-tool" value="drizzle-kit" version="0.2x" />
+    <tool name="scheduler" value="pg-boss workers" version="9.x" />
+  </Tooling>
+
+  <ProductBoundary>
+    <InScope>`search_context`, `validate_google_map_link`, `verify_tabelog`, curated ingest/indexing, backfill, lazy canonical POI, deterministic evidence output</InScope>
+    <OutOfScope>Trip planning, internal orchestration, persistent user memory, final answer synthesis, truth scoring engine</OutOfScope>
+    <OrchestrationOwner>External AI agent using MCP tools</OrchestrationOwner>
+  </ProductBoundary>
+
+  <IsolationModel>
+    <WorkspaceKey>workspace_id</WorkspaceKey>
+    <RegionPackKey>region_pack_id</RegionPackKey>
+    <SourceListVersionKey>source_list_version</SourceListVersionKey>
+    <ScopeRule>All reads/writes/jobs/tool responses are scoped by workspace + region pack + source list version</ScopeRule>
+    <InitialRegionPack>jp</InitialRegionPack>
+  </IsolationModel>
+
+  <SourcePolicy>
+    <V1Scope>Public sources only</V1Scope>
+    <PolicyMatrix>Maintain per-source policy for allowed storage, snippet length, attribution, and retention</PolicyMatrix>
+    <PiiGuardrails>Regex redaction for phone/email/obvious identifiers at ingest</PiiGuardrails>
+    <QueryAbuseGuardrails>Block identifier lookup intents (phone/email/person lookup)</QueryAbuseGuardrails>
+  </SourcePolicy>
+
+  <IngestionPolicy>
+    <Pipeline>fetch -> normalize -> language_detect -> pii_redact -> dedup -> chunk -> embed -> index</Pipeline>
+    <Dedup>exact_hash + near_dup(simhash/minhash) + canonical_url normalization</Dedup>
+    <Backfill>default=last_2_years, optional=from_start_of_time, checkpointed/resumable/retryable</Backfill>
+    <BackfillControl>admin/internal only</BackfillControl>
+  </IngestionPolicy>
+
+  <RetrievalPolicy>
+    <Architecture>lexical + vector hybrid retrieval, candidate merge/dedup, rerank top-N</Architecture>
+    <CrossLanguage>RU↔EN query translation/expansion for lexical branch + one multilingual vector pass</CrossLanguage>
+    <OutputContract>evidence-first response, no truth/final correctness score in v1</OutputContract>
+    <Signals>Expose lexical_match and vector_match signals for auditability</Signals>
+  </RetrievalPolicy>
+
+  <VerificationPolicy>
+    <Tools>validate_google_map_link, verify_tabelog</Tools>
+    <Verdicts>match, partial, mismatch, inconclusive</Verdicts>
+    <UnknownPoiRule>Missing local POI record must not auto-produce mismatch</UnknownPoiRule>
+    <UnknownPoiBehavior>Create provisional_place and return inconclusive when data is insufficient</UnknownPoiBehavior>
+    <ReasonCodes>name_mismatch, location_mismatch, category_mismatch, insufficient_data, source_unreachable</ReasonCodes>
+  </VerificationPolicy>
+
+  <PoiPolicy>
+    <Canonicalization>Lazy from observed assertions, not prebuilt full-country directory</Canonicalization>
+    <CoreEntities>canonical_places, provisional_places, place_aliases, place_assertions, place_links</CoreEntities>
+    <ResolutionOrder>external_id exact -> geo+name similarity -> provisional fallback</ResolutionOrder>
+  </PoiPolicy>
+
+  <HitlPolicy>
+    <AutoApproveThreshold>confidence &gt;= 0.92</AutoApproveThreshold>
+    <ReviewQueueThreshold>0.75 &lt;= confidence &lt; 0.92</ReviewQueueThreshold>
+    <LowConfidenceBehavior>confidence &lt; 0.75 -> inconclusive + enrichment job</LowConfidenceBehavior>
+    <ReviewerActions>approve, merge, split, reject</ReviewerActions>
+  </HitlPolicy>
+
+  <QualityGuardrailsV1>
+    <ReleaseGate-1>Weekly smoke set of 30-50 realistic queries must run</ReleaseGate-1>
+    <ReleaseGate-2>Evidence/citation coverage must be &gt;= 95%</ReleaseGate-2>
+    <ReleaseGate-3>Connector contract tests and replay fixtures must pass</ReleaseGate-3>
+    <ReleaseGate-4>Validator obvious error rate must be &lt;= 10% on manual audit sample</ReleaseGate-4>
+    <Note>Full automated eval pipeline is deferred to post-v1</Note>
+  </QualityGuardrailsV1>
+</TechnologyStack>

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "japan-travel-rag-mcp/contracts/evidence-object.v1.json",
+  "title": "Evidence Object v1",
+  "type": "object",
+  "required": [
+    "evidence_id",
+    "source_type",
+    "source_id",
+    "url",
+    "published_at",
+    "ingested_at",
+    "lang",
+    "snippet",
+    "match_signals",
+    "dedup_group"
+  ],
+  "properties": {
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "source_type": { "type": "string", "minLength": 1 },
+    "source_id": { "type": "string", "minLength": 1 },
+    "source_item_id": { "type": "string" },
+    "url": { "type": "string", "format": "uri" },
+    "published_at": { "type": "string", "format": "date-time" },
+    "ingested_at": { "type": "string", "format": "date-time" },
+    "lang": { "type": "string", "minLength": 2, "maxLength": 8 },
+    "snippet": { "type": "string", "minLength": 1 },
+    "context": {
+      "type": "object",
+      "properties": {
+        "before": { "type": "string" },
+        "after": { "type": "string" }
+      }
+    },
+    "outbound_links": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" }
+    },
+    "match_signals": {
+      "type": "object",
+      "required": ["lexical_match", "vector_match"],
+      "properties": {
+        "lexical_match": { "type": "number", "minimum": 0, "maximum": 1 },
+        "vector_match": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rerank_position": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "dedup_group": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

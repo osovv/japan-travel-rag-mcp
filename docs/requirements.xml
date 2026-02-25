@@ -1,0 +1,101 @@
+<RequirementsAnalysis VERSION="0.3.0">
+  <UseCases>
+    <UC-001>
+      <Actor>External AI Agent</Actor>
+      <Action>Calls MCP tool `search_context` with query and routing keys (`workspace_id`, `region_pack_id`, `source_list_version`)</Action>
+      <Goal>Retrieve the best evidence from curated travel sources for downstream orchestration</Goal>
+      <AcceptanceCriteria>Response contains deterministic evidence objects with source, URL, timestamp, language, and citation context</AcceptanceCriteria>
+    </UC-001>
+
+    <UC-002>
+      <Actor>System</Actor>
+      <Action>Runs hybrid retrieval (lexical + vector + rerank) over region-pack scoped corpus</Action>
+      <Goal>Maximize cross-source retrieval relevance for curated content</Goal>
+      <AcceptanceCriteria>Retrieval returns merged and deduplicated candidates with match signals and provenance metadata</AcceptanceCriteria>
+    </UC-002>
+
+    <UC-003>
+      <Actor>System</Actor>
+      <Action>Applies RU↔EN query translation/expansion for lexical branch while using multilingual embeddings for vector branch</Action>
+      <Goal>Improve cross-language recall for RU/EN/JA mixed datasets</Goal>
+      <AcceptanceCriteria>Same-intent RU and EN queries can retrieve overlapping relevant evidence without corpus-wide translation</AcceptanceCriteria>
+    </UC-003>
+
+    <UC-004>
+      <Actor>Content Maintainer</Actor>
+      <Action>Ingests only public sources listed in region pack version (Telegram channels, Reddit communities, curated websites, Tabelog pages)</Action>
+      <Goal>Keep source scope curated and reproducible</Goal>
+      <AcceptanceCriteria>Every indexed record stores `region_pack_id` and `source_list_version` lineage</AcceptanceCriteria>
+    </UC-004>
+
+    <UC-005>
+      <Actor>System</Actor>
+      <Action>Runs ingest pipeline fetch -> normalize -> language detect -> redact PII -> dedup -> chunk -> embed -> index</Action>
+      <Goal>Produce safe and searchable evidence units</Goal>
+      <AcceptanceCriteria>Ingest supports exact-hash + near-dup + URL canonical dedup and regex-based PII redaction</AcceptanceCriteria>
+    </UC-005>
+
+    <UC-006>
+      <Actor>Platform Operator</Actor>
+      <Action>Triggers source backfill with checkpoint resume and retries</Action>
+      <Goal>Support historical discovery and replayable indexing</Goal>
+      <AcceptanceCriteria>Backfill supports default window=last 2 years and optional `from_start_of_time`, exposed only in admin/internal surface</AcceptanceCriteria>
+    </UC-006>
+
+    <UC-007>
+      <Actor>External AI Agent</Actor>
+      <Action>Calls MCP tool `validate_google_map_link(url, expected)`</Action>
+      <Goal>Verify map URL against expected place attributes with deterministic contract</Goal>
+      <AcceptanceCriteria>Tool returns `match|partial|mismatch|inconclusive` with confidence and reason codes</AcceptanceCriteria>
+    </UC-007>
+
+    <UC-008>
+      <Actor>External AI Agent</Actor>
+      <Action>Calls MCP tool `verify_tabelog(input)`</Action>
+      <Goal>Verify Tabelog entity consistency against expected attributes and canonical POI graph</Goal>
+      <AcceptanceCriteria>Tool returns deterministic verdict, reasons, and evidence references</AcceptanceCriteria>
+    </UC-008>
+
+    <UC-009>
+      <Actor>System</Actor>
+      <Action>Maintains lazy canonical POI graph from observed assertions</Action>
+      <Goal>Scale verification without pre-building full country POI database</Goal>
+      <AcceptanceCriteria>Unknown POI is stored as provisional and does not default to mismatch</AcceptanceCriteria>
+    </UC-009>
+
+    <UC-010>
+      <Actor>Reviewer</Actor>
+      <Action>Resolves uncertain POI cases in HITL queue</Action>
+      <Goal>Improve precision for ambiguous place matching</Goal>
+      <AcceptanceCriteria>Queue supports `approve|merge|split|reject` decisions with audit trail</AcceptanceCriteria>
+    </UC-010>
+
+    <UC-011>
+      <Actor>System</Actor>
+      <Action>Enforces query-abuse guardrails</Action>
+      <Goal>Reduce misuse and personal identifier lookup attempts</Goal>
+      <AcceptanceCriteria>Queries requesting lookup by phone/email/personal identifiers are blocked by policy</AcceptanceCriteria>
+    </UC-011>
+
+    <UC-012>
+      <Actor>Workspace Owner</Actor>
+      <Action>Uses one workspace with multiple region packs and versions</Action>
+      <Goal>Support reproducible experiments and future multi-region expansion</Goal>
+      <AcceptanceCriteria>All read/write/query paths are isolated by `workspace_id + region_pack_id + source_list_version`</AcceptanceCriteria>
+    </UC-012>
+
+    <UC-013>
+      <Actor>External AI Agent</Actor>
+      <Action>Performs orchestration, correctness judgment, and final answer synthesis outside MCP</Action>
+      <Goal>Keep MCP boundary narrow and deterministic</Goal>
+      <AcceptanceCriteria>No internal planning/orchestration/memory subsystem is required for v1 release</AcceptanceCriteria>
+    </UC-013>
+
+    <UC-014>
+      <Actor>Platform Owner</Actor>
+      <Action>Runs weekly quality guardrails without full automated eval pipeline</Action>
+      <Goal>Ship v1 quickly while preventing obvious quality regressions</Goal>
+      <AcceptanceCriteria>Smoke set (30-50), evidence coverage >=95%, connector replay tests pass, validator obvious error &lt;=10%</AcceptanceCriteria>
+    </UC-014>
+  </UseCases>
+</RequirementsAnalysis>
