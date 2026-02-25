@@ -218,7 +218,7 @@
   </DataFlows>
 
   <ImplementationOrder>
-    <Phase-1 name="Foundation">
+    <Phase-1 name="Foundation" status="done">
       <step-1 module="M-CONFIG">Implement typed env parsing and strict validation for TG_CHAT_RAG_* variables.</step-1>
       <step-2 module="M-LOGGER">Implement structured logger and request-scoped fields.</step-2>
       <step-3 module="M-TOOLS-CONTRACTS">Implement public schemas and proxied tool allowlist constants.</step-3>
