@@ -1,23 +1,26 @@
 // FILE: src/db/index.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and expose Drizzle PostgreSQL database client from DATABASE_URL runtime configuration.
-//   SCOPE: Validate runtime database URL input, initialize Bun SQL client, perform fail-fast connectivity probe, and return typed DB handle.
+//   SCOPE: Validate runtime database URL input, initialize pg Pool and Drizzle database handle, perform fail-fast connectivity probe, and return typed DB resources.
 //   DEPENDS: M-CONFIG, M-LOGGER
 //   LINKS: M-DB, M-CONFIG, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   DbClient - Typed Bun SQL client handle used by repository modules.
+//   DbClient - Typed Drizzle database and pg Pool handles used by repository modules.
 //   DbConnectionError - Typed database bootstrap error with DB_CONNECTION_ERROR code.
-//   createDb - Validate configuration, initialize Bun SQL, and verify database connectivity.
+//   createDb - Validate configuration, initialize pg + Drizzle, and verify database connectivity.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-DB.
+//   LAST_CHANGE: v1.1.0 - Migrated M-DB runtime integration from Bun SQL to pg Pool + Drizzle node-postgres with fail-fast probe.
 // END_CHANGE_SUMMARY
 
-import { SQL } from "bun";
+import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 
@@ -28,7 +31,8 @@ type DbConnectionErrorDetails = {
 };
 
 export type DbClient = {
-  sql: SQL;
+  db: NodePgDatabase;
+  pool: Pool;
 };
 
 export class DbConnectionError extends Error {
@@ -141,14 +145,15 @@ function toDbConnectionError(error: unknown, safeTarget: string): DbConnectionEr
 }
 
 // START_CONTRACT: createDb
-//   PURPOSE: Create a Bun SQL PostgreSQL client from AppConfig and verify connectivity with a lightweight probe.
+//   PURPOSE: Create a pg-backed Drizzle PostgreSQL client from AppConfig and verify connectivity with a lightweight probe.
 //   INPUTS: { config: AppConfig - Runtime app configuration, logger: Logger - Module logger }
-//   OUTPUTS: { Promise<DbClient> - Database client wrapper with SQL handle }
-//   SIDE_EFFECTS: [Opens DB connection pool and emits structured logs]
+//   OUTPUTS: { Promise<DbClient> - Database client wrapper with Drizzle and pool handles }
+//   SIDE_EFFECTS: [Opens DB connection pool, runs connectivity probe query, and emits structured logs]
 //   LINKS: [M-DB, M-CONFIG, M-LOGGER]
 // END_CONTRACT: createDb
 export async function createDb(config: AppConfig, logger: Logger): Promise<DbClient> {
   let safeTarget = "postgresql://<unresolved>";
+  let pool: Pool | null = null;
 
   try {
     // START_BLOCK_VALIDATE_CONFIG_AND_PREPARE_DATABASE_TARGET_M_DB_006
@@ -163,19 +168,30 @@ export async function createDb(config: AppConfig, logger: Logger): Promise<DbCli
     );
     // END_BLOCK_VALIDATE_CONFIG_AND_PREPARE_DATABASE_TARGET_M_DB_006
 
-    // START_BLOCK_INITIALIZE_BUN_SQL_CLIENT_M_DB_007
-    const sql = new SQL(parsedDatabaseUrl.toString());
-    // END_BLOCK_INITIALIZE_BUN_SQL_CLIENT_M_DB_007
+    // START_BLOCK_INITIALIZE_PG_POOL_AND_DRIZZLE_CLIENT_M_DB_007
+    pool = new Pool({
+      connectionString: parsedDatabaseUrl.toString(),
+    });
+    const db = drizzle(pool);
+    // END_BLOCK_INITIALIZE_PG_POOL_AND_DRIZZLE_CLIENT_M_DB_007
 
     // START_BLOCK_RUN_CONNECTIVITY_PROBE_QUERY_M_DB_008
-    await sql`select 1`;
+    await db.execute(sql`select 1`);
     logger.info("Database connectivity probe succeeded.", "createDb", "RUN_CONNECTIVITY_PROBE_QUERY", {
       target: safeTarget,
     });
-    return { sql };
+    return { db, pool };
     // END_BLOCK_RUN_CONNECTIVITY_PROBE_QUERY_M_DB_008
   } catch (error: unknown) {
     // START_BLOCK_LOG_AND_THROW_CONNECTION_FAILURE_M_DB_009
+    if (pool !== null) {
+      try {
+        await pool.end();
+      } catch {
+        // Ignore pool shutdown failures while propagating the original bootstrap error.
+      }
+    }
+
     const dbError = toDbConnectionError(error, safeTarget);
     logger.error("Database bootstrap failed.", "createDb", "LOG_AND_THROW_CONNECTION_FAILURE", {
       target: dbError.details?.target ?? safeTarget,

@@ -1,5 +1,5 @@
 // FILE: src/admin/api-key-repository.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Persist and query API key lifecycle records used for MCP Bearer authentication.
 //   SCOPE: Ensure API key table exists, create one-time API keys, list key metadata, revoke keys, and resolve presented keys with expiry/revocation checks.
@@ -13,14 +13,16 @@
 //   ApiKeyList - API key list payload for admin UI rendering.
 //   CreateApiKeyResult - One-time API key creation response with raw key and stored metadata.
 //   ApiKeyRepository - Repository interface for create/list/revoke/resolve lifecycle operations.
-//   createApiKeyRepository - Build API key repository backed by Bun SQL and structured logs.
+//   createApiKeyRepository - Build API key repository backed by Drizzle PostgreSQL and structured logs.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-API-KEY-REPOSITORY.
+//   LAST_CHANGE: v1.1.0 - Migrated repository CRUD to Drizzle query builder with explicit pg-core schema while preserving API key lifecycle behavior.
 // END_CHANGE_SUMMARY
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { desc, eq, sql } from "drizzle-orm";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import type { DbClient } from "../db/index";
 import type { Logger } from "../logger/index";
 
@@ -30,6 +32,16 @@ const CREATE_API_KEY_MAX_ATTEMPTS = 3;
 const API_KEY_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RAW_API_KEY_PATTERN = /^(?<prefix>jp_[a-f0-9]{12})_(?<secret>[a-f0-9]{64})$/;
+
+const apiKeysTable = pgTable(API_KEYS_TABLE_NAME, {
+  id: text("id").primaryKey(),
+  key_hash: text("key_hash").notNull().unique(),
+  key_prefix: text("key_prefix").notNull(),
+  label: text("label").notNull(),
+  expires_at: timestamp("expires_at", { withTimezone: true, mode: "date" }),
+  revoked_at: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
+  created_at: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
 
 type ApiKeyStoreErrorDetails = {
   field?: string;
@@ -168,7 +180,7 @@ function parseDateField(value: Date | string | null, field: string, nullable: bo
 }
 
 // START_CONTRACT: mapApiKeyRow
-//   PURPOSE: Map SQL row shape to public ApiKeyRecord.
+//   PURPOSE: Map persisted database row shape to public ApiKeyRecord.
 //   INPUTS: { row: ApiKeyRow - Database row with snake_case fields }
 //   OUTPUTS: { ApiKeyRecord - Public API key metadata object }
 //   SIDE_EFFECTS: [Throws ApiKeyStoreError on invalid persisted row shape]
@@ -324,20 +336,25 @@ function isUniqueConstraintViolation(error: unknown): boolean {
     return false;
   }
   const code = (error as { code?: unknown }).code;
-  return code === "23505";
+  if (code === "23505") {
+    return true;
+  }
+
+  const causeCode = (error as { cause?: { code?: unknown } }).cause?.code;
+  return causeCode === "23505";
   // END_BLOCK_DETECT_UNIQUE_CONSTRAINT_ERRORS_M_API_KEY_REPOSITORY_011
 }
 
 // START_CONTRACT: ensureApiKeysTable
 //   PURPOSE: Create API key persistence table and supporting indexes if absent.
-//   INPUTS: { db: DbClient - SQL client wrapper, logger: Logger - Repository logger }
+//   INPUTS: { db: DbClient - Drizzle client wrapper, logger: Logger - Repository logger }
 //   OUTPUTS: { Promise<void> - Resolves when schema checks complete }
 //   SIDE_EFFECTS: [Executes DDL statements in PostgreSQL and writes logs]
 //   LINKS: [M-API-KEY-REPOSITORY, M-DB, M-LOGGER]
 // END_CONTRACT: ensureApiKeysTable
 async function ensureApiKeysTable(db: DbClient, logger: Logger): Promise<void> {
   // START_BLOCK_CREATE_API_KEYS_TABLE_IF_MISSING_M_API_KEY_REPOSITORY_012
-  await db.sql`
+  await db.db.execute(sql`
     create table if not exists api_keys (
       id text primary key,
       key_hash text not null unique,
@@ -347,12 +364,12 @@ async function ensureApiKeysTable(db: DbClient, logger: Logger): Promise<void> {
       revoked_at timestamptz null,
       created_at timestamptz not null default now()
     )
-  `;
+  `);
   // END_BLOCK_CREATE_API_KEYS_TABLE_IF_MISSING_M_API_KEY_REPOSITORY_012
 
   // START_BLOCK_CREATE_API_KEYS_INDEXES_IF_MISSING_M_API_KEY_REPOSITORY_013
-  await db.sql`create index if not exists api_keys_key_prefix_idx on api_keys (key_prefix)`;
-  await db.sql`create index if not exists api_keys_created_at_idx on api_keys (created_at desc)`;
+  await db.db.execute(sql`create index if not exists api_keys_key_prefix_idx on api_keys (key_prefix)`);
+  await db.db.execute(sql`create index if not exists api_keys_created_at_idx on api_keys (created_at desc)`);
   logger.info(
     "Ensured API key repository schema exists.",
     "createApiKeyRepository",
@@ -364,9 +381,9 @@ async function ensureApiKeysTable(db: DbClient, logger: Logger): Promise<void> {
 
 // START_CONTRACT: createApiKeyRepository
 //   PURPOSE: Build API key repository with table bootstrap and lifecycle operations.
-//   INPUTS: { db: DbClient - SQL client dependency, logger: Logger - Base logger dependency }
+//   INPUTS: { db: DbClient - Drizzle client dependency, logger: Logger - Base logger dependency }
 //   OUTPUTS: { ApiKeyRepository - API key lifecycle repository instance }
-//   SIDE_EFFECTS: [Starts async table bootstrap, issues SQL DML/DDL in method calls, emits structured logs]
+//   SIDE_EFFECTS: [Starts async table bootstrap, issues Drizzle query builder operations and DDL in method calls, emits structured logs]
 //   LINKS: [M-API-KEY-REPOSITORY, M-DB, M-LOGGER]
 // END_CONTRACT: createApiKeyRepository
 export function createApiKeyRepository(db: DbClient, logger: Logger): ApiKeyRepository {
@@ -414,19 +431,24 @@ export function createApiKeyRepository(db: DbClient, logger: Logger): ApiKeyRepo
         const generated = generateApiKeyMaterial();
 
         try {
-          const rows = await db.sql<ApiKeyRow[]>`
-            insert into api_keys (id, key_hash, key_prefix, label, expires_at, revoked_at, created_at)
-            values (
-              ${generated.id},
-              ${generated.keyHash},
-              ${generated.keyPrefix},
-              ${normalizedLabel},
-              ${normalizedExpiresAt},
-              null,
-              now()
-            )
-            returning id, key_prefix, label, expires_at, revoked_at, created_at
-          `;
+          const rows = await db.db
+            .insert(apiKeysTable)
+            .values({
+              id: generated.id,
+              key_hash: generated.keyHash,
+              key_prefix: generated.keyPrefix,
+              label: normalizedLabel,
+              expires_at: normalizedExpiresAt,
+              revoked_at: null,
+            })
+            .returning({
+              id: apiKeysTable.id,
+              key_prefix: apiKeysTable.key_prefix,
+              label: apiKeysTable.label,
+              expires_at: apiKeysTable.expires_at,
+              revoked_at: apiKeysTable.revoked_at,
+              created_at: apiKeysTable.created_at,
+            });
 
           const inserted = rows[0];
           if (!inserted) {
@@ -492,11 +514,17 @@ export function createApiKeyRepository(db: DbClient, logger: Logger): ApiKeyRepo
       await awaitInitialized("listApiKeys");
 
       try {
-        const rows = await db.sql<ApiKeyRow[]>`
-          select id, key_prefix, label, expires_at, revoked_at, created_at
-          from api_keys
-          order by created_at desc
-        `;
+        const rows = await db.db
+          .select({
+            id: apiKeysTable.id,
+            key_prefix: apiKeysTable.key_prefix,
+            label: apiKeysTable.label,
+            expires_at: apiKeysTable.expires_at,
+            revoked_at: apiKeysTable.revoked_at,
+            created_at: apiKeysTable.created_at,
+          })
+          .from(apiKeysTable)
+          .orderBy(desc(apiKeysTable.created_at));
 
         return rows.map((row) => mapApiKeyRow(row));
       } catch (error: unknown) {
@@ -528,12 +556,20 @@ export function createApiKeyRepository(db: DbClient, logger: Logger): ApiKeyRepo
       const normalizedId = normalizeApiKeyId(id);
 
       try {
-        const rows = await db.sql<ApiKeyRow[]>`
-          update api_keys
-          set revoked_at = coalesce(revoked_at, now())
-          where id = ${normalizedId}
-          returning id, key_prefix, label, expires_at, revoked_at, created_at
-        `;
+        const rows = await db.db
+          .update(apiKeysTable)
+          .set({
+            revoked_at: sql<Date | null>`coalesce(${apiKeysTable.revoked_at}, now())`,
+          })
+          .where(eq(apiKeysTable.id, normalizedId))
+          .returning({
+            id: apiKeysTable.id,
+            key_prefix: apiKeysTable.key_prefix,
+            label: apiKeysTable.label,
+            expires_at: apiKeysTable.expires_at,
+            revoked_at: apiKeysTable.revoked_at,
+            created_at: apiKeysTable.created_at,
+          });
 
         const revoked = rows[0];
         if (!revoked) {
@@ -587,12 +623,19 @@ export function createApiKeyRepository(db: DbClient, logger: Logger): ApiKeyRepo
       const presentedHash = hashApiKey(parsed.normalizedRawApiKey);
 
       try {
-        const rows = await db.sql<ApiKeyResolveRow[]>`
-          select id, key_hash, key_prefix, label, expires_at, revoked_at, created_at
-          from api_keys
-          where key_hash = ${presentedHash}
-          limit 1
-        `;
+        const rows = await db.db
+          .select({
+            id: apiKeysTable.id,
+            key_hash: apiKeysTable.key_hash,
+            key_prefix: apiKeysTable.key_prefix,
+            label: apiKeysTable.label,
+            expires_at: apiKeysTable.expires_at,
+            revoked_at: apiKeysTable.revoked_at,
+            created_at: apiKeysTable.created_at,
+          })
+          .from(apiKeysTable)
+          .where(eq(apiKeysTable.key_hash, presentedHash))
+          .limit(1);
 
         const matched = rows[0];
         if (!matched) {
