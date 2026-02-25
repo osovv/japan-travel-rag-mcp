@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="0.5.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="0.6.0">
     <keywords>japan-travel, mcp, proxy, tg-chat-rag, bearer-auth, tool-forwarding, contract-first, chat-allowlist</keywords>
     <annotation>v1 architecture is a thin MCP proxy over tg-chat-rag methods API. Public MCP surface exposes search_messages, get_message_context, get_related_messages, list_sources. list_chats is intentionally excluded. search_messages chat scope is enforced only from TG_CHAT_RAG_CHAT_IDS env.</annotation>
 
@@ -93,6 +93,24 @@
       </annotations>
     </M-TRANSPORT-SMOKE>
 
+    <M-DOCKER-DEV NAME="DockerComposeDev" TYPE="INFRA">
+      <purpose>Development container orchestration for MCP server with local source mount and .env loading.</purpose>
+      <path>docker-compose.yaml</path>
+      <depends>M-SERVER, M-CONFIG</depends>
+      <annotations>
+        <cfg-mcp-service description="Single mcp service running bun run index.ts with /healthz healthcheck" />
+      </annotations>
+    </M-DOCKER-DEV>
+
+    <M-DOCKER-PROD NAME="DockerComposeProd" TYPE="INFRA">
+      <purpose>Production container orchestration for MCP server with required runtime env vars and external network.</purpose>
+      <path>docker-compose.prod.yaml</path>
+      <depends>M-SERVER, M-CONFIG</depends>
+      <annotations>
+        <cfg-mcp-service description="Single mcp service running bun run index.ts on external coolify network" />
+      </annotations>
+    </M-DOCKER-PROD>
+
     <DataFlows>
       <DF-PROXY-SEARCH NAME="search_messages proxy flow">
         <step-1>MCP caller invokes search_messages without chat_ids input.</step-1>
@@ -142,5 +160,9 @@
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies transport tool exposure and request routing smoke behavior" />
+    <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />
+    <CrossLink FROM="M-DOCKER-DEV" TO="M-CONFIG" relation="provides runtime env variables for config loading in development profile" />
+    <CrossLink FROM="M-DOCKER-PROD" TO="M-SERVER" relation="runs MCP server process in production container profile" />
+    <CrossLink FROM="M-DOCKER-PROD" TO="M-CONFIG" relation="provides required runtime env variables for production config loading" />
   </Project>
 </KnowledgeGraph>
