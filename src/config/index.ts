@@ -1,24 +1,26 @@
 // FILE: src/config/index.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Load and validate runtime configuration for MCP transport and tg-chat-rag upstream connectivity.
-//   SCOPE: Parse and validate runtime env values for server port and tg-chat-rag upstream settings.
+//   PURPOSE: Load and validate runtime configuration for MCP proxy transport, admin auth, and PostgreSQL connectivity.
+//   SCOPE: Parse and validate runtime env values for server port, tg-chat-rag upstream settings, root auth, and database URL.
 //   DEPENDS: none
 //   LINKS: M-CONFIG
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   AppConfig - Typed runtime configuration for MCP and tg-chat-rag connectivity.
+//   AppConfig - Typed runtime configuration for MCP, tg-chat-rag, root auth, and PostgreSQL connectivity.
 //   ConfigValidationError - Typed validation error carrying CONFIG_VALIDATION_ERROR code.
 //   loadConfig - Validate process environment and return AppConfig.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Implemented M-CONFIG env parsing, validation, and typed exports.
+//   LAST_CHANGE: v1.1.0 - Added ROOT_AUTH_TOKEN and DATABASE_URL parsing/validation and exposed both in AppConfig.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
   port: number;
+  rootAuthToken: string;
+  databaseUrl: string;
   tgChatRag: {
     baseUrl: string;
     bearerToken: string;
@@ -41,7 +43,7 @@ export class ConfigValidationError extends Error {
 // START_CONTRACT: loadConfig
 //   PURPOSE: Validate runtime environment values and return typed AppConfig.
 //   INPUTS: { env: NodeJS.ProcessEnv | undefined - Source env map, defaults to process.env }
-//   OUTPUTS: { AppConfig - Typed config with validated MCP and tg-chat-rag settings }
+//   OUTPUTS: { AppConfig - Typed config with validated MCP proxy, tg-chat-rag, root auth, and database settings }
 //   SIDE_EFFECTS: [Throws ConfigValidationError with code CONFIG_VALIDATION_ERROR when validation fails]
 //   LINKS: [M-CONFIG]
 // END_CONTRACT: loadConfig
@@ -54,6 +56,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const chatIdsRaw = (env.TG_CHAT_RAG_CHAT_IDS ?? "").trim();
   const portRaw = (env.PORT ?? "").trim();
   const timeoutRaw = (env.TG_CHAT_RAG_TIMEOUT_MS ?? "").trim();
+  const rootAuthToken = (env.ROOT_AUTH_TOKEN ?? "").trim();
+  const databaseUrlRaw = (env.DATABASE_URL ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -74,6 +78,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     errors.push("TG_CHAT_RAG_BEARER_TOKEN is required.");
   }
   // END_BLOCK_VALIDATE_TG_CHAT_RAG_BEARER_TOKEN_M_CONFIG_003
+
+  // START_BLOCK_VALIDATE_ROOT_AUTH_TOKEN_M_CONFIG_009
+  if (!rootAuthToken) {
+    errors.push("ROOT_AUTH_TOKEN is required.");
+  }
+  // END_BLOCK_VALIDATE_ROOT_AUTH_TOKEN_M_CONFIG_009
 
   // START_BLOCK_PARSE_TG_CHAT_RAG_CHAT_IDS_M_CONFIG_004
   let chatIds: string[] = [];
@@ -118,6 +128,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   // END_BLOCK_PARSE_TG_CHAT_RAG_TIMEOUT_MS_M_CONFIG_006
 
+  // START_BLOCK_VALIDATE_DATABASE_URL_M_CONFIG_010
+  let databaseUrl = "";
+  if (!databaseUrlRaw) {
+    errors.push("DATABASE_URL is required.");
+  } else {
+    try {
+      const parsedDatabaseUrl = new URL(databaseUrlRaw);
+      if (parsedDatabaseUrl.protocol !== "postgres:" && parsedDatabaseUrl.protocol !== "postgresql:") {
+        errors.push("DATABASE_URL must use postgres:// or postgresql:// scheme.");
+      } else {
+        databaseUrl = parsedDatabaseUrl.toString();
+      }
+    } catch {
+      errors.push("DATABASE_URL must be a valid URL.");
+    }
+  }
+  // END_BLOCK_VALIDATE_DATABASE_URL_M_CONFIG_010
+
   // START_BLOCK_THROW_CONFIG_VALIDATION_ERROR_M_CONFIG_007
   if (errors.length > 0) {
     throw new ConfigValidationError(errors);
@@ -127,6 +155,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // START_BLOCK_BUILD_APP_CONFIG_RESULT_M_CONFIG_008
   return {
     port,
+    rootAuthToken,
+    databaseUrl,
     tgChatRag: {
       baseUrl: normalizedBaseUrl,
       bearerToken,
