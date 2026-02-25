@@ -1,24 +1,29 @@
 // FILE: src/server/index.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Boot Bun HTTP server, expose /mcp and /healthz, and provide graceful shutdown.
-//   SCOPE: Load runtime config, initialize logger/client/proxy/transport dependencies, serve HTTP routes, and handle process shutdown signals.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-TRANSPORT
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
+//   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, and /healthz routes.
+//   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport dependencies, serve guarded HTTP routes, and handle process shutdown signals.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   ServerStartError - Typed startup failure error with SERVER_START_ERROR code.
 //   main - Application entrypoint that initializes dependencies and starts Bun HTTP server.
 //   createJsonResponse - Build consistent JSON HTTP responses.
+//   isAdminRoutePath - Determine whether pathname maps to /admin surface.
 //   installGracefulShutdownHandlers - Register SIGINT/SIGTERM handlers for graceful server shutdown.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-SERVER.
+//   LAST_CHANGE: v1.1.0 - Wired /mcp authorization guard and /admin route handling with DB-backed API key repository bootstrap.
 // END_CHANGE_SUMMARY
 
+import { createApiKeyRepository } from "../admin/api-key-repository";
+import { handleAdminRequest } from "../admin/ui-routes";
+import { authorizeMcpRequest } from "../auth/mcp-auth-guard";
 import { loadConfig } from "../config/index";
+import { createDb } from "../db/index";
 import { createLogger } from "../logger/index";
 import type { Logger } from "../logger/index";
 import { createTgChatRagClient } from "../integrations/tg-chat-rag-client";
@@ -53,6 +58,19 @@ function createJsonResponse(status: number, payload: Record<string, unknown>): R
     },
   });
   // END_BLOCK_CREATE_JSON_HTTP_RESPONSE_M_SERVER_001
+}
+
+// START_CONTRACT: isAdminRoutePath
+//   PURPOSE: Determine whether request pathname belongs to /admin routing surface.
+//   INPUTS: { pathname: string - Parsed URL pathname from incoming request }
+//   OUTPUTS: { boolean - True when path is /admin or /admin/* }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER, M-ADMIN-UI]
+// END_CONTRACT: isAdminRoutePath
+function isAdminRoutePath(pathname: string): boolean {
+  // START_BLOCK_MATCH_ADMIN_ROUTE_PREFIX_M_SERVER_007
+  return pathname === "/admin" || pathname.startsWith("/admin/");
+  // END_BLOCK_MATCH_ADMIN_ROUTE_PREFIX_M_SERVER_007
 }
 
 // START_CONTRACT: installGracefulShutdownHandlers
@@ -110,26 +128,41 @@ function installGracefulShutdownHandlers(server: Bun.Server<unknown>, logger: Lo
 }
 
 // START_CONTRACT: main
-//   PURPOSE: Initialize runtime dependencies and start the Bun HTTP server for MCP proxy routes.
+//   PURPOSE: Initialize runtime dependencies and start the Bun HTTP server for MCP and admin routes.
 //   INPUTS: {}
 //   OUTPUTS: { Promise<Bun.Server> - Running Bun HTTP server instance }
-//   SIDE_EFFECTS: [Reads environment config, opens network listener, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
+//   SIDE_EFFECTS: [Reads environment config, opens DB and network connections, registers process signal handlers, emits logs]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
 // END_CONTRACT: main
 export async function main(): Promise<Bun.Server<unknown>> {
   // START_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
   try {
     const config = loadConfig();
     const logger = createLogger(config, "ServerMain");
+    const db = await createDb(config, logger.child({ component: "db" }));
+    const apiKeyRepository = createApiKeyRepository(
+      db,
+      logger.child({ component: "apiKeyRepository" }),
+    );
     const tgClient = createTgChatRagClient(config, logger.child({ component: "tgChatRagClient" }));
     const proxyService = createToolProxyService(
       config,
       logger.child({ component: "toolProxyService" }),
       tgClient,
     );
+    const mcpLogger = logger.child({ route: "mcp" });
     const transportDeps: McpTransportDependencies = {
-      logger: logger.child({ route: "mcp" }),
+      logger: mcpLogger.child({ component: "transport" }),
       proxyService,
+    };
+    const adminDeps = {
+      config,
+      logger: logger.child({ route: "admin", component: "adminUiRoutes" }),
+      apiKeyRepository,
+    };
+    const mcpAuthDeps = {
+      apiKeyRepository,
+      logger: mcpLogger.child({ component: "mcpAuthGuard" }),
     };
     // END_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
 
@@ -146,16 +179,107 @@ export async function main(): Promise<Bun.Server<unknown>> {
           });
         }
 
-        if (request.method === "POST" && url.pathname === "/mcp") {
+        if (isAdminRoutePath(url.pathname)) {
           logger.info(
-            "Dispatching /mcp request to transport handler.",
+            "Dispatching /admin request to admin UI handler.",
             "main",
             "START_BUN_HTTP_SERVER",
             { method: request.method, pathname: url.pathname },
           );
 
           try {
-            return await handleMcpRequest(request, transportDeps);
+            return await handleAdminRequest(request, adminDeps);
+          } catch (error: unknown) {
+            logger.error(
+              "Unexpected /admin request failure at server boundary.",
+              "main",
+              "HANDLE_ADMIN_ROUTE_FAILURE",
+              {
+                cause: error instanceof Error ? error.message : String(error),
+                method: request.method,
+                pathname: url.pathname,
+              },
+            );
+            return new Response("<h1>Internal Server Error</h1>", {
+              status: 500,
+              headers: {
+                "content-type": "text/html; charset=utf-8",
+              },
+            });
+          }
+        }
+
+        if (request.method === "POST" && url.pathname === "/mcp") {
+          logger.info(
+            "Received /mcp request; running authorization guard.",
+            "main",
+            "START_BUN_HTTP_SERVER",
+            {
+              method: request.method,
+              pathname: url.pathname,
+              authHeaderPresent: request.headers.get("authorization") !== null,
+            },
+          );
+
+          let authDecision: Awaited<ReturnType<typeof authorizeMcpRequest>>;
+          const authorizationHeader = request.headers.get("authorization");
+
+          try {
+            authDecision = await authorizeMcpRequest(authorizationHeader, mcpAuthDeps);
+          } catch (error: unknown) {
+            logger.error(
+              "MCP authorization guard failed; denying request.",
+              "main",
+              "HANDLE_MCP_ROUTE_FAILURE",
+              {
+                cause: error instanceof Error ? error.message : String(error),
+              },
+            );
+            return createJsonResponse(401, {
+              error: {
+                code: "UNAUTHORIZED",
+                message: "Invalid or missing MCP API key.",
+              },
+            });
+          }
+
+          if (!authDecision.isAuthorized) {
+            logger.warn(
+              "Rejected /mcp request due to failed authorization.",
+              "main",
+              "HANDLE_MCP_ROUTE_FAILURE",
+              {
+                reason: authDecision.reason,
+              },
+            );
+            return createJsonResponse(401, {
+              error: {
+                code: "UNAUTHORIZED",
+                message: "Invalid or missing MCP API key.",
+              },
+            });
+          }
+
+          logger.info(
+            "Authorized /mcp request; dispatching to transport handler.",
+            "main",
+            "START_BUN_HTTP_SERVER",
+            {
+              method: request.method,
+              pathname: url.pathname,
+              apiKeyId: authDecision.apiKeyId,
+              keyPrefix: authDecision.keyPrefix,
+            },
+          );
+
+          try {
+            return await handleMcpRequest(request, {
+              ...transportDeps,
+              logger: transportDeps.logger.child({
+                apiKeyId: authDecision.apiKeyId,
+                keyPrefix: authDecision.keyPrefix,
+              }),
+            });
           } catch (error: unknown) {
             if (error instanceof TransportError) {
               logger.warn(
