@@ -1,8 +1,8 @@
 // FILE: src/server/index.ts
-// VERSION: 1.4.0
+// VERSION: 1.5.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth discovery metadata, and /healthz routes.
-//   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, and handle process shutdown signals.
+//   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, centralize OAuth challenge response construction for /mcp unauthorized paths, and handle process shutdown signals.
 //   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT
 //   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
 // END_MODULE_CONTRACT
@@ -11,17 +11,19 @@
 //   ServerStartError - Typed startup failure error with SERVER_START_ERROR code.
 //   main - Application entrypoint that initializes dependencies and starts Bun HTTP server with OAuth discovery and /mcp auth routing.
 //   createJsonResponse - Build consistent JSON HTTP responses.
+//   createUnauthorizedMcpResponse - Build consistent 401 /mcp response with OAuth WWW-Authenticate challenge metadata.
 //   isAdminRoutePath - Determine whether pathname maps to /admin surface.
 //   installGracefulShutdownHandlers - Register SIGINT/SIGTERM handlers for graceful server shutdown.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.4.0 - Mounted OAuth discovery metadata routes via M-OAUTH-DISCOVERY while preserving existing /healthz, /admin, and /mcp auth behavior.
+//   LAST_CHANGE: v1.5.0 - Centralized /mcp unauthorized OAuth challenge responses to keep WWW-Authenticate behavior consistent across auth-failure branches.
 // END_CHANGE_SUMMARY
 
 import { createApiKeyRepository } from "../admin/api-key-repository";
 import { handleAdminRequest } from "../admin/ui-routes";
 import { authorizeMcpRequest, buildWwwAuthenticateHeader } from "../auth/mcp-auth-guard";
+import type { OAuthChallengeMetadata } from "../auth/mcp-auth-guard";
 import { handleOAuthProtectedResourceMetadata } from "../auth/oauth-discovery-routes";
 import { createOAuthTokenValidator } from "../auth/oauth-token-validator";
 import { loadConfig } from "../config/index";
@@ -32,6 +34,8 @@ import { createTgChatRagClient } from "../integrations/tg-chat-rag-client";
 import { createToolProxyService } from "../tools/proxy-service";
 import { handleMcpRequest, TransportError } from "../transport/mcp-transport";
 import type { McpTransportDependencies } from "../transport/mcp-transport";
+
+const MCP_UNAUTHORIZED_MESSAGE = "Invalid or missing OAuth access token.";
 
 export class ServerStartError extends Error {
   public readonly code = "SERVER_START_ERROR" as const;
@@ -60,6 +64,33 @@ function createJsonResponse(status: number, payload: Record<string, unknown>): R
     },
   });
   // END_BLOCK_CREATE_JSON_HTTP_RESPONSE_M_SERVER_001
+}
+
+// START_CONTRACT: createUnauthorizedMcpResponse
+//   PURPOSE: Build consistent /mcp unauthorized response body and OAuth WWW-Authenticate challenge header.
+//   INPUTS: { challenge: OAuthChallengeMetadata - OAuth challenge metadata used to build WWW-Authenticate header }
+//   OUTPUTS: { Response - HTTP 401 response with UNAUTHORIZED error body and challenge header }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER, M-MCP-AUTH-GUARD]
+// END_CONTRACT: createUnauthorizedMcpResponse
+export function createUnauthorizedMcpResponse(challenge: OAuthChallengeMetadata): Response {
+  // START_BLOCK_CREATE_UNAUTHORIZED_MCP_RESPONSE_WITH_CHALLENGE_M_SERVER_008
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: "UNAUTHORIZED",
+        message: MCP_UNAUTHORIZED_MESSAGE,
+      },
+    }),
+    {
+      status: 401,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "www-authenticate": buildWwwAuthenticateHeader(challenge),
+      },
+    },
+  );
+  // END_BLOCK_CREATE_UNAUTHORIZED_MCP_RESPONSE_WITH_CHALLENGE_M_SERVER_008
 }
 
 // START_CONTRACT: isAdminRoutePath
@@ -254,27 +285,13 @@ export async function main(): Promise<Bun.Server<unknown>> {
                 cause: error instanceof Error ? error.message : String(error),
               },
             );
-            return new Response(
-              JSON.stringify({
-                error: {
-                  code: "UNAUTHORIZED",
-                  message: "Invalid or missing OAuth access token.",
-                },
-              }),
-              {
-                status: 401,
-                headers: {
-                  "content-type": "application/json; charset=utf-8",
-                  "www-authenticate": buildWwwAuthenticateHeader({
-                    error: "invalid_token",
-                    errorDescription: "Access token validation failed due to internal authorization error.",
-                    requiredScopes: config.oauth.requiredScopes,
-                    issuer: config.oauth.issuer,
-                    resource: mcpResourceUrl,
-                  }),
-                },
-              },
-            );
+            return createUnauthorizedMcpResponse({
+              error: "invalid_token",
+              errorDescription: "Access token validation failed due to internal authorization error.",
+              requiredScopes: config.oauth.requiredScopes,
+              issuer: config.oauth.issuer,
+              resource: mcpResourceUrl,
+            });
           }
 
           if (!authDecision.isAuthorized) {
@@ -286,21 +303,7 @@ export async function main(): Promise<Bun.Server<unknown>> {
                 reason: authDecision.reason,
               },
             );
-            return new Response(
-              JSON.stringify({
-                error: {
-                  code: "UNAUTHORIZED",
-                  message: "Invalid or missing OAuth access token.",
-                },
-              }),
-              {
-                status: 401,
-                headers: {
-                  "content-type": "application/json; charset=utf-8",
-                  "www-authenticate": buildWwwAuthenticateHeader(authDecision.challenge),
-                },
-              },
-            );
+            return createUnauthorizedMcpResponse(authDecision.challenge);
           }
 
           logger.info(
