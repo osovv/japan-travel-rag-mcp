@@ -1,27 +1,26 @@
 // FILE: src/admin/ui-routes.tsx
-// VERSION: 2.0.0
+// VERSION: 2.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Render admin login and authenticated operator diagnostics surfaces while deprecating legacy API-key management routes.
-//   SCOPE: Route /admin/login and /admin/ops requests, enforce admin session checks, render safe HTML diagnostics from runtime config, and return consistent deprecation responses for /admin/api-keys*.
-//   DEPENDS: M-ADMIN-AUTH, M-API-KEY-REPOSITORY, M-LOGGER, M-CONFIG
-//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG, M-API-KEY-REPOSITORY
+//   PURPOSE: Render admin login and authenticated operator diagnostics surfaces without legacy API-key route handling.
+//   SCOPE: Route /admin/login and /admin/ops requests, enforce admin session checks, and render safe HTML diagnostics from runtime config.
+//   DEPENDS: M-ADMIN-AUTH, M-LOGGER, M-CONFIG
+//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   AdminUiError - Typed admin UI error wrapper with ADMIN_UI_ERROR code.
-//   AdminUiDependencies - Dependency contract for auth helpers, config, logger, and compatibility repository wiring.
+//   AdminUiDependencies - Dependency contract for auth helpers, config, and logger.
 //   renderAdminLayout - Render admin shell with Ops Diagnostics navigation.
 //   renderOpsStatus - Render operator diagnostics panel derived from runtime config.
-//   handleAdminRequest - Route login and ops diagnostics, enforce session checks, and return API-key route deprecation responses.
+//   handleAdminRequest - Route login and ops diagnostics while enforcing session checks.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.0.0 - Replaced API-key CRUD UI surface with operator diagnostics at /admin/ops and deprecated /admin/api-keys* routes.
+//   LAST_CHANGE: v2.1.0 - Removed legacy /admin/api-keys* dependency and route handling; unknown admin child routes now return default 404.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
-import type { ApiKeyRepository } from "./api-key-repository";
 import {
   authenticateAdmin as authenticateAdminHelper,
   clearAdminSession as clearAdminSessionHelper,
@@ -31,7 +30,6 @@ import {
 const ADMIN_ROOT_PATH = "/admin";
 const ADMIN_LOGIN_PATH = "/admin/login";
 export const ADMIN_OPS_PATH = "/admin/ops";
-const ADMIN_API_KEYS_PATH = "/admin/api-keys";
 const HX_REQUEST_HEADER = "HX-Request";
 const HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 const OPS_TAB_LABEL = "Ops Diagnostics";
@@ -60,7 +58,6 @@ type RenderOpsStatusModel = {
 type ResolvedAdminUiDependencies = {
   config: AppConfig;
   logger: Logger;
-  apiKeyRepository: ApiKeyRepository;
   authenticateAdmin: typeof authenticateAdminHelper;
   requireAdminSession: typeof requireAdminSessionHelper;
   clearAdminSession: typeof clearAdminSessionHelper;
@@ -69,7 +66,6 @@ type ResolvedAdminUiDependencies = {
 export type AdminUiDependencies = {
   config: AppConfig;
   logger: Logger;
-  apiKeyRepository: ApiKeyRepository;
   authenticateAdmin?: typeof authenticateAdminHelper;
   requireAdminSession?: typeof requireAdminSessionHelper;
   clearAdminSession?: typeof clearAdminSessionHelper;
@@ -216,7 +212,6 @@ function resolveDependencies(deps: AdminUiDependencies): ResolvedAdminUiDependen
   return {
     config: deps.config,
     logger: deps.logger,
-    apiKeyRepository: deps.apiKeyRepository,
     authenticateAdmin: deps.authenticateAdmin ?? authenticateAdminHelper,
     requireAdminSession: deps.requireAdminSession ?? requireAdminSessionHelper,
     clearAdminSession: deps.clearAdminSession ?? clearAdminSessionHelper,
@@ -317,27 +312,6 @@ export function renderOpsStatus(config: AppConfig): string {
     `</section>`,
   ].join("");
   // END_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
-}
-
-// START_CONTRACT: renderApiKeysDeprecatedPanel
-//   PURPOSE: Render deprecation message for legacy API-key routes with guidance to ops diagnostics.
-//   INPUTS: {}
-//   OUTPUTS: { string - HTML fragment for deprecated route responses }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: renderApiKeysDeprecatedPanel
-function renderApiKeysDeprecatedPanel(): string {
-  // START_BLOCK_RENDER_API_KEYS_DEPRECATION_NOTICE_M_ADMIN_UI_111
-  return [
-    `<section id="api-keys-deprecated-panel" class="stack">`,
-    `<section class="card warning-card">`,
-    `<h2>API key management deprecated</h2>`,
-    `<p class="warning">This route is no longer available for key create/revoke operations in this phase.</p>`,
-    `<p>Use <a href="${ADMIN_OPS_PATH}">${escapeHtml(ADMIN_OPS_PATH)}</a> for operator diagnostics.</p>`,
-    `</section>`,
-    `</section>`,
-  ].join("");
-  // END_BLOCK_RENDER_API_KEYS_DEPRECATION_NOTICE_M_ADMIN_UI_111
 }
 
 // START_CONTRACT: renderLoginDocument
@@ -450,33 +424,8 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
   // END_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
 }
 
-// START_CONTRACT: renderApiKeysDeprecatedResponse
-//   PURPOSE: Build deprecation response payload for /admin/api-keys* routes for HTMX and full-page requests.
-//   INPUTS: { htmx: boolean - Whether request originated from HTMX }
-//   OUTPUTS: { Response - HTTP 410 response with deprecation guidance }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: renderApiKeysDeprecatedResponse
-function renderApiKeysDeprecatedResponse(htmx: boolean): Response {
-  // START_BLOCK_BUILD_DEPRECATED_API_KEYS_ROUTE_RESPONSE_M_ADMIN_UI_114
-  const deprecationPanel = renderApiKeysDeprecatedPanel();
-  if (htmx) {
-    return buildHtmlResponse(410, deprecationPanel);
-  }
-
-  return buildHtmlResponse(
-    410,
-    renderAdminLayout({
-      pageTitle: "Admin - Deprecated Route",
-      activeTab: "ops",
-      contentHtml: deprecationPanel,
-    }),
-  );
-  // END_BLOCK_BUILD_DEPRECATED_API_KEYS_ROUTE_RESPONSE_M_ADMIN_UI_114
-}
-
 // START_CONTRACT: handleAdminRequest
-//   PURPOSE: Dispatch admin route requests for login and authenticated ops diagnostics while deprecating API-key routes.
+//   PURPOSE: Dispatch admin route requests for login and authenticated ops diagnostics.
 //   INPUTS: { request: Request - Incoming admin HTTP request, deps: AdminUiDependencies - Runtime dependencies and auth helper hooks }
 //   OUTPUTS: { Promise<Response> - HTML response, HTMX fragment, or redirect response }
 //   SIDE_EFFECTS: [Calls auth dependencies, emits structured logs]
@@ -600,18 +549,6 @@ export async function handleAdminRequest(
       );
     }
     // END_BLOCK_HANDLE_ADMIN_OPS_ROUTE_M_ADMIN_UI_118
-
-    // START_BLOCK_HANDLE_DEPRECATED_API_KEY_ROUTES_M_ADMIN_UI_119
-    if (pathname.startsWith(ADMIN_API_KEYS_PATH)) {
-      logger.warn(
-        "Deprecated API-key admin route requested.",
-        "handleAdminRequest",
-        "HANDLE_DEPRECATED_API_KEY_ROUTES",
-        { pathname, method },
-      );
-      return renderApiKeysDeprecatedResponse(htmx);
-    }
-    // END_BLOCK_HANDLE_DEPRECATED_API_KEY_ROUTES_M_ADMIN_UI_119
 
     // START_BLOCK_RETURN_ADMIN_ROUTE_ERRORS_M_ADMIN_UI_120
     return buildHtmlResponse(404, "<h1>Not Found</h1>");

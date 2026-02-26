@@ -1,8 +1,8 @@
 // FILE: src/admin/ui-routes.ops.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate admin UI route behavior after transitioning from API-key management to ops diagnostics surface.
-//   SCOPE: Assert /admin redirect target, /admin/ops diagnostics rendering for full and HTMX requests, and consistent /admin/api-keys* deprecation responses.
+//   SCOPE: Assert /admin redirect target, /admin/ops diagnostics rendering for full and HTMX requests, and default not-found behavior for removed /admin/api-keys* routes.
 //   DEPENDS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
 //   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
 // END_MODULE_CONTRACT
@@ -11,17 +11,16 @@
 //   createNoopLogger - Create no-op logger implementation for deterministic route tests.
 //   createTestConfig - Build valid AppConfig fixture with OAuth diagnostics values.
 //   createDependencies - Build AdminUiDependencies with overrideable auth helper behavior.
-//   AdminUiOpsRouteTests - Focused tests for ops diagnostics route and API-key deprecation behavior.
+//   AdminUiOpsRouteTests - Focused tests for ops diagnostics route and removed API-key surface behavior.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Added focused tests for /admin/ops routing and /admin/api-keys deprecation behavior.
+//   LAST_CHANGE: v1.1.0 - Updated removed /admin/api-keys* expectations to default not-found behavior and dropped obsolete repository dependency.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
-import type { ApiKeyRepository } from "./api-key-repository";
 import { ADMIN_OPS_PATH, handleAdminRequest } from "./ui-routes";
 
 type DependencyOverrides = {
@@ -110,7 +109,6 @@ function createDependencies(overrides?: DependencyOverrides): Parameters<typeof 
   return {
     config: createTestConfig(),
     logger: createNoopLogger(),
-    apiKeyRepository: {} as ApiKeyRepository,
     authenticateAdmin: () => {
       return { isAuthenticated: false, sessionCookie: null, reason: "INVALID_LOGIN_TOKEN" } as const;
     },
@@ -169,7 +167,7 @@ describe("M-ADMIN-UI ops diagnostics routing", () => {
     expect(html).not.toContain("<!doctype html>");
   });
 
-  it("returns 410 deprecation response for /admin/api-keys and child routes", async () => {
+  it("returns default 404 response for removed /admin/api-keys routes", async () => {
     const listResponse = await handleAdminRequest(
       new Request("http://localhost/admin/api-keys", { method: "GET" }),
       createDependencies(),
@@ -182,13 +180,9 @@ describe("M-ADMIN-UI ops diagnostics routing", () => {
     );
     const childHtml = await childResponse.text();
 
-    expect(listResponse.status).toBe(410);
-    expect(childResponse.status).toBe(410);
-    expect(listHtml).toContain("API key management deprecated");
-    expect(listHtml).toContain(ADMIN_OPS_PATH);
-    expect(listHtml).not.toContain("Create API key");
-    expect(listHtml).not.toContain('action="/admin/api-keys"');
-    expect(childHtml).toContain("API key management deprecated");
-    expect(childHtml).not.toContain("Revoke");
+    expect(listResponse.status).toBe(404);
+    expect(childResponse.status).toBe(404);
+    expect(listHtml).toContain("<h1>Not Found</h1>");
+    expect(childHtml).toContain("<h1>Not Found</h1>");
   });
 });

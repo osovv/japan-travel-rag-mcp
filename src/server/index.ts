@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 1.6.0
+// VERSION: 1.7.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth discovery metadata, and /healthz routes.
-//   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, centralize OAuth challenge response construction for /mcp unauthorized paths, and handle process shutdown signals.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
+//   SCOPE: Load runtime config, initialize logger/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, centralize OAuth challenge response construction for /mcp unauthorized paths, and handle process shutdown signals.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -17,17 +17,15 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.6.0 - Finalized /mcp auth path decoupling from ApiKeyRepository; API key repository remains wired only for admin surface compatibility.
+//   LAST_CHANGE: v1.7.0 - Removed legacy ApiKeyRepository + DB wiring from server admin dependencies after admin API-key surface removal.
 // END_CHANGE_SUMMARY
 
-import { createApiKeyRepository } from "../admin/api-key-repository";
 import { handleAdminRequest } from "../admin/ui-routes";
 import { authorizeMcpRequest, buildWwwAuthenticateHeader } from "../auth/mcp-auth-guard";
 import type { OAuthChallengeMetadata } from "../auth/mcp-auth-guard";
 import { handleOAuthProtectedResourceMetadata } from "../auth/oauth-discovery-routes";
 import { createOAuthTokenValidator } from "../auth/oauth-token-validator";
 import { loadConfig } from "../config/index";
-import { createDb } from "../db/index";
 import { createLogger } from "../logger/index";
 import type { Logger } from "../logger/index";
 import { createTgChatRagClient } from "../integrations/tg-chat-rag-client";
@@ -164,19 +162,14 @@ function installGracefulShutdownHandlers(server: Bun.Server<unknown>, logger: Lo
 //   PURPOSE: Initialize runtime dependencies and start the Bun HTTP server for MCP, admin, and OAuth discovery routes.
 //   INPUTS: {}
 //   OUTPUTS: { Promise<Bun.Server> - Running Bun HTTP server instance }
-//   SIDE_EFFECTS: [Reads environment config, opens DB and network connections, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
+//   SIDE_EFFECTS: [Reads environment config, opens network connections, registers process signal handlers, emits logs]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
 // END_CONTRACT: main
 export async function main(): Promise<Bun.Server<unknown>> {
   // START_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
   try {
     const config = loadConfig();
     const logger = createLogger(config, "ServerMain");
-    const db = await createDb(config, logger.child({ component: "db" }));
-    const apiKeyRepository = createApiKeyRepository(
-      db,
-      logger.child({ component: "apiKeyRepository" }),
-    );
     const tgClient = createTgChatRagClient(config, logger.child({ component: "tgChatRagClient" }));
     const proxyService = createToolProxyService(
       config,
@@ -191,7 +184,6 @@ export async function main(): Promise<Bun.Server<unknown>> {
     const adminDeps = {
       config,
       logger: logger.child({ route: "admin", component: "adminUiRoutes" }),
-      apiKeyRepository,
     };
     const mcpResourceUrl = new URL("/mcp", config.publicUrl).toString();
     const oauthTokenValidator = createOAuthTokenValidator({

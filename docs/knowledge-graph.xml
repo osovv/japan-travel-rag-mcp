@@ -128,7 +128,7 @@
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT">
       <purpose>Render Bun JSX admin pages and HTMX fragments for operator login and OAuth diagnostics.</purpose>
       <path>src/admin/ui-routes.tsx</path>
-      <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER, M-API-KEY-REPOSITORY</depends>
+      <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
       <annotations>
         <fn-handleAdminRequest description="Dispatch /admin/login and /admin/ops route actions" />
         <fn-renderAdminLayout description="Render admin layout with OAuth ops tab" />
@@ -149,7 +149,7 @@
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
       <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /.well-known/oauth-protected-resource*, /admin/*, /healthz) using OAuth challenge responses for unauthorized MCP requests.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT</depends>
       <annotations>
         <fn-main description="Boot server, wire auth guards, and route MCP/discovery/admin/health requests" />
         <fn-createUnauthorizedMcpResponse description="Build standardized 401 response with OAuth WWW-Authenticate challenge metadata" />
@@ -286,7 +286,6 @@
     <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-LOGGER" relation="logs /mcp auth guard decisions and challenge metadata" />
     <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" relation="enforces admin session guard on protected UI routes" />
     <CrossLink FROM="M-ADMIN-UI" TO="M-CONFIG" relation="renders OAuth config diagnostics for operators" />
-    <CrossLink FROM="M-ADMIN-UI" TO="M-API-KEY-REPOSITORY" relation="keeps repository dependency during route deprecation transition" />
     <CrossLink FROM="M-ADMIN-UI" TO="M-LOGGER" relation="emits admin route and HTMX action logs" />
     <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-LOGGER" relation="emits schema validation diagnostics" />
     <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" relation="uses base URL, bearer token, and timeout settings" />
@@ -299,8 +298,6 @@
     <CrossLink FROM="M-TRANSPORT" TO="M-TOOL-PROXY" relation="routes tool handlers to proxy execution" />
     <CrossLink FROM="M-TRANSPORT" TO="M-LOGGER" relation="emits request lifecycle logs" />
     <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server and auth settings" />
-    <CrossLink FROM="M-SERVER" TO="M-DB" relation="initializes DB dependency for runtime foundation" />
-    <CrossLink FROM="M-SERVER" TO="M-API-KEY-REPOSITORY" relation="creates repository for admin UI surface compatibility; /mcp auth path uses OAuth validator pipeline" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-AUTH" relation="routes /admin/login and session guard checks" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="mounts admin route handlers" />
     <CrossLink FROM="M-SERVER" TO="M-OAUTH-DISCOVERY" relation="mounts OAuth protected-resource discovery metadata routes" />
