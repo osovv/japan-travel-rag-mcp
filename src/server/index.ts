@@ -209,6 +209,19 @@ export async function main(): Promise<Bun.Server<unknown>> {
       fetch: async (request: Request): Promise<Response> => {
         const url = new URL(request.url);
 
+        // Log every incoming request for debugging
+        logger.info(
+          "Incoming HTTP request.",
+          "main",
+          "START_BUN_HTTP_SERVER",
+          {
+            method: request.method,
+            pathname: url.pathname,
+            authHeaderPresent: request.headers.get("authorization") !== null,
+            origin: request.headers.get("origin") ?? null,
+          },
+        );
+
         if (request.method === "GET" && url.pathname === "/healthz") {
           return createJsonResponse(200, {
             status: "ok",
@@ -355,6 +368,12 @@ export async function main(): Promise<Bun.Server<unknown>> {
           }
         }
 
+        logger.warn(
+          "No route matched request.",
+          "main",
+          "START_BUN_HTTP_SERVER",
+          { method: request.method, pathname: url.pathname },
+        );
         return createJsonResponse(404, {
           error: {
             code: "NOT_FOUND",
