@@ -1,8 +1,8 @@
 // FILE: src/config/index.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Validate M-CONFIG runtime parsing for PUBLIC_URL and OAuth environment settings introduced in Phase-2 step-1.
-//   SCOPE: Assert defaults for optional OAuth controls, CSV scope parsing behavior, and strict CONFIG_VALIDATION_ERROR outcomes for invalid OAuth/public inputs.
+//   PURPOSE: Validate M-CONFIG runtime parsing for PUBLIC_URL and OAuth environment settings after Phase-7 removal of JWKS/clock-skew env controls.
+//   SCOPE: Assert defaults for required OAuth/public settings, CSV scope parsing behavior, strict CONFIG_VALIDATION_ERROR outcomes for invalid OAuth/public inputs, and ignore behavior for removed JWKS/clock-skew vars.
 //   DEPENDS: M-CONFIG
 //   LINKS: M-CONFIG, M-OAUTH-DISCOVERY, M-OAUTH-JWKS, M-OAUTH-TOKEN-VALIDATOR
 // END_MODULE_CONTRACT
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Added focused tests for PUBLIC_URL and OAuth config parsing defaults/validation.
+//   LAST_CHANGE: v1.1.0 - Removed JWKS/clock-skew assertions and added coverage that legacy JWKS/clock-skew env vars are ignored by loadConfig.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -77,26 +77,31 @@ describe("M-CONFIG OAuth/public settings", () => {
     expect(config.oauth.issuer).toBe("https://issuer.example.com/");
     expect(config.oauth.audience).toBe("travel-mcp");
     expect(config.oauth.requiredScopes).toEqual(["mcp:access"]);
-    expect(config.oauth.jwksCacheTtlMs).toBe(300000);
-    expect(config.oauth.jwksTimeoutMs).toBe(5000);
-    expect(config.oauth.clockSkewSec).toBe(60);
     expect(config.tgChatRag.chatIds).toEqual(["chat-1", "chat-2"]);
   });
 
-  it("parses custom OAuth scope CSV and timing overrides", () => {
+  it("parses custom OAuth scope CSV", () => {
     const config = loadConfig(
       createBaseEnv({
         OAUTH_REQUIRED_SCOPES: "mcp:access, profile:read, mcp:access",
-        OAUTH_JWKS_CACHE_TTL_MS: "900000",
-        OAUTH_JWKS_TIMEOUT_MS: "8000",
-        OAUTH_CLOCK_SKEW_SEC: "30",
       }),
     );
 
     expect(config.oauth.requiredScopes).toEqual(["mcp:access", "profile:read"]);
-    expect(config.oauth.jwksCacheTtlMs).toBe(900000);
-    expect(config.oauth.jwksTimeoutMs).toBe(8000);
-    expect(config.oauth.clockSkewSec).toBe(30);
+  });
+
+  it("ignores removed OAuth JWKS/clock-skew env vars", () => {
+    const config = loadConfig(
+      createBaseEnv({
+        OAUTH_JWKS_CACHE_TTL_MS: "1",
+        OAUTH_JWKS_TIMEOUT_MS: "0",
+        OAUTH_CLOCK_SKEW_SEC: "-999",
+      }),
+    );
+
+    expect(config.oauth.requiredScopes).toEqual(["mcp:access"]);
+    expect(config.oauth.issuer).toBe("https://issuer.example.com/");
+    expect(config.oauth.audience).toBe("travel-mcp");
   });
 
   it("throws CONFIG_VALIDATION_ERROR for invalid public URL and OAuth values", () => {
@@ -106,9 +111,6 @@ describe("M-CONFIG OAuth/public settings", () => {
         OAUTH_ISSUER: "issuer-without-scheme",
         OAUTH_AUDIENCE: "   ",
         OAUTH_REQUIRED_SCOPES: " , , ",
-        OAUTH_JWKS_CACHE_TTL_MS: "999",
-        OAUTH_JWKS_TIMEOUT_MS: "0",
-        OAUTH_CLOCK_SKEW_SEC: "-1",
       }),
     );
 
@@ -117,12 +119,5 @@ describe("M-CONFIG OAuth/public settings", () => {
     expect(error.details).toContain("OAUTH_ISSUER must be a valid URL.");
     expect(error.details).toContain("OAUTH_AUDIENCE is required.");
     expect(error.details).toContain("OAUTH_REQUIRED_SCOPES must contain at least one non-empty value.");
-    expect(error.details).toContain(
-      "OAUTH_JWKS_CACHE_TTL_MS must be an integer between 1000 and 86400000.",
-    );
-    expect(error.details).toContain(
-      "OAUTH_JWKS_TIMEOUT_MS must be an integer between 1000 and 120000.",
-    );
-    expect(error.details).toContain("OAUTH_CLOCK_SKEW_SEC must be an integer between 0 and 300.");
   });
 });
