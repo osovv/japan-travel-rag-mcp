@@ -149,7 +149,7 @@
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
       <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /.well-known/oauth-protected-resource*, /admin/*, /healthz) using OAuth challenge responses for unauthorized MCP requests.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT</depends>
       <annotations>
         <fn-main description="Boot server, wire auth guards, and route MCP/discovery/admin/health requests" />
         <fn-createUnauthorizedMcpResponse description="Build standardized 401 response with OAuth WWW-Authenticate challenge metadata" />
@@ -177,7 +177,7 @@
     <M-SERVER-OAUTH-CHALLENGE-TEST NAME="ServerOAuthChallengeTests" TYPE="TEST">
       <purpose>Focused verification of standardized /mcp unauthorized OAuth challenge response formatting.</purpose>
       <path>src/server/oauth-challenge.test.ts</path>
-      <depends>M-SERVER, M-MCP-AUTH-GUARD</depends>
+      <depends>M-SERVER</depends>
       <annotations>
         <fn-ServerOAuthChallengeTests description="Asserts 401 payload and WWW-Authenticate challenge composition for OAuth denial responses" />
       </annotations>
@@ -306,6 +306,8 @@
     <CrossLink FROM="M-SERVER" TO="M-OAUTH-DISCOVERY" relation="mounts OAuth protected-resource discovery metadata routes" />
     <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces OAuth authorization before transport" />
     <CrossLink FROM="M-SERVER" TO="M-OAUTH-TOKEN-VALIDATOR" relation="creates runtime OAuth token validator used by /mcp auth guard wiring" />
+    <CrossLink FROM="M-SERVER" TO="M-TG-CHAT-RAG-CLIENT" relation="creates upstream tg-chat-rag client for proxied MCP tool execution" />
+    <CrossLink FROM="M-SERVER" TO="M-TOOL-PROXY" relation="creates tool proxy service used by MCP transport handlers" />
     <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp transport handler after auth checks" />
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
@@ -313,7 +315,6 @@
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies unauthorized, insufficient-scope, and authorized /mcp behavior" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-OAUTH-TOKEN-VALIDATOR" relation="uses validator context types while exercising integrated auth-gating behavior" />
     <CrossLink FROM="M-SERVER-OAUTH-CHALLENGE-TEST" TO="M-SERVER" relation="verifies standardized /mcp unauthorized response helper behavior" />
-    <CrossLink FROM="M-SERVER-OAUTH-CHALLENGE-TEST" TO="M-MCP-AUTH-GUARD" relation="validates WWW-Authenticate header rendering from guard challenge metadata" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />

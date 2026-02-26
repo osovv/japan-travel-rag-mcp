@@ -3,7 +3,7 @@
 // START_MODULE_CONTRACT
 //   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth discovery metadata, and /healthz routes.
 //   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, centralize OAuth challenge response construction for /mcp unauthorized paths, and handle process shutdown signals.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT
 //   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
 // END_MODULE_CONTRACT
 //

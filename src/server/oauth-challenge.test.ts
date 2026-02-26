@@ -3,8 +3,8 @@
 // START_MODULE_CONTRACT
 //   PURPOSE: Verify server-level OAuth challenge response behavior for unauthorized /mcp paths.
 //   SCOPE: Assert consistent 401 body and OAuth WWW-Authenticate header composition from challenge metadata, including required Bearer parameters and optional issuer/resource handling.
-//   DEPENDS: M-SERVER, M-MCP-AUTH-GUARD
-//   LINKS: M-SERVER, M-MCP-AUTH-GUARD
+//   DEPENDS: M-SERVER
+//   LINKS: M-SERVER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
