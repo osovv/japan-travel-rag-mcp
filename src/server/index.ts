@@ -1,5 +1,5 @@
 // FILE: src/server/index.ts
-// VERSION: 1.5.0
+// VERSION: 1.6.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth discovery metadata, and /healthz routes.
 //   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, centralize OAuth challenge response construction for /mcp unauthorized paths, and handle process shutdown signals.
@@ -17,7 +17,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.5.0 - Centralized /mcp unauthorized OAuth challenge responses to keep WWW-Authenticate behavior consistent across auth-failure branches.
+//   LAST_CHANGE: v1.6.0 - Finalized /mcp auth path decoupling from ApiKeyRepository; API key repository remains wired only for admin surface compatibility.
 // END_CHANGE_SUMMARY
 
 import { createApiKeyRepository } from "../admin/api-key-repository";

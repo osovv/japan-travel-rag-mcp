@@ -300,7 +300,7 @@
     <CrossLink FROM="M-TRANSPORT" TO="M-LOGGER" relation="emits request lifecycle logs" />
     <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server and auth settings" />
     <CrossLink FROM="M-SERVER" TO="M-DB" relation="initializes DB dependency for runtime foundation" />
-    <CrossLink FROM="M-SERVER" TO="M-API-KEY-REPOSITORY" relation="creates repository for admin UI and transition auth adapter wiring" />
+    <CrossLink FROM="M-SERVER" TO="M-API-KEY-REPOSITORY" relation="creates repository for admin UI surface compatibility; /mcp auth path uses OAuth validator pipeline" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-AUTH" relation="routes /admin/login and session guard checks" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="mounts admin route handlers" />
     <CrossLink FROM="M-SERVER" TO="M-OAUTH-DISCOVERY" relation="mounts OAuth protected-resource discovery metadata routes" />
