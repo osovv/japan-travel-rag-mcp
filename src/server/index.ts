@@ -71,6 +71,33 @@ function createJsonResponse(status: number, payload: Record<string, unknown>): R
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-SERVER, M-MCP-AUTH-GUARD]
 // END_CONTRACT: createUnauthorizedMcpResponse
+// START_CONTRACT: createInitialMcpChallenge
+//   PURPOSE: Build 401 response for unauthenticated /mcp requests per MCP spec (2025-06-18) and RFC 9728 Section 5.1.
+//   INPUTS: { resourceMetadataUrl: string - URL to /.well-known/oauth-protected-resource/mcp }
+//   OUTPUTS: { Response - HTTP 401 with bare Bearer resource_metadata challenge }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER]
+// END_CONTRACT: createInitialMcpChallenge
+export function createInitialMcpChallenge(resourceMetadataUrl: string): Response {
+  // START_BLOCK_CREATE_INITIAL_MCP_CHALLENGE_M_SERVER_009
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: "UNAUTHORIZED",
+        message: MCP_UNAUTHORIZED_MESSAGE,
+      },
+    }),
+    {
+      status: 401,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "www-authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"`,
+      },
+    },
+  );
+  // END_BLOCK_CREATE_INITIAL_MCP_CHALLENGE_M_SERVER_009
+}
+
 export function createUnauthorizedMcpResponse(challenge: OAuthChallengeMetadata): Response {
   // START_BLOCK_CREATE_UNAUTHORIZED_MCP_RESPONSE_WITH_CHALLENGE_M_SERVER_008
   return new Response(
@@ -201,6 +228,10 @@ export async function main(): Promise<Bun.Server<unknown>> {
       resource: mcpResourceUrl,
       logger: mcpLogger.child({ component: "mcpAuthGuard" }),
     };
+    const mcpResourceMetadataUrl = new URL(
+      "/.well-known/oauth-protected-resource/mcp",
+      config.publicUrl,
+    ).toString();
     // END_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
 
     // START_BLOCK_START_BUN_HTTP_SERVER_M_SERVER_004
@@ -308,6 +339,15 @@ export async function main(): Promise<Bun.Server<unknown>> {
                 reason: authDecision.reason,
               },
             );
+            // Per MCP spec (2025-06-18) + RFC 9728 Section 5.1:
+            // Initial unauthenticated requests get a bare challenge with resource_metadata only.
+            // Token validation errors get detailed error parameters.
+            if (
+              authDecision.reason === "MISSING_AUTH_HEADER" ||
+              authDecision.reason === "INVALID_AUTH_SCHEME"
+            ) {
+              return createInitialMcpChallenge(mcpResourceMetadataUrl);
+            }
             return createUnauthorizedMcpResponse(authDecision.challenge);
           }
 
