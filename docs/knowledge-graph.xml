@@ -183,6 +183,15 @@
       </annotations>
     </M-SERVER-OAUTH-CHALLENGE-TEST>
 
+    <M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST NAME="ServerOAuthHandshakeReadinessTests" TYPE="TEST">
+      <purpose>Verifies discovery metadata and /mcp challenge coherence for Logto/Claude-style OAuth bootstrap flows.</purpose>
+      <path>src/server/oauth-handshake-readiness.test.ts</path>
+      <depends>M-SERVER, M-OAUTH-DISCOVERY</depends>
+      <annotations>
+        <fn-ServerOAuthHandshakeReadinessTests description="Asserts issuer/resource/scope coherence across discovery and WWW-Authenticate challenge surfaces" />
+      </annotations>
+    </M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST>
+
     <M-DOCKER-DEV NAME="DockerComposeDev" TYPE="INFRA">
       <purpose>Development container orchestration for MCP server with local source mount and .env loading.</purpose>
       <path>docker-compose.yaml</path>
@@ -312,6 +321,8 @@
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies unauthorized, insufficient-scope, and authorized /mcp behavior" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-OAUTH-TOKEN-VALIDATOR" relation="uses validator context types while exercising integrated auth-gating behavior" />
     <CrossLink FROM="M-SERVER-OAUTH-CHALLENGE-TEST" TO="M-SERVER" relation="verifies standardized /mcp unauthorized response helper behavior" />
+    <CrossLink FROM="M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST" TO="M-SERVER" relation="verifies challenge behavior aligns with server OAuth route helpers" />
+    <CrossLink FROM="M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST" TO="M-OAUTH-DISCOVERY" relation="verifies discovery metadata coherence with /mcp challenge surface" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />
