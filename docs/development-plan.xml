@@ -471,7 +471,7 @@
       <step-3 module="M-SERVER">Verify OAuth challenge behavior with Claude-compatible flow.</step-3>
     </Phase-4>
 
-    <Phase-5 name="Legacy API Key Removal" status="planned">
+    <Phase-5 name="Legacy API Key Removal" status="done">
       <step-1 module="M-SERVER">Remove API key repository dependency from /mcp auth path and startup wiring.</step-1>
       <step-2 module="M-ADMIN-UI">Remove /admin/api-keys routes, forms, and fragments from operator UI.</step-2>
       <step-3 module="M-CONFIG">Remove obsolete API key-specific config notes and align runtime docs to OAuth-only.</step-3>
