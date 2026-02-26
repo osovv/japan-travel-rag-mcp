@@ -1,51 +1,69 @@
 // FILE: src/auth/mcp-auth-guard.ts
-// VERSION: 2.1.0
+// VERSION: 3.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Authorize /mcp requests using OAuth Bearer access-token validation and emit deterministic challenge metadata for denied requests.
-//   SCOPE: Parse strict Bearer Authorization headers, call OAuth token validator dependency, consume typed validator outputs to build allow/deny decisions, and build WWW-Authenticate headers.
-//   DEPENDS: M-OAUTH-TOKEN-VALIDATOR, M-LOGGER
-//   LINKS: M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER
+//   PURPOSE: Authorize /mcp requests via mcp-auth-native token verification and return allow/deny decisions with ready HTTP responses.
+//   SCOPE: Parse strict Bearer headers from Request, verify tokens using McpAuthContext, validate issuer/audience/scopes, build RFC 6750 WWW-Authenticate challenges via mcp-auth utility, and map unexpected failures to MCP_AUTH_ERROR.
+//   DEPENDS: M-MCP-AUTH-PROVIDER, M-LOGGER
+//   LINKS: M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   McpAuthError - Typed auth guard failure for exceptional/internal errors with MCP_AUTH_ERROR code.
-//   OAuthChallengeMetadata - Deterministic OAuth challenge metadata for denied authorization decisions.
-//   McpAuthDecision - Allow/deny decision envelope with OAuth challenge metadata on denied outcomes.
-//   buildWwwAuthenticateHeader - Build standards-style Bearer challenge header from challenge metadata.
-//   authorizeMcpRequest - Validate strict Bearer header, call OAuth token validator, and return authorization decision.
+//   McpAuthError - Typed auth guard internal failure with stable MCP_AUTH_ERROR code and sanitized diagnostics.
+//   McpAuthDecision - Allow/deny decision envelope where deny branch contains ready-to-send HTTP Response.
+//   createInitialMcpChallenge - Build 401 Bearer challenge containing resource_metadata for unauthenticated requests.
+//   createDeniedResponse - Build 401/403 auth deny responses with BearerWWWAuthenticateHeader.
+//   authorizeMcpRequest - Request-based auth guard that verifies token, issuer, audience, and required scopes using McpAuthContext.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.1.0 - Wired guard dependency contract to typed M-OAUTH-TOKEN-VALIDATOR outputs and header-based validator input.
+//   LAST_CHANGE: v3.0.0 - Migrated guard to McpAuthContext + BearerWWWAuthenticateHeader with Request-based API and response-ready deny decisions.
 // END_CHANGE_SUMMARY
 
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import { MCPAuthBearerAuthError, MCPAuthTokenVerificationError } from "mcp-auth";
+import { BearerWWWAuthenticateHeader } from "mcp-auth/utils/bearer-www-authenticate-header.js";
 import type { Logger } from "../logger/index";
-import type {
-  OAuthTokenValidationResult,
-  OAuthTokenValidator,
-  ValidateAccessTokenContext,
-} from "./oauth-token-validator";
+import type { McpAuthContext } from "./mcp-auth-provider";
 
 const BEARER_HEADER_PATTERN = /^Bearer ([^\s]+)$/;
+const UNAUTHORIZED_MESSAGE = "Invalid or missing OAuth access token.";
+const FORBIDDEN_MESSAGE = "OAuth access token does not include required scopes.";
 
-export type OAuthChallengeError = "invalid_request" | "invalid_token" | "insufficient_scope";
+type McpAuthErrorDetails = {
+  field?: string;
+  cause?: string;
+};
 
-export type OAuthChallengeMetadata = {
-  error: OAuthChallengeError;
-  errorDescription: string;
+type ParsedAuthorizationHeaderResult =
+  | {
+      isValid: true;
+      token: string;
+      tokenLength: number;
+    }
+  | {
+      isValid: false;
+      reason: Extract<McpAuthDenyReason, "MISSING_AUTH_HEADER" | "INVALID_AUTH_SCHEME">;
+      tokenLength: number;
+    };
+
+type McpAuthValidationContext = {
+  audience: string;
   requiredScopes: string[];
-  issuer?: string;
   resource?: string;
+  resourceMetadataUrl: string;
 };
 
 export type McpAuthDenyReason =
   | "MISSING_AUTH_HEADER"
   | "INVALID_AUTH_SCHEME"
   | "INVALID_TOKEN"
+  | "INVALID_ISSUER"
+  | "INVALID_AUDIENCE"
   | "INSUFFICIENT_SCOPE";
 
 export type McpAuthAuthorizedResult = {
   isAuthorized: true;
+  authInfo: AuthInfo;
   subject?: string;
   grantedScopes: string[];
 };
@@ -53,32 +71,25 @@ export type McpAuthAuthorizedResult = {
 export type McpAuthDeniedResult = {
   isAuthorized: false;
   reason: McpAuthDenyReason;
-  challenge: OAuthChallengeMetadata;
+  response: Response;
 };
 
 export type McpAuthDecision = McpAuthAuthorizedResult | McpAuthDeniedResult;
 
-type ParsedAuthorizationHeaderResult =
-  | { isValid: true; tokenLength: number }
-  | {
-      isValid: false;
-      reason: Extract<McpAuthDenyReason, "MISSING_AUTH_HEADER" | "INVALID_AUTH_SCHEME">;
-      tokenLength: number;
-    };
-
-type McpAuthErrorDetails = {
-  field?: string;
-  cause?: string;
+export type McpAuthGuardDependencies = {
+  authContext: McpAuthContext;
+  audience: string;
+  requiredScopes: string[];
+  logger: Logger;
 };
 
-export type OAuthTokenValidatorLike = Pick<OAuthTokenValidator, "validateAccessToken">;
-
-export type McpAuthGuardDependencies = {
-  oauthTokenValidator: OAuthTokenValidatorLike;
-  logger: Logger;
-  requiredScopes: string[];
-  issuer?: string;
+type DeniedResponseOptions = {
+  status: 401 | 403;
+  error?: "invalid_request" | "invalid_token" | "insufficient_scope";
+  errorDescription?: string;
+  requiredScopes?: string[];
   resource?: string;
+  resourceMetadataUrl: string;
 };
 
 export class McpAuthError extends Error {
@@ -93,9 +104,9 @@ export class McpAuthError extends Error {
 }
 
 // START_CONTRACT: redactSensitiveDiagnostics
-//   PURPOSE: Remove potential credential text from diagnostic values before logging and rethrowing.
-//   INPUTS: { text: string - Raw diagnostic text from runtime errors }
-//   OUTPUTS: { string - Redacted diagnostic text }
+//   PURPOSE: Redact token-like content from diagnostic text before logging or storing in typed errors.
+//   INPUTS: { text: string - Raw diagnostic text }
+//   OUTPUTS: { string - Sanitized diagnostic text }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-MCP-AUTH-GUARD]
 // END_CONTRACT: redactSensitiveDiagnostics
@@ -106,17 +117,19 @@ function redactSensitiveDiagnostics(text: string): string {
     return "unknown";
   }
 
-  return normalized
-    .replace(/jp_[a-f0-9]{12}_[a-f0-9]{64}/gi, "<redacted-token>")
+  const redacted = normalized
+    .replace(/\b[Bb]earer\s+[A-Za-z0-9\-._~+/]+=*/g, "Bearer <redacted-token>")
     .replace(/[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+/g, "<redacted-jwt>")
-    .replace(/\b[a-f0-9]{64}\b/gi, "<redacted-digest>");
+    .replace(/\b[a-f0-9]{32,}\b/gi, "<redacted-digest>");
+
+  return redacted.length > 240 ? `${redacted.slice(0, 240)}...` : redacted;
   // END_BLOCK_REDACT_SENSITIVE_DIAGNOSTICS_M_MCP_AUTH_GUARD_001
 }
 
 // START_CONTRACT: toMcpAuthError
-//   PURPOSE: Normalize unknown runtime failures to McpAuthError with safe diagnostics.
-//   INPUTS: { error: unknown - Runtime failure, message: string - Stable error message, details: McpAuthErrorDetails|undefined - Optional context metadata }
-//   OUTPUTS: { McpAuthError - Typed internal auth guard error }
+//   PURPOSE: Normalize unknown failures into sanitized McpAuthError values for internal-error propagation.
+//   INPUTS: { error: unknown - Runtime failure, message: string - Stable message, details: McpAuthErrorDetails|undefined - Optional context details }
+//   OUTPUTS: { McpAuthError - Typed internal error }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-MCP-AUTH-GUARD]
 // END_CONTRACT: toMcpAuthError
@@ -125,67 +138,104 @@ function toMcpAuthError(
   message: string,
   details?: McpAuthErrorDetails,
 ): McpAuthError {
-  // START_BLOCK_MAP_UNKNOWN_FAILURES_TO_TYPED_AUTH_ERROR_M_MCP_AUTH_GUARD_002
+  // START_BLOCK_MAP_UNKNOWN_FAILURE_TO_TYPED_GUARD_ERROR_M_MCP_AUTH_GUARD_002
   if (error instanceof McpAuthError) {
     return error;
   }
 
-  const cause = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   return new McpAuthError(message, {
     ...details,
     cause: redactSensitiveDiagnostics(cause),
   });
-  // END_BLOCK_MAP_UNKNOWN_FAILURES_TO_TYPED_AUTH_ERROR_M_MCP_AUTH_GUARD_002
+  // END_BLOCK_MAP_UNKNOWN_FAILURE_TO_TYPED_GUARD_ERROR_M_MCP_AUTH_GUARD_002
+}
+
+// START_CONTRACT: normalizeOptionalText
+//   PURPOSE: Normalize optional string-like values by trimming and coercing empties to undefined.
+//   INPUTS: { value: unknown - Candidate text value }
+//   OUTPUTS: { string|undefined - Normalized value }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-MCP-AUTH-GUARD]
+// END_CONTRACT: normalizeOptionalText
+function normalizeOptionalText(value: unknown): string | undefined {
+  // START_BLOCK_NORMALIZE_OPTIONAL_TEXT_VALUES_M_MCP_AUTH_GUARD_003
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+  // END_BLOCK_NORMALIZE_OPTIONAL_TEXT_VALUES_M_MCP_AUTH_GUARD_003
 }
 
 // START_CONTRACT: normalizeScopes
-//   PURPOSE: Normalize scope lists by trimming values, removing empties, and deduplicating in-order.
-//   INPUTS: { scopes: readonly string[] - Raw scope values }
-//   OUTPUTS: { string[] - Normalized unique scope values }
+//   PURPOSE: Normalize scope lists by trimming, dropping empties, and deduplicating while preserving first-seen ordering.
+//   INPUTS: { scopes: readonly string[] - Raw scopes }
+//   OUTPUTS: { string[] - Deterministic unique scopes }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-MCP-AUTH-GUARD]
 // END_CONTRACT: normalizeScopes
 function normalizeScopes(scopes: readonly string[]): string[] {
-  // START_BLOCK_NORMALIZE_SCOPE_VALUES_M_MCP_AUTH_GUARD_003
-  const uniqueScopes = new Set<string>();
+  // START_BLOCK_NORMALIZE_SCOPE_COLLECTION_M_MCP_AUTH_GUARD_004
+  const uniqueScopes: string[] = [];
+  const seen = new Set<string>();
+
   for (const scope of scopes) {
     const normalizedScope = scope.trim();
-    if (normalizedScope) {
-      uniqueScopes.add(normalizedScope);
+    if (!normalizedScope || seen.has(normalizedScope)) {
+      continue;
     }
+    seen.add(normalizedScope);
+    uniqueScopes.push(normalizedScope);
   }
-  return [...uniqueScopes];
-  // END_BLOCK_NORMALIZE_SCOPE_VALUES_M_MCP_AUTH_GUARD_003
+
+  return uniqueScopes;
+  // END_BLOCK_NORMALIZE_SCOPE_COLLECTION_M_MCP_AUTH_GUARD_004
 }
 
-// START_CONTRACT: normalizeOptionalMetadataValue
-//   PURPOSE: Normalize optional metadata values by trimming and converting empty strings to undefined.
-//   INPUTS: { value: string|undefined - Optional raw metadata value }
-//   OUTPUTS: { string|undefined - Normalized optional metadata value }
+// START_CONTRACT: extractGrantedScopes
+//   PURPOSE: Extract granted scopes from AuthInfo in a resilient way and normalize them.
+//   INPUTS: { authInfo: AuthInfo - Verified auth payload from mcp-auth }
+//   OUTPUTS: { string[] - Normalized granted scopes }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-MCP-AUTH-GUARD]
-// END_CONTRACT: normalizeOptionalMetadataValue
-function normalizeOptionalMetadataValue(value: string | undefined): string | undefined {
-  // START_BLOCK_NORMALIZE_OPTIONAL_METADATA_VALUES_M_MCP_AUTH_GUARD_004
-  if (typeof value !== "string") {
-    return undefined;
+// END_CONTRACT: extractGrantedScopes
+function extractGrantedScopes(authInfo: AuthInfo): string[] {
+  // START_BLOCK_EXTRACT_GRANTED_SCOPES_FROM_AUTH_INFO_M_MCP_AUTH_GUARD_005
+  const directScopes = Array.isArray(authInfo.scopes) ? authInfo.scopes : [];
+  if (directScopes.length > 0) {
+    return normalizeScopes(directScopes);
   }
-  const trimmedValue = value.trim();
-  return trimmedValue ? trimmedValue : undefined;
-  // END_BLOCK_NORMALIZE_OPTIONAL_METADATA_VALUES_M_MCP_AUTH_GUARD_004
+
+  const claims = authInfo.claims;
+  if (!claims || typeof claims !== "object") {
+    return [];
+  }
+
+  const claimScope = (claims as Record<string, unknown>)["scope"];
+  if (typeof claimScope === "string") {
+    return normalizeScopes(claimScope.split(/\s+/));
+  }
+
+  const claimScopes = (claims as Record<string, unknown>)["scopes"];
+  if (Array.isArray(claimScopes)) {
+    return normalizeScopes(claimScopes.filter((value): value is string => typeof value === "string"));
+  }
+
+  return [];
+  // END_BLOCK_EXTRACT_GRANTED_SCOPES_FROM_AUTH_INFO_M_MCP_AUTH_GUARD_005
 }
 
 // START_CONTRACT: parseAuthorizationHeader
-//   PURPOSE: Parse Authorization header using strict Bearer format required by /mcp policy.
-//   INPUTS: { authorizationHeader: string|null - Incoming Authorization header value }
-//   OUTPUTS: { ParsedAuthorizationHeaderResult - Parsed token metadata or deny reason }
+//   PURPOSE: Parse strict Bearer Authorization header value into token or header-deny reason.
+//   INPUTS: { authorizationHeader: string|null - Incoming Authorization header }
+//   OUTPUTS: { ParsedAuthorizationHeaderResult - Parsed token or deny reason }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-MCP-AUTH-GUARD]
 // END_CONTRACT: parseAuthorizationHeader
-function parseAuthorizationHeader(
-  authorizationHeader: string | null,
-): ParsedAuthorizationHeaderResult {
-  // START_BLOCK_PARSE_STRICT_BEARER_AUTHORIZATION_HEADER_M_MCP_AUTH_GUARD_005
+function parseAuthorizationHeader(authorizationHeader: string | null): ParsedAuthorizationHeaderResult {
+  // START_BLOCK_PARSE_STRICT_BEARER_HEADER_M_MCP_AUTH_GUARD_006
   if (authorizationHeader === null) {
     return {
       isValid: false,
@@ -195,16 +245,7 @@ function parseAuthorizationHeader(
   }
 
   const match = BEARER_HEADER_PATTERN.exec(authorizationHeader);
-  if (!match) {
-    return {
-      isValid: false,
-      reason: "INVALID_AUTH_SCHEME",
-      tokenLength: authorizationHeader.length,
-    };
-  }
-
-  const token = match[1];
-  if (!token) {
+  if (!match || !match[1]) {
     return {
       isValid: false,
       reason: "INVALID_AUTH_SCHEME",
@@ -214,35 +255,67 @@ function parseAuthorizationHeader(
 
   return {
     isValid: true,
-    tokenLength: token.length,
+    token: match[1],
+    tokenLength: match[1].length,
   };
-  // END_BLOCK_PARSE_STRICT_BEARER_AUTHORIZATION_HEADER_M_MCP_AUTH_GUARD_005
+  // END_BLOCK_PARSE_STRICT_BEARER_HEADER_M_MCP_AUTH_GUARD_006
+}
+
+// START_CONTRACT: isInvalidHeaderParseResult
+//   PURPOSE: Narrow parsed header union to invalid-header variant for safe deny-reason access.
+//   INPUTS: { result: ParsedAuthorizationHeaderResult - Parsed Authorization header result }
+//   OUTPUTS: { result is Extract<ParsedAuthorizationHeaderResult, { isValid: false }> - True when header is invalid }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-MCP-AUTH-GUARD]
+// END_CONTRACT: isInvalidHeaderParseResult
+function isInvalidHeaderParseResult(
+  result: ParsedAuthorizationHeaderResult,
+): result is Extract<ParsedAuthorizationHeaderResult, { isValid: false }> {
+  // START_BLOCK_NARROW_INVALID_HEADER_PARSE_RESULT_M_MCP_AUTH_GUARD_016
+  return !result.isValid;
+  // END_BLOCK_NARROW_INVALID_HEADER_PARSE_RESULT_M_MCP_AUTH_GUARD_016
 }
 
 // START_CONTRACT: assertDependencies
-//   PURPOSE: Validate dependency injection contract before auth processing.
-//   INPUTS: { dependencies: McpAuthGuardDependencies - Token validator, required scopes, and logger dependencies }
-//   OUTPUTS: { void - Throws when dependency contract is invalid }
-//   SIDE_EFFECTS: [Throws McpAuthError for invalid dependency wiring]
-//   LINKS: [M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER]
+//   PURPOSE: Validate dependency contract for guard wiring before authorization logic runs.
+//   INPUTS: { dependencies: McpAuthGuardDependencies - Guard dependencies }
+//   OUTPUTS: { void - Throws on invalid dependency contract }
+//   SIDE_EFFECTS: [Throws McpAuthError when dependency contract is invalid]
+//   LINKS: [M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-LOGGER]
 // END_CONTRACT: assertDependencies
 function assertDependencies(dependencies: McpAuthGuardDependencies): void {
-  // START_BLOCK_VALIDATE_AUTH_GUARD_DEPENDENCY_CONTRACT_M_MCP_AUTH_GUARD_006
+  // START_BLOCK_VALIDATE_GUARD_DEPENDENCY_CONTRACT_M_MCP_AUTH_GUARD_007
   if (!dependencies || typeof dependencies !== "object") {
     throw new McpAuthError("MCP auth guard dependencies are required.", {
       field: "dependencies",
     });
   }
 
-  if (typeof dependencies.oauthTokenValidator?.validateAccessToken !== "function") {
-    throw new McpAuthError("MCP auth guard requires oauthTokenValidator.validateAccessToken.", {
-      field: "oauthTokenValidator.validateAccessToken",
+  if (
+    !dependencies.authContext ||
+    typeof dependencies.authContext.verifyAccessToken !== "function" ||
+    typeof dependencies.authContext.validateIssuer !== "function"
+  ) {
+    throw new McpAuthError("MCP auth guard requires authContext verify/validate functions.", {
+      field: "authContext",
+    });
+  }
+
+  if (typeof dependencies.authContext.resourceMetadataUrl !== "string") {
+    throw new McpAuthError("MCP auth guard requires authContext.resourceMetadataUrl.", {
+      field: "authContext.resourceMetadataUrl",
     });
   }
 
   if (!Array.isArray(dependencies.requiredScopes)) {
     throw new McpAuthError("MCP auth guard requires requiredScopes array.", {
       field: "requiredScopes",
+    });
+  }
+
+  if (typeof dependencies.audience !== "string") {
+    throw new McpAuthError("MCP auth guard requires audience string.", {
+      field: "audience",
     });
   }
 
@@ -256,22 +329,25 @@ function assertDependencies(dependencies: McpAuthGuardDependencies): void {
       field: "logger",
     });
   }
-  // END_BLOCK_VALIDATE_AUTH_GUARD_DEPENDENCY_CONTRACT_M_MCP_AUTH_GUARD_006
+  // END_BLOCK_VALIDATE_GUARD_DEPENDENCY_CONTRACT_M_MCP_AUTH_GUARD_007
 }
 
-// START_CONTRACT: buildValidationContext
-//   PURPOSE: Construct normalized OAuth validation context from dependencies.
-//   INPUTS: { dependencies: McpAuthGuardDependencies - Guard dependencies with configured OAuth metadata }
-//   OUTPUTS: { requiredScopes: string[]; issuer?: string; resource?: string - Normalized validation context for token validator and challenge metadata }
-//   SIDE_EFFECTS: [Throws McpAuthError when requiredScopes is empty after normalization]
+// START_CONTRACT: resolveValidationContext
+//   PURPOSE: Build normalized validation context for audience/scope checks and challenge metadata generation.
+//   INPUTS: { dependencies: McpAuthGuardDependencies - Guard dependencies }
+//   OUTPUTS: { McpAuthValidationContext - Normalized validation context }
+//   SIDE_EFFECTS: [Throws McpAuthError when audience/scopes are invalid]
 //   LINKS: [M-MCP-AUTH-GUARD]
-// END_CONTRACT: buildValidationContext
-function buildValidationContext(dependencies: McpAuthGuardDependencies): {
-  requiredScopes: string[];
-  issuer?: string;
-  resource?: string;
-} {
-  // START_BLOCK_BUILD_NORMALIZED_VALIDATION_CONTEXT_M_MCP_AUTH_GUARD_007
+// END_CONTRACT: resolveValidationContext
+function resolveValidationContext(dependencies: McpAuthGuardDependencies): McpAuthValidationContext {
+  // START_BLOCK_BUILD_NORMALIZED_VALIDATION_CONTEXT_M_MCP_AUTH_GUARD_008
+  const audience = dependencies.audience.trim();
+  if (!audience) {
+    throw new McpAuthError("MCP auth guard audience must be a non-empty string.", {
+      field: "audience",
+    });
+  }
+
   const requiredScopes = normalizeScopes(dependencies.requiredScopes);
   if (requiredScopes.length === 0) {
     throw new McpAuthError("MCP auth guard requiredScopes must include at least one scope.", {
@@ -279,239 +355,340 @@ function buildValidationContext(dependencies: McpAuthGuardDependencies): {
     });
   }
 
-  return {
-    requiredScopes,
-    issuer: normalizeOptionalMetadataValue(dependencies.issuer),
-    resource: normalizeOptionalMetadataValue(dependencies.resource),
-  };
-  // END_BLOCK_BUILD_NORMALIZED_VALIDATION_CONTEXT_M_MCP_AUTH_GUARD_007
-}
-
-// START_CONTRACT: createChallengeMetadata
-//   PURPOSE: Build deterministic OAuth challenge metadata for denied responses.
-//   INPUTS: { error: OAuthChallengeError - OAuth challenge error code, errorDescription: string - Human-readable error description, requiredScopes: string[] - Required scopes for resource access, issuer: string|undefined - Optional issuer metadata, resource: string|undefined - Optional protected resource metadata }
-//   OUTPUTS: { OAuthChallengeMetadata - Challenge metadata structure }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-MCP-AUTH-GUARD]
-// END_CONTRACT: createChallengeMetadata
-function createChallengeMetadata(
-  error: OAuthChallengeError,
-  errorDescription: string,
-  requiredScopes: string[],
-  issuer?: string,
-  resource?: string,
-): OAuthChallengeMetadata {
-  // START_BLOCK_CREATE_CHALLENGE_METADATA_OBJECT_M_MCP_AUTH_GUARD_008
-  return {
-    error,
-    errorDescription,
-    requiredScopes: normalizeScopes(requiredScopes),
-    issuer: normalizeOptionalMetadataValue(issuer),
-    resource: normalizeOptionalMetadataValue(resource),
-  };
-  // END_BLOCK_CREATE_CHALLENGE_METADATA_OBJECT_M_MCP_AUTH_GUARD_008
-}
-
-// START_CONTRACT: mapHeaderDenyReasonToChallenge
-//   PURPOSE: Convert header parsing deny reason to OAuth challenge metadata.
-//   INPUTS: { reason: "MISSING_AUTH_HEADER"|"INVALID_AUTH_SCHEME" - Header deny reason, requiredScopes: string[] - Required scopes, issuer: string|undefined - Optional issuer metadata, resource: string|undefined - Optional protected resource metadata }
-//   OUTPUTS: { OAuthChallengeMetadata - OAuth challenge metadata for invalid request cases }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-MCP-AUTH-GUARD]
-// END_CONTRACT: mapHeaderDenyReasonToChallenge
-function mapHeaderDenyReasonToChallenge(
-  reason: Extract<McpAuthDenyReason, "MISSING_AUTH_HEADER" | "INVALID_AUTH_SCHEME">,
-  requiredScopes: string[],
-  issuer?: string,
-  resource?: string,
-): OAuthChallengeMetadata {
-  // START_BLOCK_MAP_HEADER_DENY_REASON_TO_CHALLENGE_M_MCP_AUTH_GUARD_009
-  if (reason === "MISSING_AUTH_HEADER") {
-    return createChallengeMetadata(
-      "invalid_request",
-      "Authorization header is required and must use Bearer token format.",
-      requiredScopes,
-      issuer,
-      resource,
-    );
+  const resourceMetadataUrl = normalizeOptionalText(dependencies.authContext.resourceMetadataUrl);
+  if (!resourceMetadataUrl) {
+    throw new McpAuthError("MCP auth guard resourceMetadataUrl must be configured.", {
+      field: "authContext.resourceMetadataUrl",
+    });
   }
 
-  return createChallengeMetadata(
-    "invalid_request",
-    "Authorization header must use Bearer token format.",
+  return {
+    audience,
     requiredScopes,
-    issuer,
-    resource,
+    resource: normalizeOptionalText(dependencies.authContext.protectedResourceMetadata.resource),
+    resourceMetadataUrl,
+  };
+  // END_BLOCK_BUILD_NORMALIZED_VALIDATION_CONTEXT_M_MCP_AUTH_GUARD_008
+}
+
+// START_CONTRACT: createBearerChallengeValue
+//   PURPOSE: Build Bearer WWW-Authenticate value using mcp-auth BearerWWWAuthenticateHeader utility.
+//   INPUTS: { options: DeniedResponseOptions - Challenge input values }
+//   OUTPUTS: { string - WWW-Authenticate header value }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-MCP-AUTH-GUARD]
+// END_CONTRACT: createBearerChallengeValue
+function createBearerChallengeValue(options: DeniedResponseOptions): string {
+  // START_BLOCK_BUILD_BEARER_CHALLENGE_VALUE_WITH_UTILITY_M_MCP_AUTH_GUARD_009
+  const header = new BearerWWWAuthenticateHeader()
+    .setParameterIfValueExists("resource_metadata", options.resourceMetadataUrl)
+    .setParameterIfValueExists("error", options.error)
+    .setParameterIfValueExists("error_description", options.errorDescription)
+    .setParameterIfValueExists("scope", normalizeScopes(options.requiredScopes ?? []).join(" "))
+    .setParameterIfValueExists("resource", normalizeOptionalText(options.resource));
+
+  return header.toString() || "Bearer";
+  // END_BLOCK_BUILD_BEARER_CHALLENGE_VALUE_WITH_UTILITY_M_MCP_AUTH_GUARD_009
+}
+
+// START_CONTRACT: createInitialMcpChallenge
+//   PURPOSE: Build initial 401 challenge response for unauthenticated/invalid-header requests using only resource_metadata.
+//   INPUTS: { resourceMetadataUrl: string - Protected resource metadata endpoint URL }
+//   OUTPUTS: { Response - HTTP 401 response with Bearer resource_metadata challenge }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-MCP-AUTH-GUARD]
+// END_CONTRACT: createInitialMcpChallenge
+export function createInitialMcpChallenge(resourceMetadataUrl: string): Response {
+  // START_BLOCK_CREATE_INITIAL_MCP_RESOURCE_METADATA_CHALLENGE_RESPONSE_M_MCP_AUTH_GUARD_010
+  const challenge = createBearerChallengeValue({
+    status: 401,
+    resourceMetadataUrl,
+  });
+
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: "UNAUTHORIZED",
+        message: UNAUTHORIZED_MESSAGE,
+      },
+    }),
+    {
+      status: 401,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "www-authenticate": challenge,
+      },
+    },
   );
-  // END_BLOCK_MAP_HEADER_DENY_REASON_TO_CHALLENGE_M_MCP_AUTH_GUARD_009
+  // END_BLOCK_CREATE_INITIAL_MCP_RESOURCE_METADATA_CHALLENGE_RESPONSE_M_MCP_AUTH_GUARD_010
 }
 
-// START_CONTRACT: buildDeniedDecision
-//   PURPOSE: Build consistent denied auth decision objects with OAuth challenge metadata.
-//   INPUTS: { reason: McpAuthDenyReason - Stable deny reason, challenge: OAuthChallengeMetadata - Challenge metadata for WWW-Authenticate header construction }
-//   OUTPUTS: { McpAuthDeniedResult - Denied auth decision envelope }
+// START_CONTRACT: createDeniedResponse
+//   PURPOSE: Build standardized denied auth response with 401/403 status and Bearer challenge header.
+//   INPUTS: { options: DeniedResponseOptions - Denied response options }
+//   OUTPUTS: { Response - Ready-to-send HTTP response }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-MCP-AUTH-GUARD]
-// END_CONTRACT: buildDeniedDecision
-function buildDeniedDecision(
-  reason: McpAuthDenyReason,
-  challenge: OAuthChallengeMetadata,
-): McpAuthDeniedResult {
-  // START_BLOCK_BUILD_DENIED_AUTH_DECISION_OBJECT_M_MCP_AUTH_GUARD_010
-  return {
-    isAuthorized: false,
-    reason,
-    challenge,
-  };
-  // END_BLOCK_BUILD_DENIED_AUTH_DECISION_OBJECT_M_MCP_AUTH_GUARD_010
+// END_CONTRACT: createDeniedResponse
+export function createDeniedResponse(options: DeniedResponseOptions): Response {
+  // START_BLOCK_CREATE_STANDARDIZED_DENIED_AUTH_RESPONSE_M_MCP_AUTH_GUARD_011
+  const challenge = createBearerChallengeValue(options);
+  const message = options.status === 403 ? FORBIDDEN_MESSAGE : UNAUTHORIZED_MESSAGE;
+  const errorCode = options.status === 403 ? "FORBIDDEN" : "UNAUTHORIZED";
+
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: errorCode,
+        message,
+      },
+    }),
+    {
+      status: options.status,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "www-authenticate": challenge,
+      },
+    },
+  );
+  // END_BLOCK_CREATE_STANDARDIZED_DENIED_AUTH_RESPONSE_M_MCP_AUTH_GUARD_011
 }
 
-// START_CONTRACT: escapeAuthHeaderParamValue
-//   PURPOSE: Escape auth-param values for deterministic Bearer WWW-Authenticate header output.
-//   INPUTS: { value: string - Raw auth-param value }
-//   OUTPUTS: { string - Escaped auth-param value }
-//   SIDE_EFFECTS: [none]
+// START_CONTRACT: validateAudience
+//   PURPOSE: Validate token audience against configured protected audience using mcp-auth bearer error type.
+//   INPUTS: { authInfo: AuthInfo - Verified auth payload, expectedAudience: string - Configured expected audience }
+//   OUTPUTS: { void - Throws when audience is invalid }
+//   SIDE_EFFECTS: [Throws MCPAuthBearerAuthError("invalid_audience")]
 //   LINKS: [M-MCP-AUTH-GUARD]
-// END_CONTRACT: escapeAuthHeaderParamValue
-function escapeAuthHeaderParamValue(value: string): string {
-  // START_BLOCK_ESCAPE_AUTH_HEADER_PARAMETER_VALUES_M_MCP_AUTH_GUARD_011
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  // END_BLOCK_ESCAPE_AUTH_HEADER_PARAMETER_VALUES_M_MCP_AUTH_GUARD_011
+// END_CONTRACT: validateAudience
+function validateAudience(authInfo: AuthInfo, expectedAudience: string): void {
+  // START_BLOCK_VALIDATE_AUTH_INFO_AUDIENCE_M_MCP_AUTH_GUARD_012
+  const audience = authInfo.audience;
+  if (typeof audience === "string") {
+    if (audience === expectedAudience) {
+      return;
+    }
+  } else if (Array.isArray(audience) && audience.includes(expectedAudience)) {
+    return;
+  }
+
+  throw new MCPAuthBearerAuthError("invalid_audience", {
+    expected: expectedAudience,
+    actual: audience,
+  });
+  // END_BLOCK_VALIDATE_AUTH_INFO_AUDIENCE_M_MCP_AUTH_GUARD_012
 }
 
-// START_CONTRACT: buildWwwAuthenticateHeader
-//   PURPOSE: Build standards-style Bearer challenge header from OAuth challenge metadata.
-//   INPUTS: { challenge: OAuthChallengeMetadata - Denied auth challenge metadata }
-//   OUTPUTS: { string - WWW-Authenticate Bearer challenge header value }
+// START_CONTRACT: validateRequiredScopes
+//   PURPOSE: Validate required scopes against granted token scopes using mcp-auth bearer error type.
+//   INPUTS: { grantedScopes: string[] - Scopes granted by token, requiredScopes: string[] - Required scopes }
+//   OUTPUTS: { void - Throws when required scopes are missing }
+//   SIDE_EFFECTS: [Throws MCPAuthBearerAuthError("missing_required_scopes")]
+//   LINKS: [M-MCP-AUTH-GUARD]
+// END_CONTRACT: validateRequiredScopes
+function validateRequiredScopes(grantedScopes: string[], requiredScopes: string[]): void {
+  // START_BLOCK_VALIDATE_REQUIRED_SCOPES_AGAINST_TOKEN_M_MCP_AUTH_GUARD_013
+  const missingScopes = requiredScopes.filter((scope) => !grantedScopes.includes(scope));
+  if (missingScopes.length === 0) {
+    return;
+  }
+
+  throw new MCPAuthBearerAuthError("missing_required_scopes", {
+    missingScopes,
+  });
+  // END_BLOCK_VALIDATE_REQUIRED_SCOPES_AGAINST_TOKEN_M_MCP_AUTH_GUARD_013
+}
+
+// START_CONTRACT: mapKnownAuthErrorToDecision
+//   PURPOSE: Convert known mcp-auth auth failures into non-throwing denied decisions with ready HTTP responses.
+//   INPUTS: { error: unknown - Runtime error, context: McpAuthValidationContext - Normalized validation context }
+//   OUTPUTS: { McpAuthDeniedResult|undefined - Denied decision for known auth failures, undefined for internal failures }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-MCP-AUTH-GUARD]
-// END_CONTRACT: buildWwwAuthenticateHeader
-export function buildWwwAuthenticateHeader(challenge: OAuthChallengeMetadata): string {
-  // START_BLOCK_BUILD_WWW_AUTHENTICATE_HEADER_M_MCP_AUTH_GUARD_012
-  const params: string[] = [];
-  params.push(`error="${escapeAuthHeaderParamValue(challenge.error)}"`);
-  params.push(`error_description="${escapeAuthHeaderParamValue(challenge.errorDescription)}"`);
-
-  const requiredScopes = normalizeScopes(challenge.requiredScopes);
-  if (requiredScopes.length > 0) {
-    params.push(`scope="${escapeAuthHeaderParamValue(requiredScopes.join(" "))}"`);
+// END_CONTRACT: mapKnownAuthErrorToDecision
+function mapKnownAuthErrorToDecision(
+  error: unknown,
+  context: McpAuthValidationContext,
+): McpAuthDeniedResult | undefined {
+  // START_BLOCK_MAP_KNOWN_AUTH_ERRORS_TO_DENIED_DECISIONS_M_MCP_AUTH_GUARD_014
+  if (error instanceof MCPAuthTokenVerificationError) {
+    return {
+      isAuthorized: false,
+      reason: "INVALID_TOKEN",
+      response: createDeniedResponse({
+        status: 401,
+        error: "invalid_token",
+        errorDescription: "OAuth access token verification failed.",
+        resource: context.resource,
+        resourceMetadataUrl: context.resourceMetadataUrl,
+      }),
+    };
   }
 
-  const issuer = normalizeOptionalMetadataValue(challenge.issuer);
-  if (issuer) {
-    params.push(`issuer="${escapeAuthHeaderParamValue(issuer)}"`);
+  if (error instanceof MCPAuthBearerAuthError) {
+    if (error.code === "missing_required_scopes") {
+      return {
+        isAuthorized: false,
+        reason: "INSUFFICIENT_SCOPE",
+        response: createDeniedResponse({
+          status: 403,
+          error: "insufficient_scope",
+          errorDescription: "OAuth access token is missing required scopes.",
+          requiredScopes: context.requiredScopes,
+          resource: context.resource,
+          resourceMetadataUrl: context.resourceMetadataUrl,
+        }),
+      };
+    }
+
+    if (error.code === "invalid_issuer") {
+      return {
+        isAuthorized: false,
+        reason: "INVALID_ISSUER",
+        response: createDeniedResponse({
+          status: 401,
+          error: "invalid_token",
+          errorDescription: "OAuth access token issuer is not trusted.",
+          resource: context.resource,
+          resourceMetadataUrl: context.resourceMetadataUrl,
+        }),
+      };
+    }
+
+    if (error.code === "invalid_audience") {
+      return {
+        isAuthorized: false,
+        reason: "INVALID_AUDIENCE",
+        response: createDeniedResponse({
+          status: 401,
+          error: "invalid_token",
+          errorDescription: "OAuth access token audience is invalid for this resource.",
+          resource: context.resource,
+          resourceMetadataUrl: context.resourceMetadataUrl,
+        }),
+      };
+    }
+
+    return {
+      isAuthorized: false,
+      reason: "INVALID_TOKEN",
+      response: createDeniedResponse({
+        status: 401,
+        error: "invalid_token",
+        errorDescription: "OAuth access token is invalid.",
+        resource: context.resource,
+        resourceMetadataUrl: context.resourceMetadataUrl,
+      }),
+    };
   }
 
-  const resource = normalizeOptionalMetadataValue(challenge.resource);
-  if (resource) {
-    params.push(`resource="${escapeAuthHeaderParamValue(resource)}"`);
-  }
-
-  return `Bearer ${params.join(", ")}`;
-  // END_BLOCK_BUILD_WWW_AUTHENTICATE_HEADER_M_MCP_AUTH_GUARD_012
+  return undefined;
+  // END_BLOCK_MAP_KNOWN_AUTH_ERRORS_TO_DENIED_DECISIONS_M_MCP_AUTH_GUARD_014
 }
 
 // START_CONTRACT: authorizeMcpRequest
-//   PURPOSE: Authorize /mcp requests using OAuth token validator dependency with no API-key semantics.
-//   INPUTS: { authorizationHeader: string|null - Authorization header value, dependencies: McpAuthGuardDependencies - Guard dependencies for OAuth token validation }
-//   OUTPUTS: { Promise<McpAuthDecision> - Authorized decision with subject/scopes or denied decision with challenge metadata }
-//   SIDE_EFFECTS: [Calls OAuth token validator and emits auth decision logs]
-//   LINKS: [M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER]
+//   PURPOSE: Authorize /mcp Request using McpAuthContext verification, issuer validation, audience/scope checks, and response-ready deny decisions.
+//   INPUTS: { request: Request - Incoming request, dependencies: McpAuthGuardDependencies - Guard dependencies }
+//   OUTPUTS: { Promise<McpAuthDecision> - Authorization decision with AuthInfo on success or ready Response on deny }
+//   SIDE_EFFECTS: [Emits auth logs and throws McpAuthError for unexpected internal failures]
+//   LINKS: [M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-LOGGER]
 // END_CONTRACT: authorizeMcpRequest
 export async function authorizeMcpRequest(
-  authorizationHeader: string | null,
+  request: Request,
   dependencies: McpAuthGuardDependencies,
 ): Promise<McpAuthDecision> {
-  // START_BLOCK_VALIDATE_HEADER_AND_RETURN_NON_EXCEPTION_DENY_DECISIONS_M_MCP_AUTH_GUARD_013
+  // START_BLOCK_PROCESS_REQUEST_AUTHORIZATION_FLOW_M_MCP_AUTH_GUARD_015
   assertDependencies(dependencies);
-  const validationContext = buildValidationContext(dependencies);
+  const validationContext = resolveValidationContext(dependencies);
 
-  const parsedHeader = parseAuthorizationHeader(authorizationHeader);
-  if (!parsedHeader.isValid) {
-    const challenge = mapHeaderDenyReasonToChallenge(
-      parsedHeader.reason,
-      validationContext.requiredScopes,
-      validationContext.issuer,
-      validationContext.resource,
-    );
+  const parsedHeader = parseAuthorizationHeader(request.headers.get("authorization"));
+  if (isInvalidHeaderParseResult(parsedHeader)) {
     dependencies.logger.warn(
-      "Rejected /mcp request before token validation due to invalid Authorization header.",
+      "Rejected /mcp request due to missing or invalid Authorization header.",
       "authorizeMcpRequest",
-      "VALIDATE_HEADER_AND_RETURN_NON_EXCEPTION_DENY_DECISIONS",
+      "PROCESS_REQUEST_AUTHORIZATION_FLOW",
       {
         reason: parsedHeader.reason,
         tokenLength: parsedHeader.tokenLength,
       },
     );
-    return buildDeniedDecision(parsedHeader.reason, challenge);
+
+    return {
+      isAuthorized: false,
+      reason: parsedHeader.reason,
+      response: createInitialMcpChallenge(validationContext.resourceMetadataUrl),
+    };
   }
-  // END_BLOCK_VALIDATE_HEADER_AND_RETURN_NON_EXCEPTION_DENY_DECISIONS_M_MCP_AUTH_GUARD_013
 
-  // START_BLOCK_VALIDATE_ACCESS_TOKEN_AND_BUILD_AUTHORIZATION_DECISION_M_MCP_AUTH_GUARD_014
   try {
-    const validatorContext: ValidateAccessTokenContext = validationContext;
-    const validationResult: OAuthTokenValidationResult =
-      await dependencies.oauthTokenValidator.validateAccessToken(
-        authorizationHeader,
-        validatorContext,
-      );
+    const authInfo = await dependencies.authContext.verifyAccessToken(parsedHeader.token);
 
-    if (!validationResult.isValid) {
-      const denyReason: McpAuthDenyReason =
-        validationResult.error === "insufficient_scope" ? "INSUFFICIENT_SCOPE" : "INVALID_TOKEN";
-      const challenge = createChallengeMetadata(
-        validationResult.error,
-        validationResult.errorDescription,
-        validationContext.requiredScopes,
-        validationContext.issuer,
-        validationContext.resource,
-      );
-      dependencies.logger.warn(
-        "Rejected /mcp request due to failed OAuth token validation.",
-        "authorizeMcpRequest",
-        "VALIDATE_ACCESS_TOKEN_AND_BUILD_AUTHORIZATION_DECISION",
-        {
-          reason: denyReason,
-          tokenLength: parsedHeader.tokenLength,
-        },
-      );
-      return buildDeniedDecision(denyReason, challenge);
+    const tokenIssuer = normalizeOptionalText(authInfo.issuer);
+    if (!tokenIssuer) {
+      throw new MCPAuthBearerAuthError("invalid_issuer", {
+        expected: "configured issuer",
+        actual: authInfo.issuer,
+      });
     }
 
-    const grantedScopes = normalizeScopes(validationResult.grantedScopes);
-    const subject = normalizeOptionalMetadataValue(validationResult.subject);
+    dependencies.authContext.validateIssuer(tokenIssuer);
+    validateAudience(authInfo, validationContext.audience);
+
+    const grantedScopes = extractGrantedScopes(authInfo);
+    validateRequiredScopes(grantedScopes, validationContext.requiredScopes);
+
+    const subject = normalizeOptionalText(authInfo.subject);
+
     dependencies.logger.info(
-      "Authorized /mcp request via OAuth access token validation.",
+      "Authorized /mcp request via mcp-auth context.",
       "authorizeMcpRequest",
-      "VALIDATE_ACCESS_TOKEN_AND_BUILD_AUTHORIZATION_DECISION",
+      "PROCESS_REQUEST_AUTHORIZATION_FLOW",
       {
         subject: subject ?? null,
         grantedScopes,
       },
     );
+
     return {
       isAuthorized: true,
+      authInfo,
       subject,
       grantedScopes,
     };
   } catch (error: unknown) {
+    const knownDenied = mapKnownAuthErrorToDecision(error, validationContext);
+    if (knownDenied) {
+      dependencies.logger.warn(
+        "Rejected /mcp request due to OAuth authorization failure.",
+        "authorizeMcpRequest",
+        "PROCESS_REQUEST_AUTHORIZATION_FLOW",
+        {
+          reason: knownDenied.reason,
+          tokenLength: parsedHeader.tokenLength,
+        },
+      );
+      return knownDenied;
+    }
+
     const typedError = toMcpAuthError(
       error,
-      "Failed to authorize /mcp request via OAuth token validation.",
+      "Failed to authorize /mcp request via mcp-auth context.",
       {
-        field: "oauthTokenValidator.validateAccessToken",
+        field: "authContext.verifyAccessToken|authContext.validateIssuer",
       },
     );
+
     dependencies.logger.error(
-      "MCP auth guard encountered internal failure during token validation.",
+      "MCP auth guard encountered internal failure during authorization.",
       "authorizeMcpRequest",
-      "VALIDATE_ACCESS_TOKEN_AND_BUILD_AUTHORIZATION_DECISION",
+      "PROCESS_REQUEST_AUTHORIZATION_FLOW",
       {
         code: typedError.code,
         details: typedError.details ?? null,
       },
     );
+
     throw typedError;
   }
-  // END_BLOCK_VALIDATE_ACCESS_TOKEN_AND_BUILD_AUTHORIZATION_DECISION_M_MCP_AUTH_GUARD_014
+  // END_BLOCK_PROCESS_REQUEST_AUTHORIZATION_FLOW_M_MCP_AUTH_GUARD_015
 }
