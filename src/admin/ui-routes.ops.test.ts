@@ -1,5 +1,5 @@
 // FILE: src/admin/ui-routes.ops.test.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate admin UI route behavior after transitioning from API-key management to ops diagnostics surface.
 //   SCOPE: Assert admin login/session redirect stability, /admin/login POST success/failure behavior, /admin redirect target, /admin/ops diagnostics rendering for full and HTMX requests, and default not-found behavior for removed /admin/api-keys* routes.
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Added admin login/session route stability coverage for /admin/login and /admin/ops after API-key surface removal.
+//   LAST_CHANGE: v1.3.0 - Removed deprecated OAuth JWKS/clock-skew fixture fields after Phase-7 config simplification.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -70,9 +70,6 @@ function createTestConfig(): AppConfig {
       issuer: "https://issuer.example.com/",
       audience: "travel-mcp",
       requiredScopes: ["mcp:access", "profile:read"],
-      jwksCacheTtlMs: 300000,
-      jwksTimeoutMs: 5000,
-      clockSkewSec: 60,
     },
     tgChatRag: {
       baseUrl: "https://tg-rag.example.com/",

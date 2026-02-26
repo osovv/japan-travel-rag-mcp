@@ -1,5 +1,5 @@
 // FILE: src/admin/ui-routes.tsx
-// VERSION: 2.1.0
+// VERSION: 2.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Render admin login and authenticated operator diagnostics surfaces without legacy API-key route handling.
 //   SCOPE: Route /admin/login and /admin/ops requests, enforce admin session checks, and render safe HTML diagnostics from runtime config.
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.1.0 - Removed legacy /admin/api-keys* dependency and route handling; unknown admin child routes now return default 404.
+//   LAST_CHANGE: v2.2.0 - Removed deprecated OAuth JWKS/clock-skew diagnostics fields from ops status after Phase-7 config simplification.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -42,14 +42,19 @@ type RenderAdminLayoutParams = {
   contentHtml: string;
 };
 
+type AuthenticateAdminResult = ReturnType<typeof authenticateAdminHelper>;
+type RequireAdminSessionResult = ReturnType<typeof requireAdminSessionHelper>;
+
+type AdminLoginSuccessResult = Extract<AuthenticateAdminResult, { isAuthenticated: true }>;
+type AdminLoginFailureResult = Extract<AuthenticateAdminResult, { isAuthenticated: false }>;
+type AdminSessionAllowResult = Extract<RequireAdminSessionResult, { isAuthenticated: true }>;
+type AdminSessionDenyResult = Extract<RequireAdminSessionResult, { isAuthenticated: false }>;
+
 type RenderOpsStatusModel = {
   publicUrl: string;
   oauthIssuer: string;
   oauthAudience: string;
   oauthRequiredScopes: string[];
-  oauthJwksCacheTtlMs: number;
-  oauthJwksTimeoutMs: number;
-  oauthClockSkewSec: number;
   mcpUrl: string;
   wellKnownResourceUrl: string;
   wellKnownMcpResourceUrl: string;
@@ -219,6 +224,58 @@ function resolveDependencies(deps: AdminUiDependencies): ResolvedAdminUiDependen
   // END_BLOCK_RESOLVE_OPTIONAL_AUTH_HELPER_DEPENDENCIES_M_ADMIN_UI_107
 }
 
+// START_CONTRACT: isAdminSessionAllowResult
+//   PURPOSE: Narrow admin session result union to authenticated allow branch.
+//   INPUTS: { result: RequireAdminSessionResult - Session validation result }
+//   OUTPUTS: { result is AdminSessionAllowResult - True when authenticated }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
+// END_CONTRACT: isAdminSessionAllowResult
+function isAdminSessionAllowResult(result: RequireAdminSessionResult): result is AdminSessionAllowResult {
+  // START_BLOCK_NARROW_ADMIN_SESSION_ALLOW_RESULT_M_ADMIN_UI_122
+  return result.isAuthenticated;
+  // END_BLOCK_NARROW_ADMIN_SESSION_ALLOW_RESULT_M_ADMIN_UI_122
+}
+
+// START_CONTRACT: isAdminSessionDenyResult
+//   PURPOSE: Narrow admin session result union to denied redirect branch.
+//   INPUTS: { result: RequireAdminSessionResult - Session validation result }
+//   OUTPUTS: { result is AdminSessionDenyResult - True when unauthenticated }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
+// END_CONTRACT: isAdminSessionDenyResult
+function isAdminSessionDenyResult(result: RequireAdminSessionResult): result is AdminSessionDenyResult {
+  // START_BLOCK_NARROW_ADMIN_SESSION_DENY_RESULT_M_ADMIN_UI_123
+  return !result.isAuthenticated;
+  // END_BLOCK_NARROW_ADMIN_SESSION_DENY_RESULT_M_ADMIN_UI_123
+}
+
+// START_CONTRACT: isAdminLoginSuccessResult
+//   PURPOSE: Narrow authenticateAdmin result union to success branch.
+//   INPUTS: { result: AuthenticateAdminResult - Admin login result }
+//   OUTPUTS: { result is AdminLoginSuccessResult - True when login succeeded }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
+// END_CONTRACT: isAdminLoginSuccessResult
+function isAdminLoginSuccessResult(result: AuthenticateAdminResult): result is AdminLoginSuccessResult {
+  // START_BLOCK_NARROW_ADMIN_LOGIN_SUCCESS_RESULT_M_ADMIN_UI_124
+  return result.isAuthenticated;
+  // END_BLOCK_NARROW_ADMIN_LOGIN_SUCCESS_RESULT_M_ADMIN_UI_124
+}
+
+// START_CONTRACT: isAdminLoginFailureResult
+//   PURPOSE: Narrow authenticateAdmin result union to failure branch.
+//   INPUTS: { result: AuthenticateAdminResult - Admin login result }
+//   OUTPUTS: { result is AdminLoginFailureResult - True when login failed }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
+// END_CONTRACT: isAdminLoginFailureResult
+function isAdminLoginFailureResult(result: AuthenticateAdminResult): result is AdminLoginFailureResult {
+  // START_BLOCK_NARROW_ADMIN_LOGIN_FAILURE_RESULT_M_ADMIN_UI_125
+  return !result.isAuthenticated;
+  // END_BLOCK_NARROW_ADMIN_LOGIN_FAILURE_RESULT_M_ADMIN_UI_125
+}
+
 // START_CONTRACT: buildOpsStatusModel
 //   PURPOSE: Derive diagnostics fields and URLs from runtime configuration for operator panel rendering.
 //   INPUTS: { config: AppConfig - Runtime app configuration }
@@ -233,9 +290,6 @@ function buildOpsStatusModel(config: AppConfig): RenderOpsStatusModel {
     oauthIssuer: config.oauth.issuer,
     oauthAudience: config.oauth.audience,
     oauthRequiredScopes: [...config.oauth.requiredScopes],
-    oauthJwksCacheTtlMs: config.oauth.jwksCacheTtlMs,
-    oauthJwksTimeoutMs: config.oauth.jwksTimeoutMs,
-    oauthClockSkewSec: config.oauth.clockSkewSec,
     mcpUrl: new URL("/mcp", config.publicUrl).toString(),
     wellKnownResourceUrl: new URL("/.well-known/oauth-protected-resource", config.publicUrl).toString(),
     wellKnownMcpResourceUrl: new URL(
@@ -287,9 +341,6 @@ export function renderOpsStatus(config: AppConfig): string {
     ["OAUTH_ISSUER", diagnostics.oauthIssuer],
     ["OAUTH_AUDIENCE", diagnostics.oauthAudience],
     ["OAUTH_REQUIRED_SCOPES", requiredScopesDisplay],
-    ["OAUTH_JWKS_CACHE_TTL_MS", String(diagnostics.oauthJwksCacheTtlMs)],
-    ["OAUTH_JWKS_TIMEOUT_MS", String(diagnostics.oauthJwksTimeoutMs)],
-    ["OAUTH_CLOCK_SKEW_SEC", String(diagnostics.oauthClockSkewSec)],
     ["Derived /mcp URL", diagnostics.mcpUrl],
     ["Derived protected resource URL", diagnostics.wellKnownResourceUrl],
     ["Derived MCP protected resource URL", diagnostics.wellKnownMcpResourceUrl],
@@ -460,7 +511,7 @@ export async function handleAdminRequest(
     if (pathname === ADMIN_LOGIN_PATH) {
       if (method === "GET") {
         const sessionCheck = resolvedDeps.requireAdminSession(request, resolvedDeps.config, logger);
-        if (sessionCheck.isAuthenticated) {
+        if (isAdminSessionAllowResult(sessionCheck)) {
           logger.debug(
             "Session already authenticated; redirecting away from login.",
             "handleAdminRequest",
@@ -481,7 +532,7 @@ export async function handleAdminRequest(
         const token = asFormString(formData.get("token"));
         const authResult = resolvedDeps.authenticateAdmin(token, resolvedDeps.config, logger);
 
-        if (authResult.isAuthenticated) {
+        if (isAdminLoginSuccessResult(authResult)) {
           logger.info(
             "Admin login successful.",
             "handleAdminRequest",
@@ -490,21 +541,25 @@ export async function handleAdminRequest(
           return buildRedirectResponse(ADMIN_OPS_PATH, authResult.sessionCookie);
         }
 
-        logger.warn(
-          "Admin login failed.",
-          "handleAdminRequest",
-          "HANDLE_ADMIN_LOGIN_ROUTE",
-          { reason: authResult.reason },
-        );
+        if (isAdminLoginFailureResult(authResult)) {
+          logger.warn(
+            "Admin login failed.",
+            "handleAdminRequest",
+            "HANDLE_ADMIN_LOGIN_ROUTE",
+            { reason: authResult.reason },
+          );
 
-        const errorMessage =
-          authResult.reason === "DISALLOWED_MCP_BEARER_FORMAT"
-            ? "Use the root admin token value directly (without Bearer prefix)."
-            : "Invalid root admin token.";
+          const errorMessage =
+            authResult.reason === "DISALLOWED_MCP_BEARER_FORMAT"
+              ? "Use the root admin token value directly (without Bearer prefix)."
+              : "Invalid root admin token.";
 
-        return buildHtmlResponse(401, renderLoginDocument(errorMessage), {
-          "set-cookie": resolvedDeps.clearAdminSession(),
-        });
+          return buildHtmlResponse(401, renderLoginDocument(errorMessage), {
+            "set-cookie": resolvedDeps.clearAdminSession(),
+          });
+        }
+
+        throw new AdminUiError("Unexpected authenticateAdmin result state.");
       }
 
       return buildHtmlResponse(405, renderLoginDocument("Method not allowed."));
@@ -517,7 +572,7 @@ export async function handleAdminRequest(
     }
 
     const sessionCheck = resolvedDeps.requireAdminSession(request, resolvedDeps.config, logger);
-    if (!sessionCheck.isAuthenticated) {
+    if (isAdminSessionDenyResult(sessionCheck)) {
       logger.info(
         "Admin session rejected; redirecting to login.",
         "handleAdminRequest",
