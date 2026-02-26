@@ -1,4 +1,4 @@
-<DevelopmentPlan VERSION="0.6.0">
+<DevelopmentPlan VERSION="0.7.0">
   <Context>
     <purpose>Ship v1 as a thin MCP proxy over tg-chat-rag with OAuth-only authorization for /mcp and an internal admin surface for operator login and diagnostics.</purpose>
     <scope>Expose search_messages, get_message_context, get_related_messages, and list_sources on /mcp; provide /admin/login and /admin/ops while removing API key lifecycle from the product surface.</scope>
@@ -12,6 +12,8 @@
       <constraint-7>OAuth metadata for protected resource is published at /.well-known/oauth-protected-resource and /.well-known/oauth-protected-resource/mcp.</constraint-7>
       <constraint-8>OAuth client registration and refresh token lifecycle are owned by Logto; server acts only as resource server.</constraint-8>
       <constraint-9>Refresh token policy target is 90 days at authorization server configuration level.</constraint-9>
+      <constraint-10>Auth guard is implemented using mcp-auth library (v0.2.0) with jose-backed JWT verification, replacing hand-rolled JWKS/JWT/WebCrypto code.</constraint-10>
+      <constraint-11>mcp-auth has express as peerDep; server uses Bun.serve() — only framework-agnostic mcp-auth internals are used (TokenVerifier, fetchServerConfig, createResourceMetadataEndpoint, BearerWWWAuthenticateHeader, error types).</constraint-11>
     </constraints>
   </Context>
 
@@ -44,9 +46,7 @@
         <note-7>Required env: OAUTH_ISSUER</note-7>
         <note-8>Required env: OAUTH_AUDIENCE</note-8>
         <note-9>Required env: OAUTH_REQUIRED_SCOPES (CSV, default contains mcp:access)</note-9>
-        <note-10>Optional env: OAUTH_JWKS_CACHE_TTL_MS</note-10>
-        <note-11>Optional env: OAUTH_JWKS_TIMEOUT_MS</note-11>
-        <note-12>Optional env: OAUTH_CLOCK_SKEW_SEC</note-12>
+        <note-10>REMOVED: OAUTH_JWKS_CACHE_TTL_MS, OAUTH_JWKS_TIMEOUT_MS, OAUTH_CLOCK_SKEW_SEC — jose handles JWKS caching internally.</note-10>
       </notes>
     </M-CONFIG>
 
@@ -111,9 +111,6 @@
         <export-PROXIED_TOOL_NAMES PURPOSE="Constant allowlist for proxied tool names" />
       </interface>
       <depends>M-LOGGER</depends>
-      <notes>
-        <note-1>search_messages schema is intentionally not 1:1 with upstream: filters.chat_ids is forbidden at public boundary.</note-1>
-      </notes>
     </M-TOOLS-CONTRACTS>
 
     <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION" LAYER="2" ORDER="1">
@@ -136,60 +133,65 @@
         <export-callMethod PURPOSE="Execute proxied tool call to tg-chat-rag methods API" />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
-      <notes>
-        <note-1>Path template: /api/v1/methods/&lt;tool_name&gt;</note-1>
-        <note-2>Authorization header: Bearer TG_CHAT_RAG_BEARER_TOKEN</note-2>
-      </notes>
     </M-TG-CHAT-RAG-CLIENT>
 
-    <M-OAUTH-DISCOVERY NAME="OAuthDiscoveryRoutes" TYPE="ENTRY_POINT" LAYER="2" ORDER="2">
+    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" TYPE="INTEGRATION" LAYER="2" ORDER="2">
       <contract>
-        <purpose>Expose OAuth protected resource metadata endpoints required by MCP OAuth clients.</purpose>
+        <purpose>Initialize mcp-auth library with Logto OIDC discovery and expose framework-agnostic token verification and metadata utilities for Bun.serve() integration.</purpose>
+        <inputs>
+          <param-1 name="config" type="AppConfig" />
+        </inputs>
+        <outputs>
+          <param-1 name="mcpAuth" type="MCPAuth" />
+          <param-2 name="verifyAccessToken" type="VerifyAccessTokenFunction" />
+          <param-3 name="validateIssuer" type="ValidateIssuerFunction" />
+          <param-4 name="resourceMetadataUrl" type="string" />
+        </outputs>
+        <errors>
+          <error-MCP_AUTH_INIT_ERROR code="MCP_AUTH_INIT_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-initMcpAuth PURPOSE="Async init: fetch Logto OIDC metadata, create MCPAuth instance, extract TokenVerifier-based verify/validate functions" />
+        <export-McpAuthContext PURPOSE="Type for the initialized auth context returned by initMcpAuth" />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <notes>
+        <note-1>Uses fetchServerConfig(OAUTH_ISSUER, { type: 'oidc' }) to get Logto metadata at startup.</note-1>
+        <note-2>Creates MCPAuth in resource server mode with protectedResources config.</note-2>
+        <note-3>Extracts TokenVerifier via deep import from mcp-auth/lib/auth/token-verifier.js for createVerifyJwtFunction() and getJwtIssuerValidator().</note-3>
+        <note-4>Uses createResourceMetadataEndpoint(resource) to compute well-known URL.</note-4>
+        <note-5>jose handles JWKS caching/rotation internally — no manual cache config needed.</note-5>
+      </notes>
+    </M-MCP-AUTH-PROVIDER>
+
+    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
+      <contract>
+        <purpose>Authorize /mcp requests using mcp-auth token verification in Bun.serve() context and build RFC 9728-compliant challenge responses for denied requests.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
         </inputs>
         <outputs>
-          <param-1 name="response" type="Response" />
+          <param-1 name="authResult" type="McpAuthDecision" />
         </outputs>
         <errors>
-          <error-OAUTH_DISCOVERY_ERROR code="OAUTH_DISCOVERY_ERROR" />
+          <error-MCP_AUTH_ERROR code="MCP_AUTH_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-handleOAuthProtectedResourceMetadata PURPOSE="Serve protected resource metadata for OAuth discovery" />
+        <export-authorizeMcpRequest PURPOSE="Extract Bearer token from Request, call mcp-auth verify, validate issuer/audience/scopes, return allow/deny" />
+        <export-createDeniedResponse PURPOSE="Build 401/403 Response with WWW-Authenticate header using BearerWWWAuthenticateHeader from mcp-auth" />
+        <export-createInitialMcpChallenge PURPOSE="Build initial 401 with resource_metadata challenge for unauthenticated requests" />
       </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
+      <depends>M-MCP-AUTH-PROVIDER, M-LOGGER</depends>
       <notes>
-        <note-1>Routes: GET /.well-known/oauth-protected-resource and GET /.well-known/oauth-protected-resource/mcp</note-1>
-        <note-2>Metadata references Logto issuer and mcp:access required scope.</note-2>
+        <note-1>Token verification is delegated entirely to mcp-auth (jose-backed). No hand-rolled JWT/JWKS code.</note-1>
+        <note-2>Error handling maps MCPAuthBearerAuthError and MCPAuthTokenVerificationError to appropriate HTTP responses.</note-2>
+        <note-3>WWW-Authenticate header built using mcp-auth's BearerWWWAuthenticateHeader utility.</note-3>
       </notes>
-    </M-OAUTH-DISCOVERY>
+    </M-MCP-AUTH-GUARD>
 
-    <M-OAUTH-JWKS NAME="OAuthJwksClient" TYPE="INTEGRATION" LAYER="2" ORDER="3">
-      <contract>
-        <purpose>Fetch, cache, and rotate JWKS signing keys from the configured OAuth issuer.</purpose>
-        <inputs>
-          <param-1 name="kid" type="string" />
-        </inputs>
-        <outputs>
-          <param-1 name="jwksKey" type="CryptoKeyLike" />
-        </outputs>
-        <errors>
-          <error-OAUTH_JWKS_ERROR code="OAUTH_JWKS_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-getSigningKey PURPOSE="Resolve signing key by kid with cache-aware refresh" />
-        <export-refreshJwks PURPOSE="Force JWKS refresh when kid is not found or stale" />
-      </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
-      <notes>
-        <note-1>JWKS is loaded from &lt;OAUTH_ISSUER&gt;/.well-known/jwks.json (or provider metadata equivalent).</note-1>
-        <note-2>Use bounded timeout and in-memory TTL cache to reduce auth latency.</note-2>
-      </notes>
-    </M-OAUTH-JWKS>
-
-    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
+    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="3" ORDER="2">
       <contract>
         <purpose>Authenticate admin operators with ROOT_AUTH_TOKEN and enforce cookie session checks for /admin routes.</purpose>
         <inputs>
@@ -210,58 +212,7 @@
         <export-clearAdminSession PURPOSE="Clear admin auth cookie on logout" />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
-      <notes>
-        <note-1>Default unauthenticated admin behavior: 302 redirect to /admin/login.</note-1>
-        <note-2>ROOT_AUTH_TOKEN is accepted only by admin login flow and never by /mcp OAuth auth guard.</note-2>
-      </notes>
     </M-ADMIN-AUTH>
-
-    <M-OAUTH-TOKEN-VALIDATOR NAME="OAuthTokenValidator" TYPE="CORE_LOGIC" LAYER="3" ORDER="2">
-      <contract>
-        <purpose>Validate OAuth access tokens for /mcp using JWT signature and required claims checks.</purpose>
-        <inputs>
-          <param-1 name="authorizationHeader" type="string|null" />
-        </inputs>
-        <outputs>
-          <param-1 name="tokenValidationResult" type="object" />
-        </outputs>
-        <errors>
-          <error-OAUTH_TOKEN_VALIDATION_ERROR code="OAUTH_TOKEN_VALIDATION_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-validateAccessToken PURPOSE="Parse Bearer token and validate signature, issuer, audience, time claims, and scopes" />
-      </interface>
-      <depends>M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
-      <notes>
-        <note-1>Required claims: iss, aud, exp, nbf(optional), iat(optional), scope.</note-1>
-        <note-2>Required scope baseline: mcp:access.</note-2>
-      </notes>
-    </M-OAUTH-TOKEN-VALIDATOR>
-
-    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC" LAYER="3" ORDER="3">
-      <contract>
-        <purpose>Authorize /mcp requests using OAuth access tokens only and reject unauthorized callers before transport handling.</purpose>
-        <inputs>
-          <param-1 name="authorizationHeader" type="string|null" />
-        </inputs>
-        <outputs>
-          <param-1 name="authResult" type="object" />
-        </outputs>
-        <errors>
-          <error-MCP_AUTH_ERROR code="MCP_AUTH_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-authorizeMcpRequest PURPOSE="Validate OAuth Bearer token via OAuthTokenValidator and return allow/deny" />
-        <export-buildWwwAuthenticateHeader PURPOSE="Build standards-compliant WWW-Authenticate challenge values" />
-      </interface>
-      <depends>M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
-      <notes>
-        <note-1>No fallback credentials are allowed for /mcp.</note-1>
-        <note-2>Denied responses include WWW-Authenticate challenge with oauth metadata hint.</note-2>
-      </notes>
-    </M-MCP-AUTH-GUARD>
 
     <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="4" ORDER="1">
       <contract>
@@ -283,10 +234,6 @@
         <export-executeTool PURPOSE="Validate args, inject internal chat_ids policy, call upstream, normalize result" />
       </interface>
       <depends>M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER</depends>
-      <notes>
-        <note-1>Defense-in-depth: reject requests containing filters.chat_ids at public input level.</note-1>
-        <note-2>For search_messages, always set filters.chat_ids from TG_CHAT_RAG_CHAT_IDS after validation.</note-2>
-      </notes>
     </M-TOOL-PROXY>
 
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
@@ -308,10 +255,6 @@
         <export-renderOpsStatus PURPOSE="Render OAuth and MCP runtime status diagnostics" />
       </interface>
       <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
-      <notes>
-        <note-1>UI stack: Bun JSX templating + HTMX progressive enhancement + daisyUI class primitives.</note-1>
-        <note-2>API key management tab is removed in OAuth-only architecture.</note-2>
-      </notes>
     </M-ADMIN-UI>
 
     <M-TRANSPORT NAME="McpTransport" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
@@ -332,15 +275,11 @@
         <export-handleMcpRequest PURPOSE="Handle /mcp requests with streamable transport" />
       </interface>
       <depends>M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER</depends>
-      <notes>
-        <note-1>Registered tools: search_messages, get_message_context, get_related_messages, list_sources.</note-1>
-        <note-2>Excluded tool: list_chats.</note-2>
-      </notes>
     </M-TRANSPORT>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
       <contract>
-        <purpose>Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth well-known routes, and /healthz.</purpose>
+        <purpose>Boot Bun HTTP server, initialize mcp-auth provider at startup, enforce auth guards, and expose /mcp, /admin/*, OAuth well-known routes, and /healthz.</purpose>
         <inputs>
           <param-1 name="processSignals" type="SIGTERM|SIGINT" />
         </inputs>
@@ -352,14 +291,18 @@
         </errors>
       </contract>
       <interface>
-        <export-main PURPOSE="Boot sequence, dependency wiring, and route lifecycle" />
+        <export-main PURPOSE="Boot sequence with async mcp-auth init, dependency wiring, and route lifecycle" />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-OAUTH-DISCOVERY, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
+      <notes>
+        <note-1>main() calls initMcpAuth() at startup — this fetches Logto OIDC metadata and validates config before server starts.</note-1>
+        <note-2>Discovery metadata route uses MCPAuth.protectedResourceMetadataRouter() output converted to Bun handler, or manual metadata response built from MCPAuth config.</note-2>
+      </notes>
     </M-SERVER>
 
-    <M-TRANSPORT-SMOKE NAME="McpTransportSmokeTests" TYPE="TEST" LAYER="6" ORDER="2">
+    <M-MCP-AUTH-GUARD-TEST NAME="McpAuthGuardTests" TYPE="TEST" LAYER="6" ORDER="2">
       <contract>
-        <purpose>Provide smoke coverage for MCP transport registration, OAuth auth-gated dispatch behavior, and expected failure modes.</purpose>
+        <purpose>Unit verification of mcp-auth-backed guard decision mapping and challenge header formatting.</purpose>
         <inputs>
           <param-1 name="testRuntime" type="bun:test" />
         </inputs>
@@ -371,10 +314,29 @@
         </errors>
       </contract>
       <interface>
-        <export-TransportSmokeTests PURPOSE="Validate unauthorized/insufficient-scope/authorized /mcp request flows" />
+        <export-McpAuthGuardTests PURPOSE="Checks missing header, invalid token, insufficient scope, valid token, and error response formatting" />
       </interface>
-      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-GUARD, M-LOGGER</depends>
-    </M-TRANSPORT-SMOKE>
+      <depends>M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-LOGGER</depends>
+    </M-MCP-AUTH-GUARD-TEST>
+
+    <M-SERVER-INTEGRATION-TEST NAME="ServerIntegrationTests" TYPE="TEST" LAYER="6" ORDER="3">
+      <contract>
+        <purpose>Integration verification of discovery metadata, auth challenge flow, and authorized MCP dispatch.</purpose>
+        <inputs>
+          <param-1 name="testRuntime" type="bun:test" />
+        </inputs>
+        <outputs>
+          <param-1 name="testReport" type="object" />
+        </outputs>
+        <errors>
+          <error-TEST_FAILURE code="TEST_FAILURE" />
+        </errors>
+      </contract>
+      <interface>
+        <export-ServerIntegrationTests PURPOSE="Validates discovery metadata, initial challenge, token-based auth, and handshake coherence" />
+      </interface>
+      <depends>M-SERVER, M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER</depends>
+    </M-SERVER-INTEGRATION-TEST>
   </Modules>
 
   <DataFlows>
@@ -393,16 +355,17 @@
 
     <DF-OAUTH-DISCOVERY NAME="OAuth Protected Resource Discovery Flow" TRIGGER="GET /.well-known/oauth-protected-resource*">
       <step-1>MCP client requests protected resource metadata for /mcp.</step-1>
-      <step-2>M-OAUTH-DISCOVERY returns issuer, resource, and required scopes bound to PUBLIC_URL.</step-2>
+      <step-2>M-SERVER serves metadata built from MCPAuth protectedResources config (resource, authorization_servers, scopes_supported, bearer_methods_supported).</step-2>
       <step-3>Client starts OAuth authorization against Logto and obtains access token.</step-3>
     </DF-OAUTH-DISCOVERY>
 
     <DF-MCP-AUTH NAME="MCP OAuth Auth Flow" TRIGGER="POST /mcp">
       <step-1>Client sends Authorization header with OAuth Bearer access token.</step-1>
-      <step-2>M-MCP-AUTH-GUARD delegates token verification to M-OAUTH-TOKEN-VALIDATOR.</step-2>
-      <step-3>Validator verifies signature via JWKS and checks iss/aud/exp/nbf/scope claims.</step-3>
-      <step-4>Unauthorized request is rejected before MCP transport invocation with WWW-Authenticate challenge.</step-4>
-      <step-5>Authorized request is dispatched to M-TRANSPORT.</step-5>
+      <step-2>M-MCP-AUTH-GUARD extracts Bearer token from Request headers.</step-2>
+      <step-3>Guard calls mcp-auth verifyAccessToken(token) which uses jose for JWT signature verification via JWKS.</step-3>
+      <step-4>Guard validates issuer via mcp-auth validateIssuer() and checks audience + required scopes.</step-4>
+      <step-5>Unauthorized request returns 401 with WWW-Authenticate built via BearerWWWAuthenticateHeader.</step-5>
+      <step-6>Authorized request is dispatched to M-TRANSPORT with AuthInfo context.</step-6>
     </DF-MCP-AUTH>
 
     <DF-PROXY-SEARCH NAME="search_messages Proxy Flow" TRIGGER="MCP tool search_messages">
@@ -482,47 +445,48 @@
       <step-2 module="M-SERVER">Validate end-to-end MCP OAuth handshake with Logto DCR-enabled client.</step-2>
       <step-3 module="M-ADMIN-UI">Validate admin login and ops routes remain stable after API key removal.</step-3>
     </Phase-6>
+
+    <Phase-7 name="mcp-auth Library Migration" status="pending">
+      <step-1 module="M-CONFIG">Remove OAUTH_JWKS_CACHE_TTL_MS, OAUTH_JWKS_TIMEOUT_MS, OAUTH_CLOCK_SKEW_SEC from config — jose handles JWKS caching internally. Keep OAUTH_ISSUER, OAUTH_AUDIENCE, OAUTH_REQUIRED_SCOPES, PUBLIC_URL. Update AppConfig type and loadConfig validation.</step-1>
+      <step-2 module="M-MCP-AUTH-PROVIDER">Create src/auth/mcp-auth-provider.ts: async initMcpAuth() that fetches Logto OIDC metadata via fetchServerConfig(), creates MCPAuth in resource server mode, extracts TokenVerifier via deep import, returns McpAuthContext with verifyAccessToken, validateIssuer, resourceMetadataUrl, and snakecase metadata payload.</step-2>
+      <step-3 module="M-MCP-AUTH-GUARD">Rewrite src/auth/mcp-auth-guard.ts to use McpAuthContext from provider: extract Bearer token from Request, call verifyAccessToken(token) → AuthInfo, validate issuer/audience/scopes via mcp-auth errors, build WWW-Authenticate via BearerWWWAuthenticateHeader, return allow/deny decision with AuthInfo or Response.</step-3>
+      <step-4 module="M-SERVER">Update src/server/index.ts: call initMcpAuth() at startup, replace hand-rolled oauthTokenValidator/mcpAuthDeps wiring with McpAuthContext, replace handleOAuthProtectedResourceMetadata() with metadata served from McpAuthContext, update /mcp route to use new guard API.</step-4>
+      <step-5 module="M-SERVER">Delete src/auth/oauth-jwks-client.ts, src/auth/oauth-token-validator.ts, src/auth/oauth-discovery-routes.ts — all replaced by mcp-auth library.</step-5>
+      <step-6 module="M-MCP-AUTH-GUARD-TEST">Rewrite auth guard tests for new mcp-auth-backed guard: mock McpAuthContext, test missing header, invalid token, insufficient scope, valid token, error response formatting.</step-6>
+      <step-7 module="M-SERVER-INTEGRATION-TEST">Rewrite server integration tests: discovery metadata coherence, initial challenge format, token-based auth flow. Delete old oauth-jwks-client.test.ts, oauth-token-validator.test.ts, oauth-discovery-routes.test.ts.</step-7>
+      <step-8 module="M-CONFIG-TEST">Update config tests for removed JWKS/clock-skew env vars.</step-8>
+    </Phase-7>
   </ImplementationOrder>
 
   <RiskAssessment>
-    <RISK-1 name="OAuth Claim Misconfiguration">
-      <impact>Wrong issuer, audience, or required scope configuration will reject all /mcp requests.</impact>
-      <mitigation>Fail fast at startup for malformed config, log exact claim mismatch reason, and keep staging parity checks.</mitigation>
+    <RISK-1 name="Express Peer Dependency Incompatibility">
+      <impact>mcp-auth declares express@^5 as peerDep. Bun.serve() does not use Express. MCPAuth.protectedResourceMetadataRouter() and bearerAuth() return Express middleware.</impact>
+      <mitigation>Only use framework-agnostic internals: fetchServerConfig, TokenVerifier (deep import), createResourceMetadataEndpoint, BearerWWWAuthenticateHeader, error types. Never import Express routers/middleware. If express peerDep warning is noisy, add to package.json peerDependenciesMeta.</mitigation>
     </RISK-1>
 
-    <RISK-2 name="JWKS Availability and Rotation">
-      <impact>Issuer JWKS downtime or stale cache during key rotation can block valid clients.</impact>
-      <mitigation>Use bounded retries, cache TTL tuning, and forced refresh on kid miss.</mitigation>
+    <RISK-2 name="Deep Import Stability">
+      <impact>Importing TokenVerifier from mcp-auth/lib/auth/token-verifier.js uses internal paths that may change between mcp-auth versions.</impact>
+      <mitigation>Pin mcp-auth to 0.2.x. Document deep imports in module contract. Test import resolution in CI. If mcp-auth adds public framework-agnostic exports, migrate to those.</mitigation>
     </RISK-2>
 
-    <RISK-3 name="OAuth Discovery Incompatibility">
-      <impact>Incorrect well-known metadata can break client authorization bootstrap.</impact>
-      <mitigation>Conform to MCP auth spec metadata fields and run integration checks with real clients.</mitigation>
+    <RISK-3 name="jose JWKS Cache Behavior Differences">
+      <impact>Moving from hand-rolled JWKS cache (explicit TTL) to jose's createRemoteJWKSet may behave differently under key rotation.</impact>
+      <mitigation>jose's JWKS cache is battle-tested and used by millions of deployments. Its cooldownDuration and cacheMaxAge parameters can be tuned via remoteJwkSet options in VerifyJwtConfig if needed.</mitigation>
     </RISK-3>
 
-    <RISK-4 name="Long-Lived Refresh Token Exposure">
-      <impact>90-day refresh policy increases exposure window for compromised refresh tokens.</impact>
-      <mitigation>Enable refresh token rotation and revocation controls in Logto; enforce TLS and secure client storage.</mitigation>
+    <RISK-4 name="Startup Latency from OIDC Discovery Fetch">
+      <impact>initMcpAuth() fetches Logto OIDC metadata at startup. Network failure blocks server boot.</impact>
+      <mitigation>Fail fast with clear error message. Consider on-demand discovery fallback ({ issuer, type: 'oidc' }) if startup fetch is unacceptable — metadata will be fetched on first request instead.</mitigation>
     </RISK-4>
 
-    <RISK-5 name="Cutover Regression from API Key Removal">
-      <impact>Removing API key flows can regress existing admin pages and server boot assumptions.</impact>
-      <mitigation>Delete dependencies in controlled phases, keep smoke tests green, and verify /admin routes after each change.</mitigation>
+    <RISK-5 name="Clock Skew Tolerance Change">
+      <impact>Hand-rolled validator had configurable OAUTH_CLOCK_SKEW_SEC (default 60s). jose uses its own defaults.</impact>
+      <mitigation>jose.jwtVerify supports clockTolerance option via JWTVerifyOptions. Pass explicit value if needed.</mitigation>
     </RISK-5>
 
-    <RISK-6 name="Clock Drift and Time Claim Validation">
-      <impact>Clock skew can cause false negatives on exp/nbf validations.</impact>
-      <mitigation>Apply explicit skew tolerance and keep host time synchronized with NTP.</mitigation>
+    <RISK-6 name="AuthInfo Shape Compatibility">
+      <impact>mcp-auth's AuthInfo extends @modelcontextprotocol/sdk AuthInfo with token, issuer, clientId, scopes, subject, audience, claims fields. Current code uses custom McpAuthDecision type.</impact>
+      <mitigation>Map mcp-auth's AuthInfo to existing McpAuthDecision interface or adopt AuthInfo directly. Ensure transport handlers receive compatible auth context.</mitigation>
     </RISK-6>
-
-    <RISK-7 name="Upstream Availability">
-      <impact>Timeouts or 5xx from tg-chat-rag can degrade MCP reliability after successful auth.</impact>
-      <mitigation>Keep explicit request timeout, stable error mapping, and request-scoped diagnostics.</mitigation>
-    </RISK-7>
-
-    <RISK-8 name="Chat Scope Leakage">
-      <impact>If callers could pass chat_ids, they might bypass intended source scope.</impact>
-      <mitigation>Public schema forbids filters.chat_ids and proxy layer enforces reject-if-present plus internal injection.</mitigation>
-    </RISK-8>
   </RiskAssessment>
 </DevelopmentPlan>

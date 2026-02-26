@@ -1,7 +1,7 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="0.9.0">
-    <keywords>japan-travel, mcp, proxy, tg-chat-rag, oauth, logto, jwks, dcr, admin-ui, postgres, drizzle, contract-first</keywords>
-    <annotation>OAuth-only architecture for /mcp using Logto-issued access tokens and MCP OAuth discovery metadata. Admin login remains rooted in ROOT_AUTH_TOKEN for internal operator access.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.0.0">
+    <keywords>japan-travel, mcp, proxy, tg-chat-rag, oauth, logto, mcp-auth, jose, jwks, dcr, admin-ui, postgres, drizzle, contract-first</keywords>
+    <annotation>OAuth-only architecture for /mcp using mcp-auth library (v0.2.0) with jose-backed JWT verification against Logto-issued access tokens. Admin login remains rooted in ROOT_AUTH_TOKEN for internal operator access.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY">
       <purpose>Runtime config validation for MCP server, admin authentication, and OAuth resource server settings.</purpose>
@@ -9,7 +9,7 @@
       <depends>none</depends>
       <annotations>
         <fn-loadConfig description="Validate env and return typed AppConfig" />
-        <type-AppConfig description="Configuration object including tg-chat-rag, ROOT_AUTH_TOKEN, and OAuth settings" />
+        <type-AppConfig description="Configuration object including tg-chat-rag, ROOT_AUTH_TOKEN, and simplified OAuth settings (issuer, audience, requiredScopes — no JWKS cache/timeout/clock-skew)" />
       </annotations>
     </M-CONFIG>
 
@@ -55,33 +55,26 @@
       </annotations>
     </M-TG-CHAT-RAG-CLIENT>
 
-    <M-OAUTH-DISCOVERY NAME="OAuthDiscoveryRoutes" TYPE="ENTRY_POINT">
-      <purpose>Serve OAuth protected resource metadata for MCP OAuth client bootstrap.</purpose>
-      <path>src/auth/oauth-discovery-routes.ts</path>
+    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" TYPE="INTEGRATION">
+      <purpose>Initialize mcp-auth library with Logto OIDC discovery and expose framework-agnostic token verification and metadata utilities.</purpose>
+      <path>src/auth/mcp-auth-provider.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-handleOAuthProtectedResourceMetadata description="Return protected resource metadata for /.well-known/oauth-protected-resource routes" />
+        <fn-initMcpAuth description="Async init: fetch Logto OIDC metadata via fetchServerConfig, create MCPAuth, extract TokenVerifier verify/validate functions, compute resource metadata URL" />
+        <type-McpAuthContext description="Initialized auth context with verifyAccessToken, validateIssuer, resourceMetadataUrl, and metadata payload" />
       </annotations>
-    </M-OAUTH-DISCOVERY>
+    </M-MCP-AUTH-PROVIDER>
 
-    <M-OAUTH-JWKS NAME="OAuthJwksClient" TYPE="INTEGRATION">
-      <purpose>Fetch and cache issuer JWKS keys for access token signature verification.</purpose>
-      <path>src/auth/oauth-jwks-client.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
+    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC">
+      <purpose>Authorize /mcp requests using mcp-auth token verification in Bun.serve() context with RFC 9728-compliant challenge responses.</purpose>
+      <path>src/auth/mcp-auth-guard.ts</path>
+      <depends>M-MCP-AUTH-PROVIDER, M-LOGGER</depends>
       <annotations>
-        <fn-getSigningKey description="Resolve signing key by kid using cache-aware JWKS refresh" />
-        <fn-refreshJwks description="Refresh in-memory JWKS cache from OAuth issuer" />
+        <fn-authorizeMcpRequest description="Extract Bearer token, call mcp-auth verify, validate issuer/audience/scopes, return allow/deny decision" />
+        <fn-createDeniedResponse description="Build 401/403 Response with WWW-Authenticate via BearerWWWAuthenticateHeader" />
+        <fn-createInitialMcpChallenge description="Build initial 401 with resource_metadata challenge for unauthenticated requests" />
       </annotations>
-    </M-OAUTH-JWKS>
-
-    <M-OAUTH-TOKEN-VALIDATOR NAME="OAuthTokenValidator" TYPE="CORE_LOGIC">
-      <purpose>Validate OAuth Bearer access token signature and claims for /mcp authorization.</purpose>
-      <path>src/auth/oauth-token-validator.ts</path>
-      <depends>M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-validateAccessToken description="Validate Bearer token with iss/aud/exp/nbf/scope checks" />
-      </annotations>
-    </M-OAUTH-TOKEN-VALIDATOR>
+    </M-MCP-AUTH-GUARD>
 
     <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC">
       <purpose>Authenticate admin login attempts using ROOT_AUTH_TOKEN and enforce admin session cookie checks.</purpose>
@@ -93,26 +86,6 @@
         <fn-clearAdminSession description="Invalidate admin session cookie" />
       </annotations>
     </M-ADMIN-AUTH>
-
-    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER">
-      <purpose>Persist and resolve API key lifecycle records for legacy admin operations and transition-period auth wiring.</purpose>
-      <path>src/admin/api-key-repository.ts</path>
-      <depends>M-DB, M-LOGGER</depends>
-      <annotations>
-        <fn-createApiKeyRepository description="Build repository for create/list/revoke/resolve API key operations" />
-        <type-ApiKeyRecord description="API key metadata record used by admin and auth layers" />
-      </annotations>
-    </M-API-KEY-REPOSITORY>
-
-    <M-MCP-AUTH-GUARD NAME="McpAuthGuard" TYPE="CORE_LOGIC">
-      <purpose>Authorize /mcp requests using OAuth access tokens before transport execution.</purpose>
-      <path>src/auth/mcp-auth-guard.ts</path>
-      <depends>M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
-      <annotations>
-        <fn-authorizeMcpRequest description="Validate OAuth Bearer token and return allow/deny decision" />
-        <fn-buildWwwAuthenticateHeader description="Build standards-compliant challenge header for denied requests" />
-      </annotations>
-    </M-MCP-AUTH-GUARD>
 
     <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC">
       <purpose>Tool-level proxy orchestration: validate input, enforce internal chat scope, forward request, normalize response.</purpose>
@@ -147,12 +120,12 @@
     </M-TRANSPORT>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
-      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /.well-known/oauth-protected-resource*, /admin/*, /healthz) using OAuth challenge responses for unauthorized MCP requests.</purpose>
+      <purpose>Process entrypoint with async mcp-auth init, boot sequence, and HTTP routes (/mcp, /.well-known/oauth-protected-resource*, /admin/*, /healthz).</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-GUARD, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT</depends>
       <annotations>
-        <fn-main description="Boot server, wire auth guards, and route MCP/discovery/admin/health requests" />
-        <fn-createUnauthorizedMcpResponse description="Build standardized 401 response with OAuth WWW-Authenticate challenge metadata" />
+        <fn-main description="Boot server with initMcpAuth() startup, wire auth guards, and route MCP/discovery/admin/health requests" />
+        <fn-createInitialMcpChallenge description="Build standardized 401 response with OAuth WWW-Authenticate resource_metadata challenge" />
       </annotations>
     </M-SERVER>
 
@@ -165,35 +138,26 @@
       </annotations>
     </M-ROOT-ENTRYPOINT>
 
-    <M-TRANSPORT-SMOKE NAME="McpTransportSmokeTests" TYPE="TEST">
-      <purpose>Smoke validation for MCP transport tool surface and OAuth auth-gated routing behavior.</purpose>
-      <path>src/transport/mcp-transport.smoke.test.ts</path>
-      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
+    <M-MCP-AUTH-GUARD-TEST NAME="McpAuthGuardTests" TYPE="TEST">
+      <purpose>Unit verification of mcp-auth-backed guard decision mapping and challenge header formatting.</purpose>
+      <path>src/auth/mcp-auth-guard.test.ts</path>
+      <depends>M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-LOGGER</depends>
       <annotations>
-        <fn-TransportSmokeTests description="Smoke checks for tools/list and tools/call with OAuth unauthorized/authorized scenarios" />
+        <fn-McpAuthGuardTests description="Checks missing header, invalid token, insufficient scope, valid token, and error response behavior" />
       </annotations>
-    </M-TRANSPORT-SMOKE>
+    </M-MCP-AUTH-GUARD-TEST>
 
-    <M-SERVER-OAUTH-CHALLENGE-TEST NAME="ServerOAuthChallengeTests" TYPE="TEST">
-      <purpose>Focused verification of standardized /mcp unauthorized OAuth challenge response formatting.</purpose>
-      <path>src/server/oauth-challenge.test.ts</path>
-      <depends>M-SERVER</depends>
+    <M-SERVER-INTEGRATION-TEST NAME="ServerIntegrationTests" TYPE="TEST">
+      <purpose>Integration verification of discovery metadata, auth challenge flow, and authorized MCP dispatch.</purpose>
+      <path>src/server/server-integration.test.ts</path>
+      <depends>M-SERVER, M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER</depends>
       <annotations>
-        <fn-ServerOAuthChallengeTests description="Asserts 401 payload and WWW-Authenticate challenge composition for OAuth denial responses" />
+        <fn-ServerIntegrationTests description="Validates discovery metadata, initial challenge, token-based auth, and handshake coherence" />
       </annotations>
-    </M-SERVER-OAUTH-CHALLENGE-TEST>
-
-    <M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST NAME="ServerOAuthHandshakeReadinessTests" TYPE="TEST">
-      <purpose>Verifies discovery metadata and /mcp challenge coherence for Logto/Claude-style OAuth bootstrap flows.</purpose>
-      <path>src/server/oauth-handshake-readiness.test.ts</path>
-      <depends>M-SERVER, M-OAUTH-DISCOVERY</depends>
-      <annotations>
-        <fn-ServerOAuthHandshakeReadinessTests description="Asserts issuer/resource/scope coherence across discovery and WWW-Authenticate challenge surfaces" />
-      </annotations>
-    </M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST>
+    </M-SERVER-INTEGRATION-TEST>
 
     <M-CONFIG-TEST NAME="ConfigTests" TYPE="TEST">
-      <purpose>Focused validation of OAuth/public runtime config parsing defaults and strict error behavior.</purpose>
+      <purpose>Validation of OAuth/public runtime config parsing defaults and strict error behavior.</purpose>
       <path>src/config/index.test.ts</path>
       <depends>M-CONFIG</depends>
       <annotations>
@@ -201,48 +165,12 @@
       </annotations>
     </M-CONFIG-TEST>
 
-    <M-MCP-AUTH-GUARD-TEST NAME="McpAuthGuardTests" TYPE="TEST">
-      <purpose>Unit verification of OAuth auth-guard decision mapping and challenge header formatting.</purpose>
-      <path>src/auth/mcp-auth-guard.test.ts</path>
-      <depends>M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
-      <annotations>
-        <fn-McpAuthGuardTests description="Checks missing header, invalid token, insufficient scope, valid token, and typed internal error behavior" />
-      </annotations>
-    </M-MCP-AUTH-GUARD-TEST>
-
-    <M-OAUTH-DISCOVERY-TEST NAME="OAuthDiscoveryRouteTests" TYPE="TEST">
-      <purpose>Unit verification of OAuth discovery route matching, payloads, and method/error behavior.</purpose>
-      <path>src/auth/oauth-discovery-routes.test.ts</path>
-      <depends>M-OAUTH-DISCOVERY, M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-OAuthDiscoveryRouteTests description="Checks discovery payload correctness, non-match null routing, and GET-only behavior" />
-      </annotations>
-    </M-OAUTH-DISCOVERY-TEST>
-
-    <M-OAUTH-JWKS-TEST NAME="OAuthJwksClientTests" TYPE="TEST">
-      <purpose>Unit verification of JWKS client cache/refresh behavior and typed failure mapping.</purpose>
-      <path>src/auth/oauth-jwks-client.test.ts</path>
-      <depends>M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-OAuthJwksClientTests description="Checks cache hits, stale refresh, kid-miss refresh, and typed OAUTH_JWKS_ERROR outcomes" />
-      </annotations>
-    </M-OAUTH-JWKS-TEST>
-
-    <M-OAUTH-TOKEN-VALIDATOR-TEST NAME="OAuthTokenValidatorTests" TYPE="TEST">
-      <purpose>Unit verification of JWT signature/claims/scope decisions for OAuth token validation.</purpose>
-      <path>src/auth/oauth-token-validator.test.ts</path>
-      <depends>M-OAUTH-TOKEN-VALIDATOR, M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-OAuthTokenValidatorTests description="Checks valid token pass plus invalid_token and insufficient_scope decisions" />
-      </annotations>
-    </M-OAUTH-TOKEN-VALIDATOR-TEST>
-
     <M-ADMIN-UI-OPS-TEST NAME="AdminUiOpsRouteTests" TYPE="TEST">
-      <purpose>Stability verification for admin login/session and ops routes after API-key surface removal.</purpose>
+      <purpose>Stability verification for admin login/session and ops routes.</purpose>
       <path>src/admin/ui-routes.ops.test.ts</path>
       <depends>M-ADMIN-UI, M-CONFIG, M-LOGGER, M-ADMIN-AUTH</depends>
       <annotations>
-        <fn-AdminUiOpsRouteTests description="Checks login/session redirects, ops rendering, and removed API-key route not-found behavior" />
+        <fn-AdminUiOpsRouteTests description="Checks login/session redirects, ops rendering" />
       </annotations>
     </M-ADMIN-UI-OPS-TEST>
 
@@ -273,6 +201,21 @@
       </annotations>
     </M-DOCKER-IMAGE>
 
+    <DELETED-MODULES>
+      <M-OAUTH-JWKS NAME="OAuthJwksClient (DELETED)" reason="Replaced by jose via mcp-auth TokenVerifier">
+        <previous-path>src/auth/oauth-jwks-client.ts</previous-path>
+      </M-OAUTH-JWKS>
+      <M-OAUTH-TOKEN-VALIDATOR NAME="OAuthTokenValidator (DELETED)" reason="Replaced by mcp-auth TokenVerifier.createVerifyJwtFunction()">
+        <previous-path>src/auth/oauth-token-validator.ts</previous-path>
+      </M-OAUTH-TOKEN-VALIDATOR>
+      <M-OAUTH-DISCOVERY NAME="OAuthDiscoveryRoutes (DELETED)" reason="Replaced by mcp-auth MCPAuth protectedResources metadata">
+        <previous-path>src/auth/oauth-discovery-routes.ts</previous-path>
+      </M-OAUTH-DISCOVERY>
+      <M-API-KEY-REPOSITORY NAME="ApiKeyRepository (DELETED)" reason="Removed in Phase 5 — OAuth-only architecture">
+        <previous-path>src/admin/api-key-repository.ts</previous-path>
+      </M-API-KEY-REPOSITORY>
+    </DELETED-MODULES>
+
     <DataFlows>
       <DF-ADMIN-LOGIN NAME="admin login flow">
         <step-1>Operator submits ROOT_AUTH_TOKEN via /admin/login form.</step-1>
@@ -288,15 +231,16 @@
 
       <DF-OAUTH-DISCOVERY NAME="oauth protected resource discovery flow">
         <step-1>Client requests /.well-known/oauth-protected-resource or /.well-known/oauth-protected-resource/mcp.</step-1>
-        <step-2>M-OAUTH-DISCOVERY returns issuer/resource/scope metadata.</step-2>
+        <step-2>M-SERVER serves metadata from McpAuthContext (resource, authorization_servers, scopes_supported).</step-2>
         <step-3>Client initiates OAuth authorization at Logto.</step-3>
       </DF-OAUTH-DISCOVERY>
 
       <DF-MCP-AUTH NAME="mcp oauth auth flow">
         <step-1>Client calls /mcp with Authorization Bearer access token.</step-1>
-        <step-2>M-MCP-AUTH-GUARD delegates validation to M-OAUTH-TOKEN-VALIDATOR.</step-2>
-        <step-3>M-OAUTH-TOKEN-VALIDATOR verifies token using M-OAUTH-JWKS and claim checks.</step-3>
-        <step-4>Unauthorized request is rejected before MCP transport handler with WWW-Authenticate challenge.</step-4>
+        <step-2>M-MCP-AUTH-GUARD extracts Bearer token and calls mcp-auth verifyAccessToken(token).</step-2>
+        <step-3>mcp-auth internally uses jose for JWKS resolution and JWT signature verification.</step-3>
+        <step-4>Guard validates issuer, audience, and required scopes via mcp-auth utilities.</step-4>
+        <step-5>Unauthorized request returns 401/403 with WWW-Authenticate built via BearerWWWAuthenticateHeader.</step-5>
       </DF-MCP-AUTH>
 
       <DF-PROXY-SEARCH NAME="search_messages proxy flow">
@@ -336,16 +280,9 @@
     <CrossLink FROM="M-DB" TO="M-LOGGER" relation="emits db initialization and connectivity diagnostics" />
     <CrossLink FROM="M-ADMIN-AUTH" TO="M-CONFIG" relation="uses ROOT_AUTH_TOKEN for login validation" />
     <CrossLink FROM="M-ADMIN-AUTH" TO="M-LOGGER" relation="emits admin auth success and failure events" />
-    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-DB" relation="persists and queries api_keys table via Drizzle" />
-    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-LOGGER" relation="logs API key lifecycle operations and failures" />
-    <CrossLink FROM="M-OAUTH-DISCOVERY" TO="M-CONFIG" relation="reads PUBLIC_URL, OAUTH_ISSUER, OAUTH_REQUIRED_SCOPES for metadata output" />
-    <CrossLink FROM="M-OAUTH-DISCOVERY" TO="M-LOGGER" relation="logs oauth discovery route behavior" />
-    <CrossLink FROM="M-OAUTH-JWKS" TO="M-CONFIG" relation="uses issuer and timeout/cache settings to load signing keys" />
-    <CrossLink FROM="M-OAUTH-JWKS" TO="M-LOGGER" relation="emits jwks fetch and cache diagnostics" />
-    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR" TO="M-OAUTH-JWKS" relation="retrieves signing key material for token verification" />
-    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR" TO="M-CONFIG" relation="validates token claims against configured issuer, audience, and required scopes" />
-    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR" TO="M-LOGGER" relation="logs token validation allow/deny decisions" />
-    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-OAUTH-TOKEN-VALIDATOR" relation="delegates bearer access token validation and maps results to auth decisions" />
+    <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-CONFIG" relation="reads OAUTH_ISSUER, OAUTH_AUDIENCE, OAUTH_REQUIRED_SCOPES, PUBLIC_URL for mcp-auth init" />
+    <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-LOGGER" relation="emits mcp-auth initialization and metadata fetch diagnostics" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-MCP-AUTH-PROVIDER" relation="uses McpAuthContext for token verification and issuer validation" />
     <CrossLink FROM="M-MCP-AUTH-GUARD" TO="M-LOGGER" relation="logs /mcp auth guard decisions and challenge metadata" />
     <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" relation="enforces admin session guard on protected UI routes" />
     <CrossLink FROM="M-ADMIN-UI" TO="M-CONFIG" relation="renders OAuth config diagnostics for operators" />
@@ -363,28 +300,18 @@
     <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server and auth settings" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-AUTH" relation="routes /admin/login and session guard checks" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="mounts admin route handlers" />
-    <CrossLink FROM="M-SERVER" TO="M-OAUTH-DISCOVERY" relation="mounts OAuth protected-resource discovery metadata routes" />
-    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces OAuth authorization before transport" />
-    <CrossLink FROM="M-SERVER" TO="M-OAUTH-TOKEN-VALIDATOR" relation="creates runtime OAuth token validator used by /mcp auth guard wiring" />
+    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-PROVIDER" relation="calls initMcpAuth() at startup and holds McpAuthContext for request lifetime" />
+    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces OAuth authorization before transport using McpAuthContext" />
     <CrossLink FROM="M-SERVER" TO="M-TG-CHAT-RAG-CLIENT" relation="creates upstream tg-chat-rag client for proxied MCP tool execution" />
     <CrossLink FROM="M-SERVER" TO="M-TOOL-PROXY" relation="creates tool proxy service used by MCP transport handlers" />
     <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp transport handler after auth checks" />
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
-    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies transport tool exposure and request routing smoke behavior" />
-    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies unauthorized, insufficient-scope, and authorized /mcp behavior" />
-    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-OAUTH-TOKEN-VALIDATOR" relation="uses validator context types while exercising integrated auth-gating behavior" />
-    <CrossLink FROM="M-SERVER-OAUTH-CHALLENGE-TEST" TO="M-SERVER" relation="verifies standardized /mcp unauthorized response helper behavior" />
-    <CrossLink FROM="M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST" TO="M-SERVER" relation="verifies challenge behavior aligns with server OAuth route helpers" />
-    <CrossLink FROM="M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST" TO="M-OAUTH-DISCOVERY" relation="verifies discovery metadata coherence with /mcp challenge surface" />
-    <CrossLink FROM="M-CONFIG-TEST" TO="M-CONFIG" relation="verifies OAuth/public config parsing and strict validation behavior" />
-    <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-MCP-AUTH-GUARD" relation="verifies guard decision mapping and challenge metadata behavior" />
-    <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-OAUTH-TOKEN-VALIDATOR" relation="uses validator context types in guard test doubles" />
-    <CrossLink FROM="M-OAUTH-DISCOVERY-TEST" TO="M-OAUTH-DISCOVERY" relation="verifies discovery endpoint payloads and routing behavior" />
-    <CrossLink FROM="M-OAUTH-JWKS-TEST" TO="M-OAUTH-JWKS" relation="verifies JWKS cache/refresh and error mapping behavior" />
-    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR-TEST" TO="M-OAUTH-TOKEN-VALIDATOR" relation="verifies JWT claim/scope decisions and signature outcomes" />
-    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR-TEST" TO="M-OAUTH-JWKS" relation="uses JWKS key types via validator test fixtures" />
-    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-ADMIN-UI" relation="verifies admin route stability and removed API-key surface behavior" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-MCP-AUTH-GUARD" relation="verifies guard decision mapping and challenge header behavior" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-MCP-AUTH-PROVIDER" relation="mocks McpAuthContext for isolated guard testing" />
+    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-SERVER" relation="verifies discovery metadata, challenge responses, and auth flow coherence" />
+    <CrossLink FROM="M-CONFIG-TEST" TO="M-CONFIG" relation="verifies simplified OAuth config parsing and removed JWKS env vars" />
+    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-ADMIN-UI" relation="verifies admin route stability" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />
