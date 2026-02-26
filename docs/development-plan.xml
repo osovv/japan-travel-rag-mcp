@@ -477,7 +477,7 @@
       <step-3 module="M-CONFIG">Remove obsolete API key-specific config notes and align runtime docs to OAuth-only.</step-3>
     </Phase-5>
 
-    <Phase-6 name="Cutover Validation" status="planned">
+    <Phase-6 name="Cutover Validation" status="done">
       <step-1 module="M-TRANSPORT-SMOKE">Add OAuth smoke tests: missing token, invalid token, insufficient scope, authorized token.</step-1>
       <step-2 module="M-SERVER">Validate end-to-end MCP OAuth handshake with Logto DCR-enabled client.</step-2>
       <step-3 module="M-ADMIN-UI">Validate admin login and ops routes remain stable after API key removal.</step-3>
