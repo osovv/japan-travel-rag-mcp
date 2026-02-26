@@ -1,8 +1,8 @@
 // FILE: src/admin/ui-routes.ops.test.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate admin UI route behavior after transitioning from API-key management to ops diagnostics surface.
-//   SCOPE: Assert /admin redirect target, /admin/ops diagnostics rendering for full and HTMX requests, and default not-found behavior for removed /admin/api-keys* routes.
+//   SCOPE: Assert admin login/session redirect stability, /admin/login POST success/failure behavior, /admin redirect target, /admin/ops diagnostics rendering for full and HTMX requests, and default not-found behavior for removed /admin/api-keys* routes.
 //   DEPENDS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
 //   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
 // END_MODULE_CONTRACT
@@ -11,11 +11,12 @@
 //   createNoopLogger - Create no-op logger implementation for deterministic route tests.
 //   createTestConfig - Build valid AppConfig fixture with OAuth diagnostics values.
 //   createDependencies - Build AdminUiDependencies with overrideable auth helper behavior.
-//   AdminUiOpsRouteTests - Focused tests for ops diagnostics route and removed API-key surface behavior.
+//   createLoginPostRequest - Build deterministic /admin/login POST request payload.
+//   AdminUiOpsRouteTests - Focused tests for login/session stability, ops diagnostics route behavior, and removed API-key surface behavior.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Updated removed /admin/api-keys* expectations to default not-found behavior and dropped obsolete repository dependency.
+//   LAST_CHANGE: v1.2.0 - Added admin login/session route stability coverage for /admin/login and /admin/ops after API-key surface removal.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -23,20 +24,12 @@ import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { ADMIN_OPS_PATH, handleAdminRequest } from "./ui-routes";
 
+type AdminRouteDependencies = Parameters<typeof handleAdminRequest>[1];
+
 type DependencyOverrides = {
-  requireAdminSession?: (
-    request: Request,
-    config: AppConfig,
-    logger: Logger,
-  ) =>
-    | { isAuthenticated: true }
-    | {
-        isAuthenticated: false;
-        reason: "MISSING_SESSION_COOKIE" | "INVALID_SESSION_COOKIE" | "EXPIRED_SESSION_COOKIE";
-        status: 302;
-        location: "/admin/login";
-        setCookie?: string;
-      };
+  requireAdminSession?: NonNullable<AdminRouteDependencies["requireAdminSession"]>;
+  authenticateAdmin?: NonNullable<AdminRouteDependencies["authenticateAdmin"]>;
+  clearAdminSession?: NonNullable<AdminRouteDependencies["clearAdminSession"]>;
 };
 
 // START_CONTRACT: createNoopLogger
@@ -98,24 +91,47 @@ function createTestConfig(): AppConfig {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: createDependencies
-function createDependencies(overrides?: DependencyOverrides): Parameters<typeof handleAdminRequest>[1] {
+function createDependencies(overrides?: DependencyOverrides): AdminRouteDependencies {
   // START_BLOCK_BUILD_ADMIN_UI_DEPENDENCIES_FOR_ROUTE_TESTS_M_ADMIN_UI_TEST_003
   const requireAdminSession =
     overrides?.requireAdminSession ??
     (() => {
       return { isAuthenticated: true } as const;
     });
+  const authenticateAdmin =
+    overrides?.authenticateAdmin ??
+    (() => {
+      return { isAuthenticated: false, sessionCookie: null, reason: "INVALID_LOGIN_TOKEN" } as const;
+    });
+  const clearAdminSession = overrides?.clearAdminSession ?? (() => "admin_session=; Path=/; Max-Age=0");
 
   return {
     config: createTestConfig(),
     logger: createNoopLogger(),
-    authenticateAdmin: () => {
-      return { isAuthenticated: false, sessionCookie: null, reason: "INVALID_LOGIN_TOKEN" } as const;
-    },
+    authenticateAdmin,
     requireAdminSession,
-    clearAdminSession: () => "admin_session=; Path=/; Max-Age=0",
+    clearAdminSession,
   };
   // END_BLOCK_BUILD_ADMIN_UI_DEPENDENCIES_FOR_ROUTE_TESTS_M_ADMIN_UI_TEST_003
+}
+
+// START_CONTRACT: createLoginPostRequest
+//   PURPOSE: Build deterministic URL-encoded /admin/login POST request payload.
+//   INPUTS: { token: string - Login token form value }
+//   OUTPUTS: { Request - POST request targeting /admin/login with form payload }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI]
+// END_CONTRACT: createLoginPostRequest
+function createLoginPostRequest(token: string): Request {
+  // START_BLOCK_BUILD_ADMIN_LOGIN_POST_REQUEST_M_ADMIN_UI_TEST_004
+  return new Request("http://localhost/admin/login", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+    },
+    body: new URLSearchParams({ token }).toString(),
+  });
+  // END_BLOCK_BUILD_ADMIN_LOGIN_POST_REQUEST_M_ADMIN_UI_TEST_004
 }
 
 describe("M-ADMIN-UI ops diagnostics routing", () => {
@@ -127,6 +143,93 @@ describe("M-ADMIN-UI ops diagnostics routing", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(ADMIN_OPS_PATH);
+  });
+
+  it("redirects unauthenticated /admin/ops requests to /admin/login", async () => {
+    const clearCookie = "admin_session=; Path=/; Max-Age=0";
+    const response = await handleAdminRequest(
+      new Request("http://localhost/admin/ops", { method: "GET" }),
+      createDependencies({
+        requireAdminSession: () => ({
+          isAuthenticated: false,
+          reason: "MISSING_SESSION_COOKIE",
+          status: 302,
+          location: "/admin/login",
+          setCookie: clearCookie,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/admin/login");
+    expect(response.headers.get("set-cookie")).toBe(clearCookie);
+  });
+
+  it("redirects authenticated /admin/login GET requests to /admin/ops", async () => {
+    const response = await handleAdminRequest(
+      new Request("http://localhost/admin/login", { method: "GET" }),
+      createDependencies({
+        requireAdminSession: () => ({ isAuthenticated: true }),
+      }),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(ADMIN_OPS_PATH);
+  });
+
+  it("redirects successful /admin/login POST requests to /admin/ops with session cookie", async () => {
+    const sessionCookie = "admin_session=signed-cookie; Path=/; Max-Age=43200; HttpOnly; SameSite=Lax";
+    const response = await handleAdminRequest(
+      createLoginPostRequest("root-secret"),
+      createDependencies({
+        authenticateAdmin: () => ({
+          isAuthenticated: true,
+          sessionCookie,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(ADMIN_OPS_PATH);
+    expect(response.headers.get("set-cookie")).toBe(sessionCookie);
+  });
+
+  it("returns 401 /admin/login POST failure with cleared session cookie and invalid token message", async () => {
+    const clearCookie = "admin_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax";
+    const response = await handleAdminRequest(
+      createLoginPostRequest("invalid-token"),
+      createDependencies({
+        authenticateAdmin: () => ({
+          isAuthenticated: false,
+          sessionCookie: null,
+          reason: "INVALID_LOGIN_TOKEN",
+        }),
+        clearAdminSession: () => clearCookie,
+      }),
+    );
+    const html = await response.text();
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("set-cookie")).toBe(clearCookie);
+    expect(html).toContain("Admin Login");
+    expect(html).toContain("Invalid root admin token.");
+  });
+
+  it("returns 401 /admin/login POST bearer-format failure with guidance message", async () => {
+    const response = await handleAdminRequest(
+      createLoginPostRequest("Bearer ignored"),
+      createDependencies({
+        authenticateAdmin: () => ({
+          isAuthenticated: false,
+          sessionCookie: null,
+          reason: "DISALLOWED_MCP_BEARER_FORMAT",
+        }),
+      }),
+    );
+    const html = await response.text();
+
+    expect(response.status).toBe(401);
+    expect(html).toContain("Use the root admin token value directly (without Bearer prefix).");
   });
 
   it("renders full diagnostics layout for non-HTMX /admin/ops GET", async () => {
