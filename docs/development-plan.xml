@@ -465,7 +465,7 @@
       <step-3 module="M-MCP-AUTH-GUARD">Wire validator outputs to allow/deny decisions and challenge metadata.</step-3>
     </Phase-3>
 
-    <Phase-4 name="OAuth Protocol Surface" status="planned">
+    <Phase-4 name="OAuth Protocol Surface" status="done">
       <step-1 module="M-OAUTH-DISCOVERY">Implement /.well-known/oauth-protected-resource endpoints.</step-1>
       <step-2 module="M-SERVER">Mount discovery routes and ensure /mcp 401 responses include WWW-Authenticate.</step-2>
       <step-3 module="M-SERVER">Verify OAuth challenge behavior with Claude-compatible flow.</step-3>
