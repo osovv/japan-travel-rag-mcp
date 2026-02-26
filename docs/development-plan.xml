@@ -459,7 +459,7 @@
       <step-3 module="M-ADMIN-UI">Replace API key management scope with operator diagnostics scope.</step-3>
     </Phase-2>
 
-    <Phase-3 name="OAuth Core Validation" status="planned">
+    <Phase-3 name="OAuth Core Validation" status="done">
       <step-1 module="M-OAUTH-JWKS">Implement issuer JWKS fetch + cache + refresh behavior.</step-1>
       <step-2 module="M-OAUTH-TOKEN-VALIDATOR">Implement JWT validation with claim and scope checks.</step-2>
       <step-3 module="M-MCP-AUTH-GUARD">Wire validator outputs to allow/deny decisions and challenge metadata.</step-3>
