@@ -1,30 +1,30 @@
 // FILE: src/server/index.ts
-// VERSION: 1.7.0
+// VERSION: 1.8.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth discovery metadata, and /healthz routes.
-//   SCOPE: Load runtime config, initialize logger/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, centralize OAuth challenge response construction for /mcp unauthorized paths, and handle process shutdown signals.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
+//   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth protected-resource metadata, and /healthz routes.
+//   SCOPE: Load runtime config, initialize logger/upstream/transport/auth dependencies, serve protected-resource metadata from McpAuthContext payload, route /mcp through Request-based auth guard, and handle process shutdown signals.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-GUARD, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-TRANSPORT
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-GUARD, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   ServerStartError - Typed startup failure error with SERVER_START_ERROR code.
-//   main - Application entrypoint that initializes dependencies and starts Bun HTTP server with OAuth discovery and /mcp auth routing.
+//   main - Application entrypoint that initializes dependencies and starts Bun HTTP server with OAuth metadata and /mcp auth routing.
 //   createJsonResponse - Build consistent JSON HTTP responses.
-//   createUnauthorizedMcpResponse - Build consistent 401 /mcp response with OAuth WWW-Authenticate challenge metadata.
+//   handleProtectedResourceMetadataRequest - Serve OAuth protected resource metadata endpoints from McpAuthContext payload.
 //   isAdminRoutePath - Determine whether pathname maps to /admin surface.
 //   installGracefulShutdownHandlers - Register SIGINT/SIGTERM handlers for graceful server shutdown.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.7.0 - Removed legacy ApiKeyRepository + DB wiring from server admin dependencies after admin API-key surface removal.
+//   LAST_CHANGE: v1.8.0 - Migrated server wiring to initMcpAuth + Request-based guard and served OAuth protected-resource metadata from McpAuthContext.
 // END_CHANGE_SUMMARY
 
 import { handleAdminRequest } from "../admin/ui-routes";
-import { authorizeMcpRequest, buildWwwAuthenticateHeader } from "../auth/mcp-auth-guard";
-import type { OAuthChallengeMetadata } from "../auth/mcp-auth-guard";
-import { handleOAuthProtectedResourceMetadata } from "../auth/oauth-discovery-routes";
-import { createOAuthTokenValidator } from "../auth/oauth-token-validator";
+import { authorizeMcpRequest } from "../auth/mcp-auth-guard";
+import type { McpAuthGuardDependencies } from "../auth/mcp-auth-guard";
+import { initMcpAuth } from "../auth/mcp-auth-provider";
+import type { McpAuthContext } from "../auth/mcp-auth-provider";
 import { loadConfig } from "../config/index";
 import { createLogger } from "../logger/index";
 import type { Logger } from "../logger/index";
@@ -33,7 +33,8 @@ import { createToolProxyService } from "../tools/proxy-service";
 import { handleMcpRequest, TransportError } from "../transport/mcp-transport";
 import type { McpTransportDependencies } from "../transport/mcp-transport";
 
-const MCP_UNAUTHORIZED_MESSAGE = "Invalid or missing OAuth access token.";
+const PROTECTED_RESOURCE_METADATA_ROOT_PATH = "/.well-known/oauth-protected-resource";
+const PROTECTED_RESOURCE_METADATA_MCP_PATH = "/.well-known/oauth-protected-resource/mcp";
 
 export class ServerStartError extends Error {
   public readonly code = "SERVER_START_ERROR" as const;
@@ -64,58 +65,97 @@ function createJsonResponse(status: number, payload: Record<string, unknown>): R
   // END_BLOCK_CREATE_JSON_HTTP_RESPONSE_M_SERVER_001
 }
 
-// START_CONTRACT: createUnauthorizedMcpResponse
-//   PURPOSE: Build consistent /mcp unauthorized response body and OAuth WWW-Authenticate challenge header.
-//   INPUTS: { challenge: OAuthChallengeMetadata - OAuth challenge metadata used to build WWW-Authenticate header }
-//   OUTPUTS: { Response - HTTP 401 response with UNAUTHORIZED error body and challenge header }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-SERVER, M-MCP-AUTH-GUARD]
-// END_CONTRACT: createUnauthorizedMcpResponse
-// START_CONTRACT: createInitialMcpChallenge
-//   PURPOSE: Build 401 response for unauthenticated /mcp requests per MCP spec (2025-06-18) and RFC 9728 Section 5.1.
-//   INPUTS: { resourceMetadataUrl: string - URL to /.well-known/oauth-protected-resource/mcp }
-//   OUTPUTS: { Response - HTTP 401 with bare Bearer resource_metadata challenge }
+// START_CONTRACT: isProtectedResourceMetadataPath
+//   PURPOSE: Determine whether pathname matches OAuth protected resource metadata endpoints.
+//   INPUTS: { pathname: string - Request URL pathname }
+//   OUTPUTS: { boolean - True when path is /.well-known/oauth-protected-resource or /.well-known/oauth-protected-resource/mcp }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-SERVER]
-// END_CONTRACT: createInitialMcpChallenge
-export function createInitialMcpChallenge(resourceMetadataUrl: string): Response {
-  // START_BLOCK_CREATE_INITIAL_MCP_CHALLENGE_M_SERVER_009
-  return new Response(
-    JSON.stringify({
-      error: {
-        code: "UNAUTHORIZED",
-        message: MCP_UNAUTHORIZED_MESSAGE,
-      },
-    }),
-    {
-      status: 401,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "www-authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"`,
-      },
-    },
+// END_CONTRACT: isProtectedResourceMetadataPath
+function isProtectedResourceMetadataPath(pathname: string): boolean {
+  // START_BLOCK_MATCH_PROTECTED_RESOURCE_METADATA_PATHS_M_SERVER_009
+  return (
+    pathname === PROTECTED_RESOURCE_METADATA_ROOT_PATH ||
+    pathname === PROTECTED_RESOURCE_METADATA_MCP_PATH
   );
-  // END_BLOCK_CREATE_INITIAL_MCP_CHALLENGE_M_SERVER_009
+  // END_BLOCK_MATCH_PROTECTED_RESOURCE_METADATA_PATHS_M_SERVER_009
 }
 
-export function createUnauthorizedMcpResponse(challenge: OAuthChallengeMetadata): Response {
-  // START_BLOCK_CREATE_UNAUTHORIZED_MCP_RESPONSE_WITH_CHALLENGE_M_SERVER_008
-  return new Response(
-    JSON.stringify({
-      error: {
-        code: "UNAUTHORIZED",
-        message: MCP_UNAUTHORIZED_MESSAGE,
-      },
-    }),
+// START_CONTRACT: handleProtectedResourceMetadataRequest
+//   PURPOSE: Serve OAuth protected resource metadata endpoints from initialized McpAuthContext payload.
+//   INPUTS: { request: Request - Incoming request, pathname: string - Parsed pathname, authContext: McpAuthContext - Initialized auth context, logger: Logger - Route logger }
+//   OUTPUTS: { Response | null - Metadata response for matched route or null for non-match }
+//   SIDE_EFFECTS: [Emits structured route logs]
+//   LINKS: [M-SERVER, M-MCP-AUTH-PROVIDER, M-LOGGER]
+// END_CONTRACT: handleProtectedResourceMetadataRequest
+function handleProtectedResourceMetadataRequest(
+  request: Request,
+  pathname: string,
+  authContext: McpAuthContext,
+  logger: Logger,
+): Response | null {
+  // START_BLOCK_HANDLE_PROTECTED_RESOURCE_METADATA_REQUEST_M_SERVER_010
+  if (!isProtectedResourceMetadataPath(pathname)) {
+    return null;
+  }
+
+  logger.info(
+    "Matched OAuth protected resource metadata route.",
+    "handleProtectedResourceMetadataRequest",
+    "HANDLE_PROTECTED_RESOURCE_METADATA_REQUEST",
     {
-      status: 401,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "www-authenticate": buildWwwAuthenticateHeader(challenge),
-      },
+      method: request.method,
+      pathname,
     },
   );
-  // END_BLOCK_CREATE_UNAUTHORIZED_MCP_RESPONSE_WITH_CHALLENGE_M_SERVER_008
+
+  if (request.method !== "GET") {
+    logger.warn(
+      "Rejected non-GET request for protected resource metadata route.",
+      "handleProtectedResourceMetadataRequest",
+      "HANDLE_PROTECTED_RESOURCE_METADATA_REQUEST",
+      {
+        method: request.method,
+        pathname,
+      },
+    );
+
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: "METHOD_NOT_ALLOWED",
+          message: "OAuth protected resource metadata endpoint supports GET only.",
+        },
+      }),
+      {
+        status: 405,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          Allow: "GET",
+        },
+      },
+    );
+  }
+
+  return createJsonResponse(200, {
+    ...authContext.protectedResourceMetadata,
+  });
+  // END_BLOCK_HANDLE_PROTECTED_RESOURCE_METADATA_REQUEST_M_SERVER_010
+}
+
+// START_CONTRACT: isDeniedMcpAuthDecision
+//   PURPOSE: Narrow MCP auth decision union to denied-branch type for safe access to reason and response fields.
+//   INPUTS: { decision: Awaited<ReturnType<typeof authorizeMcpRequest>> - Authorization decision from guard }
+//   OUTPUTS: { decision is Extract<Awaited<ReturnType<typeof authorizeMcpRequest>>, { isAuthorized: false }> - True when auth decision is denied }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER, M-MCP-AUTH-GUARD]
+// END_CONTRACT: isDeniedMcpAuthDecision
+function isDeniedMcpAuthDecision(
+  decision: Awaited<ReturnType<typeof authorizeMcpRequest>>,
+): decision is Extract<Awaited<ReturnType<typeof authorizeMcpRequest>>, { isAuthorized: false }> {
+  // START_BLOCK_NARROW_DENIED_MCP_AUTH_DECISION_M_SERVER_011
+  return !decision.isAuthorized;
+  // END_BLOCK_NARROW_DENIED_MCP_AUTH_DECISION_M_SERVER_011
 }
 
 // START_CONTRACT: isAdminRoutePath
@@ -186,11 +226,11 @@ function installGracefulShutdownHandlers(server: Bun.Server<unknown>, logger: Lo
 }
 
 // START_CONTRACT: main
-//   PURPOSE: Initialize runtime dependencies and start the Bun HTTP server for MCP, admin, and OAuth discovery routes.
+//   PURPOSE: Initialize runtime dependencies and start the Bun HTTP server for MCP, admin, and OAuth protected resource metadata routes.
 //   INPUTS: {}
 //   OUTPUTS: { Promise<Bun.Server> - Running Bun HTTP server instance }
 //   SIDE_EFFECTS: [Reads environment config, opens network connections, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-GUARD, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
 // END_CONTRACT: main
 export async function main(): Promise<Bun.Server<unknown>> {
   // START_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
@@ -212,26 +252,20 @@ export async function main(): Promise<Bun.Server<unknown>> {
       config,
       logger: logger.child({ route: "admin", component: "adminUiRoutes" }),
     };
-    const mcpResourceUrl = new URL("/mcp", config.publicUrl).toString();
-    const oauthTokenValidator = createOAuthTokenValidator({
+    const mcpAuthContext = await initMcpAuth(
       config,
-      logger: mcpLogger.child({ component: "oauthTokenValidator" }),
-    });
-    const oauthDiscoveryDeps = {
-      config,
-      logger: logger.child({ route: "oauthDiscovery", component: "oauthDiscoveryRoutes" }),
-    };
-    const mcpAuthDeps = {
-      oauthTokenValidator,
+      mcpLogger.child({ component: "mcpAuthProvider" }),
+    );
+    const mcpAuthDeps: McpAuthGuardDependencies = {
+      authContext: mcpAuthContext,
+      audience: config.oauth.audience,
       requiredScopes: config.oauth.requiredScopes,
-      issuer: config.oauth.issuer,
-      resource: mcpResourceUrl,
       logger: mcpLogger.child({ component: "mcpAuthGuard" }),
     };
-    const mcpResourceMetadataUrl = new URL(
-      "/.well-known/oauth-protected-resource/mcp",
-      config.publicUrl,
-    ).toString();
+    const oauthDiscoveryLogger = logger.child({
+      route: "oauthDiscovery",
+      component: "mcpAuthProviderMetadata",
+    });
     // END_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
 
     // START_BLOCK_START_BUN_HTTP_SERVER_M_SERVER_004
@@ -260,9 +294,14 @@ export async function main(): Promise<Bun.Server<unknown>> {
           });
         }
 
-        const oauthDiscoveryResponse = handleOAuthProtectedResourceMetadata(request, oauthDiscoveryDeps);
-        if (oauthDiscoveryResponse !== null) {
-          return oauthDiscoveryResponse;
+        const protectedResourceMetadataResponse = handleProtectedResourceMetadataRequest(
+          request,
+          url.pathname,
+          mcpAuthContext,
+          oauthDiscoveryLogger,
+        );
+        if (protectedResourceMetadataResponse !== null) {
+          return protectedResourceMetadataResponse;
         }
 
         if (isAdminRoutePath(url.pathname)) {
@@ -308,29 +347,27 @@ export async function main(): Promise<Bun.Server<unknown>> {
           );
 
           let authDecision: Awaited<ReturnType<typeof authorizeMcpRequest>>;
-          const authorizationHeader = request.headers.get("authorization");
 
           try {
-            authDecision = await authorizeMcpRequest(authorizationHeader, mcpAuthDeps);
+            authDecision = await authorizeMcpRequest(request, mcpAuthDeps);
           } catch (error: unknown) {
             logger.error(
-              "MCP authorization guard failed; denying request.",
+              "MCP authorization guard failed due to internal error.",
               "main",
               "HANDLE_MCP_ROUTE_FAILURE",
               {
                 cause: error instanceof Error ? error.message : String(error),
               },
             );
-            return createUnauthorizedMcpResponse({
-              error: "invalid_token",
-              errorDescription: "Access token validation failed due to internal authorization error.",
-              requiredScopes: config.oauth.requiredScopes,
-              issuer: config.oauth.issuer,
-              resource: mcpResourceUrl,
+            return createJsonResponse(500, {
+              error: {
+                code: "INTERNAL_SERVER_ERROR",
+                message: "Unexpected authorization failure.",
+              },
             });
           }
 
-          if (!authDecision.isAuthorized) {
+          if (isDeniedMcpAuthDecision(authDecision)) {
             logger.warn(
               "Rejected /mcp request due to failed authorization.",
               "main",
@@ -339,16 +376,7 @@ export async function main(): Promise<Bun.Server<unknown>> {
                 reason: authDecision.reason,
               },
             );
-            // Per MCP spec (2025-06-18) + RFC 9728 Section 5.1:
-            // Initial unauthenticated requests get a bare challenge with resource_metadata only.
-            // Token validation errors get detailed error parameters.
-            if (
-              authDecision.reason === "MISSING_AUTH_HEADER" ||
-              authDecision.reason === "INVALID_AUTH_SCHEME"
-            ) {
-              return createInitialMcpChallenge(mcpResourceMetadataUrl);
-            }
-            return createUnauthorizedMcpResponse(authDecision.challenge);
+            return authDecision.response;
           }
 
           logger.info(
@@ -442,6 +470,7 @@ export async function main(): Promise<Bun.Server<unknown>> {
     installGracefulShutdownHandlers(server, logger);
     logger.info("HTTP server started.", "main", "INSTALL_GRACEFUL_SHUTDOWN_AND_RETURN_SERVER", {
       port: config.port,
+      resourceMetadataUrl: mcpAuthContext.resourceMetadataUrl,
     });
     return server;
     // END_BLOCK_INSTALL_GRACEFUL_SHUTDOWN_AND_RETURN_SERVER_M_SERVER_005
