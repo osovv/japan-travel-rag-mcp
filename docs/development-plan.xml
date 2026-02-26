@@ -446,7 +446,7 @@
       <step-3 module="M-ADMIN-UI">Validate admin login and ops routes remain stable after API key removal.</step-3>
     </Phase-6>
 
-    <Phase-7 name="mcp-auth Library Migration" status="pending">
+    <Phase-7 name="mcp-auth Library Migration" status="done">
       <step-1 module="M-CONFIG">Remove OAUTH_JWKS_CACHE_TTL_MS, OAUTH_JWKS_TIMEOUT_MS, OAUTH_CLOCK_SKEW_SEC from config — jose handles JWKS caching internally. Keep OAUTH_ISSUER, OAUTH_AUDIENCE, OAUTH_REQUIRED_SCOPES, PUBLIC_URL. Update AppConfig type and loadConfig validation.</step-1>
       <step-2 module="M-MCP-AUTH-PROVIDER">Create src/auth/mcp-auth-provider.ts: async initMcpAuth() that fetches Logto OIDC metadata via fetchServerConfig(), creates MCPAuth in resource server mode, extracts TokenVerifier via deep import, returns McpAuthContext with verifyAccessToken, validateIssuer, resourceMetadataUrl, and snakecase metadata payload.</step-2>
       <step-3 module="M-MCP-AUTH-GUARD">Rewrite src/auth/mcp-auth-guard.ts to use McpAuthContext from provider: extract Bearer token from Request, call verifyAccessToken(token) → AuthInfo, validate issuer/audience/scopes via mcp-auth errors, build WWW-Authenticate via BearerWWWAuthenticateHeader, return allow/deny decision with AuthInfo or Response.</step-3>

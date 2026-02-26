@@ -156,6 +156,15 @@
       </annotations>
     </M-SERVER-INTEGRATION-TEST>
 
+    <M-TRANSPORT-SMOKE NAME="TransportSmokeTests" TYPE="TEST">
+      <purpose>Smoke verification for MCP transport tool registration and /mcp auth-gated dispatch integration paths.</purpose>
+      <path>src/transport/mcp-transport.smoke.test.ts</path>
+      <depends>M-TRANSPORT, M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-TOOLS-CONTRACTS, M-TOOL-PROXY</depends>
+      <annotations>
+        <fn-TransportSmokeTests description="Checks tool list/dispatch behavior and integrated /mcp auth deny/allow gating" />
+      </annotations>
+    </M-TRANSPORT-SMOKE>
+
     <M-CONFIG-TEST NAME="ConfigTests" TYPE="TEST">
       <purpose>Validation of OAuth/public runtime config parsing defaults and strict error behavior.</purpose>
       <path>src/config/index.test.ts</path>
@@ -310,6 +319,9 @@
     <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-MCP-AUTH-GUARD" relation="verifies guard decision mapping and challenge header behavior" />
     <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-MCP-AUTH-PROVIDER" relation="mocks McpAuthContext for isolated guard testing" />
     <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-SERVER" relation="verifies discovery metadata, challenge responses, and auth flow coherence" />
+    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies MCP transport tool registration and request routing smoke behavior" />
+    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies integrated /mcp auth gating before transport dispatch" />
+    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-PROVIDER" relation="mocks McpAuthContext-backed verifier behavior for integrated smoke coverage" />
     <CrossLink FROM="M-CONFIG-TEST" TO="M-CONFIG" relation="verifies simplified OAuth config parsing and removed JWKS env vars" />
     <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-ADMIN-UI" relation="verifies admin route stability" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
