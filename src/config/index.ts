@@ -1,5 +1,5 @@
 // FILE: src/config/index.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Load and validate runtime configuration for MCP proxy transport, admin auth, OAuth resource metadata, and OAuth token validation behavior.
 //   SCOPE: Parse and validate runtime env values for server port, tg-chat-rag upstream settings, root auth, database URL, public resource URL, and OAuth issuer/audience/scopes/JWKS timing controls.
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Added PUBLIC_URL and OAuth env parsing/validation with typed oauth config defaults for scopes, JWKS cache/timeout, and clock skew.
+//   LAST_CHANGE: v1.3.0 - Finalized OAuth-only config documentation by removing residual API-key-oriented notes and reaffirming OAuth runtime env contract.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
