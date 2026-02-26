@@ -1,10 +1,10 @@
 // FILE: src/config/index.ts
-// VERSION: 1.3.0
+// VERSION: 1.4.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Load and validate runtime configuration for MCP proxy transport, admin auth, OAuth resource metadata, and OAuth token validation behavior.
-//   SCOPE: Parse and validate runtime env values for server port, tg-chat-rag upstream settings, root auth, database URL, public resource URL, and OAuth issuer/audience/scopes/JWKS timing controls.
+//   PURPOSE: Load and validate runtime configuration for MCP proxy transport, admin auth, and OAuth resource server settings.
+//   SCOPE: Parse and validate runtime env values for server port, tg-chat-rag upstream settings, root auth, database URL, public resource URL, and OAuth issuer/audience/scopes.
 //   DEPENDS: none
-//   LINKS: M-CONFIG, M-OAUTH-DISCOVERY, M-OAUTH-JWKS, M-OAUTH-TOKEN-VALIDATOR
+//   LINKS: M-CONFIG, M-MCP-AUTH-PROVIDER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Finalized OAuth-only config documentation by removing residual API-key-oriented notes and reaffirming OAuth runtime env contract.
+//   LAST_CHANGE: v1.4.0 - Removed OAUTH_JWKS_CACHE_TTL_MS, OAUTH_JWKS_TIMEOUT_MS, OAUTH_CLOCK_SKEW_SEC from config — jose via mcp-auth handles JWKS caching internally.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
@@ -26,9 +26,6 @@ export type AppConfig = {
     issuer: string;
     audience: string;
     requiredScopes: string[];
-    jwksCacheTtlMs: number;
-    jwksTimeoutMs: number;
-    clockSkewSec: number;
   };
   tgChatRag: {
     baseUrl: string;
@@ -54,7 +51,7 @@ export class ConfigValidationError extends Error {
 //   INPUTS: { env: NodeJS.ProcessEnv | undefined - Source env map, defaults to process.env }
 //   OUTPUTS: { AppConfig - Typed config with validated MCP proxy, tg-chat-rag, root auth, database, and OAuth settings }
 //   SIDE_EFFECTS: [Throws ConfigValidationError with code CONFIG_VALIDATION_ERROR when validation fails]
-//   LINKS: [M-CONFIG, M-OAUTH-DISCOVERY, M-OAUTH-JWKS, M-OAUTH-TOKEN-VALIDATOR]
+//   LINKS: [M-CONFIG, M-MCP-AUTH-PROVIDER]
 // END_CONTRACT: loadConfig
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const errors: string[] = [];
@@ -71,9 +68,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const oauthIssuerRaw = (env.OAUTH_ISSUER ?? "").trim();
   const oauthAudienceRaw = (env.OAUTH_AUDIENCE ?? "").trim();
   const oauthRequiredScopesRaw = (env.OAUTH_REQUIRED_SCOPES ?? "").trim();
-  const oauthJwksCacheTtlRaw = (env.OAUTH_JWKS_CACHE_TTL_MS ?? "").trim();
-  const oauthJwksTimeoutRaw = (env.OAUTH_JWKS_TIMEOUT_MS ?? "").trim();
-  const oauthClockSkewRaw = (env.OAUTH_CLOCK_SKEW_SEC ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -214,42 +208,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   // END_BLOCK_PARSE_OAUTH_REQUIRED_SCOPES_M_CONFIG_014
 
-  // START_BLOCK_PARSE_OAUTH_JWKS_CACHE_TTL_MS_M_CONFIG_015
-  let oauthJwksCacheTtlMs = 300000;
-  if (oauthJwksCacheTtlRaw) {
-    const parsedTtl = Number.parseInt(oauthJwksCacheTtlRaw, 10);
-    if (!Number.isInteger(parsedTtl) || parsedTtl < 1000 || parsedTtl > 86400000) {
-      errors.push("OAUTH_JWKS_CACHE_TTL_MS must be an integer between 1000 and 86400000.");
-    } else {
-      oauthJwksCacheTtlMs = parsedTtl;
-    }
-  }
-  // END_BLOCK_PARSE_OAUTH_JWKS_CACHE_TTL_MS_M_CONFIG_015
-
-  // START_BLOCK_PARSE_OAUTH_JWKS_TIMEOUT_MS_M_CONFIG_016
-  let oauthJwksTimeoutMs = 5000;
-  if (oauthJwksTimeoutRaw) {
-    const parsedTimeout = Number.parseInt(oauthJwksTimeoutRaw, 10);
-    if (!Number.isInteger(parsedTimeout) || parsedTimeout < 1000 || parsedTimeout > 120000) {
-      errors.push("OAUTH_JWKS_TIMEOUT_MS must be an integer between 1000 and 120000.");
-    } else {
-      oauthJwksTimeoutMs = parsedTimeout;
-    }
-  }
-  // END_BLOCK_PARSE_OAUTH_JWKS_TIMEOUT_MS_M_CONFIG_016
-
-  // START_BLOCK_PARSE_OAUTH_CLOCK_SKEW_SEC_M_CONFIG_017
-  let oauthClockSkewSec = 60;
-  if (oauthClockSkewRaw) {
-    const parsedClockSkew = Number.parseInt(oauthClockSkewRaw, 10);
-    if (!Number.isInteger(parsedClockSkew) || parsedClockSkew < 0 || parsedClockSkew > 300) {
-      errors.push("OAUTH_CLOCK_SKEW_SEC must be an integer between 0 and 300.");
-    } else {
-      oauthClockSkewSec = parsedClockSkew;
-    }
-  }
-  // END_BLOCK_PARSE_OAUTH_CLOCK_SKEW_SEC_M_CONFIG_017
-
   // START_BLOCK_THROW_CONFIG_VALIDATION_ERROR_M_CONFIG_007
   if (errors.length > 0) {
     throw new ConfigValidationError(errors);
@@ -266,9 +224,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       issuer: oauthIssuer,
       audience: oauthAudience,
       requiredScopes: oauthRequiredScopes,
-      jwksCacheTtlMs: oauthJwksCacheTtlMs,
-      jwksTimeoutMs: oauthJwksTimeoutMs,
-      clockSkewSec: oauthClockSkewSec,
     },
     tgChatRag: {
       baseUrl: normalizedBaseUrl,
