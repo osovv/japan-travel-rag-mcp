@@ -192,6 +192,60 @@
       </annotations>
     </M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST>
 
+    <M-CONFIG-TEST NAME="ConfigTests" TYPE="TEST">
+      <purpose>Focused validation of OAuth/public runtime config parsing defaults and strict error behavior.</purpose>
+      <path>src/config/index.test.ts</path>
+      <depends>M-CONFIG</depends>
+      <annotations>
+        <fn-ConfigParsingTests description="Verifies config defaults, overrides, and CONFIG_VALIDATION_ERROR conditions" />
+      </annotations>
+    </M-CONFIG-TEST>
+
+    <M-MCP-AUTH-GUARD-TEST NAME="McpAuthGuardTests" TYPE="TEST">
+      <purpose>Unit verification of OAuth auth-guard decision mapping and challenge header formatting.</purpose>
+      <path>src/auth/mcp-auth-guard.test.ts</path>
+      <depends>M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
+      <annotations>
+        <fn-McpAuthGuardTests description="Checks missing header, invalid token, insufficient scope, valid token, and typed internal error behavior" />
+      </annotations>
+    </M-MCP-AUTH-GUARD-TEST>
+
+    <M-OAUTH-DISCOVERY-TEST NAME="OAuthDiscoveryRouteTests" TYPE="TEST">
+      <purpose>Unit verification of OAuth discovery route matching, payloads, and method/error behavior.</purpose>
+      <path>src/auth/oauth-discovery-routes.test.ts</path>
+      <depends>M-OAUTH-DISCOVERY, M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-OAuthDiscoveryRouteTests description="Checks discovery payload correctness, non-match null routing, and GET-only behavior" />
+      </annotations>
+    </M-OAUTH-DISCOVERY-TEST>
+
+    <M-OAUTH-JWKS-TEST NAME="OAuthJwksClientTests" TYPE="TEST">
+      <purpose>Unit verification of JWKS client cache/refresh behavior and typed failure mapping.</purpose>
+      <path>src/auth/oauth-jwks-client.test.ts</path>
+      <depends>M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-OAuthJwksClientTests description="Checks cache hits, stale refresh, kid-miss refresh, and typed OAUTH_JWKS_ERROR outcomes" />
+      </annotations>
+    </M-OAUTH-JWKS-TEST>
+
+    <M-OAUTH-TOKEN-VALIDATOR-TEST NAME="OAuthTokenValidatorTests" TYPE="TEST">
+      <purpose>Unit verification of JWT signature/claims/scope decisions for OAuth token validation.</purpose>
+      <path>src/auth/oauth-token-validator.test.ts</path>
+      <depends>M-OAUTH-TOKEN-VALIDATOR, M-OAUTH-JWKS, M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-OAuthTokenValidatorTests description="Checks valid token pass plus invalid_token and insufficient_scope decisions" />
+      </annotations>
+    </M-OAUTH-TOKEN-VALIDATOR-TEST>
+
+    <M-ADMIN-UI-OPS-TEST NAME="AdminUiOpsRouteTests" TYPE="TEST">
+      <purpose>Stability verification for admin login/session and ops routes after API-key surface removal.</purpose>
+      <path>src/admin/ui-routes.ops.test.ts</path>
+      <depends>M-ADMIN-UI, M-CONFIG, M-LOGGER, M-ADMIN-AUTH</depends>
+      <annotations>
+        <fn-AdminUiOpsRouteTests description="Checks login/session redirects, ops rendering, and removed API-key route not-found behavior" />
+      </annotations>
+    </M-ADMIN-UI-OPS-TEST>
+
     <M-DOCKER-DEV NAME="DockerComposeDev" TYPE="INFRA">
       <purpose>Development container orchestration for MCP server with local source mount and .env loading.</purpose>
       <path>docker-compose.yaml</path>
@@ -323,6 +377,14 @@
     <CrossLink FROM="M-SERVER-OAUTH-CHALLENGE-TEST" TO="M-SERVER" relation="verifies standardized /mcp unauthorized response helper behavior" />
     <CrossLink FROM="M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST" TO="M-SERVER" relation="verifies challenge behavior aligns with server OAuth route helpers" />
     <CrossLink FROM="M-SERVER-OAUTH-HANDSHAKE-READINESS-TEST" TO="M-OAUTH-DISCOVERY" relation="verifies discovery metadata coherence with /mcp challenge surface" />
+    <CrossLink FROM="M-CONFIG-TEST" TO="M-CONFIG" relation="verifies OAuth/public config parsing and strict validation behavior" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-MCP-AUTH-GUARD" relation="verifies guard decision mapping and challenge metadata behavior" />
+    <CrossLink FROM="M-MCP-AUTH-GUARD-TEST" TO="M-OAUTH-TOKEN-VALIDATOR" relation="uses validator context types in guard test doubles" />
+    <CrossLink FROM="M-OAUTH-DISCOVERY-TEST" TO="M-OAUTH-DISCOVERY" relation="verifies discovery endpoint payloads and routing behavior" />
+    <CrossLink FROM="M-OAUTH-JWKS-TEST" TO="M-OAUTH-JWKS" relation="verifies JWKS cache/refresh and error mapping behavior" />
+    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR-TEST" TO="M-OAUTH-TOKEN-VALIDATOR" relation="verifies JWT claim/scope decisions and signature outcomes" />
+    <CrossLink FROM="M-OAUTH-TOKEN-VALIDATOR-TEST" TO="M-OAUTH-JWKS" relation="uses JWKS key types via validator test fixtures" />
+    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-ADMIN-UI" relation="verifies admin route stability and removed API-key surface behavior" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />
