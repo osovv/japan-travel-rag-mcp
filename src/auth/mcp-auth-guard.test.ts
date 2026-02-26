@@ -1,9 +1,9 @@
 // FILE: src/auth/mcp-auth-guard.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate OAuth-only authorization guard behavior and deterministic WWW-Authenticate challenge generation.
 //   SCOPE: Cover strict Bearer parsing deny paths, OAuth validator deny/allow mapping, challenge header formatting, and MCP_AUTH_ERROR propagation.
-//   DEPENDS: M-MCP-AUTH-GUARD, M-LOGGER
+//   DEPENDS: M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER
 //   LINKS: M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER
 // END_MODULE_CONTRACT
 //
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Added focused tests for OAuth-only M-MCP-AUTH-GUARD contract rewrite.
+//   LAST_CHANGE: v1.1.0 - Updated mock validator contract to header-based M-OAUTH-TOKEN-VALIDATOR signature.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -25,6 +25,7 @@ import {
 } from "./mcp-auth-guard";
 import type { McpAuthGuardDependencies } from "./mcp-auth-guard";
 import type { Logger } from "../logger/index";
+import type { ValidateAccessTokenContext } from "./oauth-token-validator";
 
 type MockValidationMode = "allow" | "invalid_token" | "insufficient_scope" | "throw";
 
@@ -70,10 +71,14 @@ function createMockAuthDependencies(mode: MockValidationMode): {
       resource: "https://resource.example.com/mcp",
       oauthTokenValidator: {
         validateAccessToken: async (
-          accessToken: string,
-          context: { requiredScopes: string[]; issuer?: string; resource?: string },
+          authorizationHeader: string | null,
+          context?: ValidateAccessTokenContext,
         ) => {
-          validateCalls.push(accessToken);
+          if (authorizationHeader === null) {
+            validateCalls.push("<null>");
+          } else {
+            validateCalls.push(authorizationHeader);
+          }
           if (mode === "throw") {
             throw new Error("validator upstream failure");
           }
@@ -95,7 +100,7 @@ function createMockAuthDependencies(mode: MockValidationMode): {
           return {
             isValid: true as const,
             subject: "user-123",
-            grantedScopes: context.requiredScopes,
+            grantedScopes: context?.requiredScopes ?? ["mcp:access"],
           };
         },
       },
@@ -162,7 +167,7 @@ describe("M-MCP-AUTH-GUARD OAuth contract", () => {
 
     expect(decision.subject).toBe("user-123");
     expect(decision.grantedScopes).toEqual(["mcp:access", "profile:read"]);
-    expect(validateCalls).toEqual(["valid-token"]);
+    expect(validateCalls).toEqual(["Bearer valid-token"]);
   });
 
   it("throws typed MCP_AUTH_ERROR for internal validator failures", async () => {

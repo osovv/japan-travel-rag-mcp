@@ -149,7 +149,7 @@
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
       <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /admin/*, /healthz) using OAuth challenge responses for unauthorized MCP requests.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT</depends>
       <annotations>
         <fn-main description="Boot server, wire auth guards, and route MCP/admin/health requests" />
       </annotations>
@@ -167,7 +167,7 @@
     <M-TRANSPORT-SMOKE NAME="McpTransportSmokeTests" TYPE="TEST">
       <purpose>Smoke validation for MCP transport tool surface and OAuth auth-gated routing behavior.</purpose>
       <path>src/transport/mcp-transport.smoke.test.ts</path>
-      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-GUARD, M-LOGGER</depends>
+      <depends>M-TRANSPORT, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER</depends>
       <annotations>
         <fn-TransportSmokeTests description="Smoke checks for tools/list and tools/call with OAuth unauthorized/authorized scenarios" />
       </annotations>
@@ -294,11 +294,13 @@
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-AUTH" relation="routes /admin/login and session guard checks" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="mounts admin route handlers" />
     <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces OAuth authorization before transport" />
+    <CrossLink FROM="M-SERVER" TO="M-OAUTH-TOKEN-VALIDATOR" relation="creates runtime OAuth token validator used by /mcp auth guard wiring" />
     <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp transport handler after auth checks" />
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-TRANSPORT" relation="verifies transport tool exposure and request routing smoke behavior" />
     <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-MCP-AUTH-GUARD" relation="verifies unauthorized, insufficient-scope, and authorized /mcp behavior" />
+    <CrossLink FROM="M-TRANSPORT-SMOKE" TO="M-OAUTH-TOKEN-VALIDATOR" relation="uses validator context types while exercising integrated auth-gating behavior" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />

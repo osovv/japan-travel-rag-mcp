@@ -1,8 +1,8 @@
 // FILE: src/auth/mcp-auth-guard.ts
-// VERSION: 2.0.0
+// VERSION: 2.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Authorize /mcp requests using OAuth Bearer access-token validation and emit deterministic challenge metadata for denied requests.
-//   SCOPE: Parse strict Bearer Authorization headers, call OAuth token validator dependency, map validation outcomes to allow/deny decisions, and build WWW-Authenticate headers.
+//   SCOPE: Parse strict Bearer Authorization headers, call OAuth token validator dependency, consume typed validator outputs to build allow/deny decisions, and build WWW-Authenticate headers.
 //   DEPENDS: M-OAUTH-TOKEN-VALIDATOR, M-LOGGER
 //   LINKS: M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-LOGGER
 // END_MODULE_CONTRACT
@@ -16,10 +16,15 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.0.0 - Rewrote guard contract to OAuth-only validation with challenge metadata and exported WWW-Authenticate header builder.
+//   LAST_CHANGE: v2.1.0 - Wired guard dependency contract to typed M-OAUTH-TOKEN-VALIDATOR outputs and header-based validator input.
 // END_CHANGE_SUMMARY
 
 import type { Logger } from "../logger/index";
+import type {
+  OAuthTokenValidationResult,
+  OAuthTokenValidator,
+  ValidateAccessTokenContext,
+} from "./oauth-token-validator";
 
 const BEARER_HEADER_PATTERN = /^Bearer ([^\s]+)$/;
 
@@ -54,7 +59,7 @@ export type McpAuthDeniedResult = {
 export type McpAuthDecision = McpAuthAuthorizedResult | McpAuthDeniedResult;
 
 type ParsedAuthorizationHeaderResult =
-  | { isValid: true; token: string; tokenLength: number }
+  | { isValid: true; tokenLength: number }
   | {
       isValid: false;
       reason: Extract<McpAuthDenyReason, "MISSING_AUTH_HEADER" | "INVALID_AUTH_SCHEME">;
@@ -66,30 +71,7 @@ type McpAuthErrorDetails = {
   cause?: string;
 };
 
-export type OAuthTokenValidationSuccess = {
-  isValid: true;
-  subject?: string;
-  grantedScopes: string[];
-};
-
-export type OAuthTokenValidationFailure = {
-  isValid: false;
-  error: Extract<OAuthChallengeError, "invalid_token" | "insufficient_scope">;
-  errorDescription: string;
-};
-
-export type OAuthTokenValidationResult = OAuthTokenValidationSuccess | OAuthTokenValidationFailure;
-
-export type OAuthTokenValidatorLike = {
-  validateAccessToken: (
-    accessToken: string,
-    context: {
-      requiredScopes: string[];
-      issuer?: string;
-      resource?: string;
-    },
-  ) => Promise<OAuthTokenValidationResult>;
-};
+export type OAuthTokenValidatorLike = Pick<OAuthTokenValidator, "validateAccessToken">;
 
 export type McpAuthGuardDependencies = {
   oauthTokenValidator: OAuthTokenValidatorLike;
@@ -232,7 +214,6 @@ function parseAuthorizationHeader(
 
   return {
     isValid: true,
-    token,
     tokenLength: token.length,
   };
   // END_BLOCK_PARSE_STRICT_BEARER_AUTHORIZATION_HEADER_M_MCP_AUTH_GUARD_005
@@ -468,10 +449,12 @@ export async function authorizeMcpRequest(
 
   // START_BLOCK_VALIDATE_ACCESS_TOKEN_AND_BUILD_AUTHORIZATION_DECISION_M_MCP_AUTH_GUARD_014
   try {
-    const validationResult = await dependencies.oauthTokenValidator.validateAccessToken(
-      parsedHeader.token,
-      validationContext,
-    );
+    const validatorContext: ValidateAccessTokenContext = validationContext;
+    const validationResult: OAuthTokenValidationResult =
+      await dependencies.oauthTokenValidator.validateAccessToken(
+        authorizationHeader,
+        validatorContext,
+      );
 
     if (!validationResult.isValid) {
       const denyReason: McpAuthDenyReason =

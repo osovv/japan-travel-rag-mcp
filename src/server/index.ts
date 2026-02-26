@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, and /healthz routes.
 //   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport dependencies, serve guarded HTTP routes, and handle process shutdown signals.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -16,12 +16,13 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Enriched startup failure propagation with explicit cause details for faster fatal boot diagnostics.
+//   LAST_CHANGE: v1.3.0 - Wired /mcp auth path to real OAuth token validator and updated unauthorized messaging to OAuth token semantics.
 // END_CHANGE_SUMMARY
 
 import { createApiKeyRepository } from "../admin/api-key-repository";
 import { handleAdminRequest } from "../admin/ui-routes";
 import { authorizeMcpRequest, buildWwwAuthenticateHeader } from "../auth/mcp-auth-guard";
+import { createOAuthTokenValidator } from "../auth/oauth-token-validator";
 import { loadConfig } from "../config/index";
 import { createDb } from "../db/index";
 import { createLogger } from "../logger/index";
@@ -132,7 +133,7 @@ function installGracefulShutdownHandlers(server: Bun.Server<unknown>, logger: Lo
 //   INPUTS: {}
 //   OUTPUTS: { Promise<Bun.Server> - Running Bun HTTP server instance }
 //   SIDE_EFFECTS: [Reads environment config, opens DB and network connections, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
 // END_CONTRACT: main
 export async function main(): Promise<Bun.Server<unknown>> {
   // START_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
@@ -161,28 +162,12 @@ export async function main(): Promise<Bun.Server<unknown>> {
       apiKeyRepository,
     };
     const mcpResourceUrl = new URL("/mcp", config.publicUrl).toString();
+    const oauthTokenValidator = createOAuthTokenValidator({
+      config,
+      logger: mcpLogger.child({ component: "oauthTokenValidator" }),
+    });
     const mcpAuthDeps = {
-      oauthTokenValidator: {
-        validateAccessToken: async (
-          accessToken: string,
-          context: { requiredScopes: string[]; issuer?: string; resource?: string },
-        ) => {
-          const resolvedRecord = await apiKeyRepository.resolveApiKey(accessToken);
-          if (!resolvedRecord) {
-            return {
-              isValid: false as const,
-              error: "invalid_token" as const,
-              errorDescription: "Access token is invalid or expired.",
-            };
-          }
-
-          return {
-            isValid: true as const,
-            subject: resolvedRecord.id,
-            grantedScopes: context.requiredScopes,
-          };
-        },
-      },
+      oauthTokenValidator,
       requiredScopes: config.oauth.requiredScopes,
       issuer: config.oauth.issuer,
       resource: mcpResourceUrl,
@@ -263,7 +248,7 @@ export async function main(): Promise<Bun.Server<unknown>> {
               JSON.stringify({
                 error: {
                   code: "UNAUTHORIZED",
-                  message: "Invalid or missing MCP API key.",
+                  message: "Invalid or missing OAuth access token.",
                 },
               }),
               {
@@ -295,7 +280,7 @@ export async function main(): Promise<Bun.Server<unknown>> {
               JSON.stringify({
                 error: {
                   code: "UNAUTHORIZED",
-                  message: "Invalid or missing MCP API key.",
+                  message: "Invalid or missing OAuth access token.",
                 },
               }),
               {

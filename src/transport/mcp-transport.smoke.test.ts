@@ -1,10 +1,10 @@
 // FILE: src/transport/mcp-transport.smoke.test.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Provide smoke coverage for MCP transport tool registration, request routing, and integrated /mcp auth-gated dispatch behavior.
 //   SCOPE: Validate registered tool allowlist shape, tools/list response behavior, tools/call routing through a mock proxy service, and auth guard gating for unauthorized/authorized requests.
-//   DEPENDS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
-//   LINKS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
+//   DEPENDS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
+//   LINKS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -18,7 +18,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Updated integrated auth-gating smoke dependencies for OAuth-style guard contract decisions.
+//   LAST_CHANGE: v1.3.0 - Aligned integrated auth-gating mocks to header-based OAuth token validator contract.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -28,6 +28,7 @@ import type { Logger } from "../logger/index";
 import { handleMcpRequest, registerTools } from "./mcp-transport";
 import type { McpTransportDependencies } from "./mcp-transport";
 import type { ToolProxyService } from "../tools/proxy-service";
+import type { ValidateAccessTokenContext } from "../auth/oauth-token-validator";
 
 type MockCall = {
   toolName: string;
@@ -120,11 +121,12 @@ function createMockAuthGuardDependencies(validBearerToken: string): {
       resource: "https://resource.example.com/mcp",
       oauthTokenValidator: {
         validateAccessToken: async (
-          accessToken: string,
-          context: { requiredScopes: string[]; issuer?: string; resource?: string },
+          authorizationHeader: string | null,
+          context?: ValidateAccessTokenContext,
         ) => {
-          validateCalls.push(accessToken);
-          if (accessToken !== validBearerToken) {
+          const normalizedHeader = authorizationHeader ?? "<null>";
+          validateCalls.push(normalizedHeader);
+          if (normalizedHeader !== `Bearer ${validBearerToken}`) {
             return {
               isValid: false as const,
               error: "invalid_token" as const,
@@ -134,7 +136,7 @@ function createMockAuthGuardDependencies(validBearerToken: string): {
           return {
             isValid: true as const,
             subject: "subject-smoke-1",
-            grantedScopes: context.requiredScopes,
+            grantedScopes: context?.requiredScopes ?? ["mcp:access"],
           };
         },
       },
@@ -216,7 +218,7 @@ async function handleIntegratedMcpRoute(
       JSON.stringify({
         error: {
           code: "UNAUTHORIZED",
-          message: "Invalid or missing MCP API key.",
+          message: "Invalid or missing OAuth access token.",
         },
       }),
       {
@@ -370,13 +372,13 @@ describe("M-TRANSPORT smoke checks", () => {
     expect(unauthorizedPayloadWithoutHeader).toEqual({
       error: {
         code: "UNAUTHORIZED",
-        message: "Invalid or missing MCP API key.",
+        message: "Invalid or missing OAuth access token.",
       },
     });
     expect(unauthorizedPayloadWithInvalidScheme).toEqual({
       error: {
         code: "UNAUTHORIZED",
-        message: "Invalid or missing MCP API key.",
+        message: "Invalid or missing OAuth access token.",
       },
     });
     expect(transportInvocationCount).toBe(0);
@@ -416,7 +418,7 @@ describe("M-TRANSPORT smoke checks", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(validateCalls).toEqual([validBearerToken]);
+    expect(validateCalls).toEqual([`Bearer ${validBearerToken}`]);
     expect(transportInvocationCount).toBe(1);
     expect(payload.result.structuredContent).toEqual({
       toolName: "search_messages",
