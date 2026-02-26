@@ -34,8 +34,13 @@ services:
     working_dir: /app
     command: ["bun", "run", "index.ts"]
     <<: *shared-env
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.japan-mcp.rule=Host(`japan-travel-rag-mcp.osovv.dev`)"
+      - "traefik.http.routers.japan-mcp.entrypoints=http"
+      - "traefik.http.services.japan-mcp.loadbalancer.server.port=3000"
+    expose:
+      - "3000"
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:' + (process.env.PORT || 3000) + '/healthz').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
