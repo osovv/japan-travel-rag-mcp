@@ -147,11 +147,11 @@
     </M-TRANSPORT>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
-      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /admin/*, /healthz) using OAuth challenge responses for unauthorized MCP requests.</purpose>
+      <purpose>Process entrypoint with boot sequence and HTTP routes (/mcp, /.well-known/oauth-protected-resource*, /admin/*, /healthz) using OAuth challenge responses for unauthorized MCP requests.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT</depends>
       <annotations>
-        <fn-main description="Boot server, wire auth guards, and route MCP/admin/health requests" />
+        <fn-main description="Boot server, wire auth guards, and route MCP/discovery/admin/health requests" />
       </annotations>
     </M-SERVER>
 
@@ -293,6 +293,7 @@
     <CrossLink FROM="M-SERVER" TO="M-API-KEY-REPOSITORY" relation="creates repository for admin UI and transition auth adapter wiring" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-AUTH" relation="routes /admin/login and session guard checks" />
     <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="mounts admin route handlers" />
+    <CrossLink FROM="M-SERVER" TO="M-OAUTH-DISCOVERY" relation="mounts OAuth protected-resource discovery metadata routes" />
     <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-GUARD" relation="enforces OAuth authorization before transport" />
     <CrossLink FROM="M-SERVER" TO="M-OAUTH-TOKEN-VALIDATOR" relation="creates runtime OAuth token validator used by /mcp auth guard wiring" />
     <CrossLink FROM="M-SERVER" TO="M-TRANSPORT" relation="mounts /mcp transport handler after auth checks" />

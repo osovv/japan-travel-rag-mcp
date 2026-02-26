@@ -1,27 +1,28 @@
 // FILE: src/server/index.ts
-// VERSION: 1.3.0
+// VERSION: 1.4.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, and /healthz routes.
-//   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport dependencies, serve guarded HTTP routes, and handle process shutdown signals.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
+//   PURPOSE: Boot Bun HTTP server, enforce auth guards, and expose /mcp, /admin/*, OAuth discovery metadata, and /healthz routes.
+//   SCOPE: Load runtime config, initialize logger/database/repository/upstream/transport/auth/discovery dependencies, serve guarded HTTP routes, and handle process shutdown signals.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   ServerStartError - Typed startup failure error with SERVER_START_ERROR code.
-//   main - Application entrypoint that initializes dependencies and starts Bun HTTP server.
+//   main - Application entrypoint that initializes dependencies and starts Bun HTTP server with OAuth discovery and /mcp auth routing.
 //   createJsonResponse - Build consistent JSON HTTP responses.
 //   isAdminRoutePath - Determine whether pathname maps to /admin surface.
 //   installGracefulShutdownHandlers - Register SIGINT/SIGTERM handlers for graceful server shutdown.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Wired /mcp auth path to real OAuth token validator and updated unauthorized messaging to OAuth token semantics.
+//   LAST_CHANGE: v1.4.0 - Mounted OAuth discovery metadata routes via M-OAUTH-DISCOVERY while preserving existing /healthz, /admin, and /mcp auth behavior.
 // END_CHANGE_SUMMARY
 
 import { createApiKeyRepository } from "../admin/api-key-repository";
 import { handleAdminRequest } from "../admin/ui-routes";
 import { authorizeMcpRequest, buildWwwAuthenticateHeader } from "../auth/mcp-auth-guard";
+import { handleOAuthProtectedResourceMetadata } from "../auth/oauth-discovery-routes";
 import { createOAuthTokenValidator } from "../auth/oauth-token-validator";
 import { loadConfig } from "../config/index";
 import { createDb } from "../db/index";
@@ -129,11 +130,11 @@ function installGracefulShutdownHandlers(server: Bun.Server<unknown>, logger: Lo
 }
 
 // START_CONTRACT: main
-//   PURPOSE: Initialize runtime dependencies and start the Bun HTTP server for MCP and admin routes.
+//   PURPOSE: Initialize runtime dependencies and start the Bun HTTP server for MCP, admin, and OAuth discovery routes.
 //   INPUTS: {}
 //   OUTPUTS: { Promise<Bun.Server> - Running Bun HTTP server instance }
 //   SIDE_EFFECTS: [Reads environment config, opens DB and network connections, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-API-KEY-REPOSITORY, M-ADMIN-UI, M-MCP-AUTH-GUARD, M-OAUTH-DISCOVERY, M-OAUTH-TOKEN-VALIDATOR, M-TRANSPORT, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY]
 // END_CONTRACT: main
 export async function main(): Promise<Bun.Server<unknown>> {
   // START_BLOCK_INITIALIZE_RUNTIME_DEPENDENCIES_M_SERVER_003
@@ -166,6 +167,10 @@ export async function main(): Promise<Bun.Server<unknown>> {
       config,
       logger: mcpLogger.child({ component: "oauthTokenValidator" }),
     });
+    const oauthDiscoveryDeps = {
+      config,
+      logger: logger.child({ route: "oauthDiscovery", component: "oauthDiscoveryRoutes" }),
+    };
     const mcpAuthDeps = {
       oauthTokenValidator,
       requiredScopes: config.oauth.requiredScopes,
@@ -186,6 +191,11 @@ export async function main(): Promise<Bun.Server<unknown>> {
             status: "ok",
             service: "japan-travel-rag-mcp",
           });
+        }
+
+        const oauthDiscoveryResponse = handleOAuthProtectedResourceMetadata(request, oauthDiscoveryDeps);
+        if (oauthDiscoveryResponse !== null) {
+          return oauthDiscoveryResponse;
         }
 
         if (isAdminRoutePath(url.pathname)) {
