@@ -1,16 +1,16 @@
 // FILE: src/transport/mcp-transport.smoke.test.ts
-// VERSION: 1.4.0
+// VERSION: 2.0.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Provide smoke coverage for MCP transport tool registration, request routing, and integrated /mcp auth-gated dispatch behavior.
-//   SCOPE: Validate registered tool allowlist shape, tools/list response behavior, tools/call routing through a mock proxy service, and auth guard gating for unauthorized/authorized requests across invalid_token, insufficient_scope, and valid token states.
-//   DEPENDS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
-//   LINKS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-OAUTH-TOKEN-VALIDATOR, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
+//   SCOPE: Validate tool allowlist registration, tools/list response shape, tools/call proxy dispatch, and request-based auth guard gating for missing header, invalid token, insufficient scope, and valid token paths.
+//   DEPENDS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
+//   LINKS: M-TRANSPORT, M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   createNoopLogger - Build a no-op logger compatible with Logger interface.
 //   createMockTransportDependencies - Build deterministic mock transport dependencies for smoke tests.
-//   createMockAuthGuardDependencies - Build deterministic auth guard dependencies for integrated /mcp path tests across token states.
+//   createMockAuthGuardDependencies - Build deterministic McpAuthContext dependencies for integrated /mcp auth gating tests.
 //   createJsonResponse - Build JSON responses for integrated /mcp helper behavior.
 //   createJsonRpcRequest - Build valid JSON-RPC MCP POST Request objects.
 //   handleIntegratedMcpRoute - Emulate /mcp route auth guard + transport dispatch flow for smoke coverage.
@@ -18,17 +18,19 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.4.0 - Added explicit integrated /mcp denial coverage for invalid_token and insufficient_scope with WWW-Authenticate assertions.
+//   LAST_CHANGE: v2.0.0 - Migrated integrated /mcp smoke tests to Request-based guard API with McpAuthContext mocks and denied response passthrough.
 // END_CHANGE_SUMMARY
 
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { describe, expect, it } from "bun:test";
-import { authorizeMcpRequest, buildWwwAuthenticateHeader } from "../auth/mcp-auth-guard";
+import { MCPAuthTokenVerificationError } from "mcp-auth";
+import { authorizeMcpRequest } from "../auth/mcp-auth-guard";
 import type { McpAuthGuardDependencies } from "../auth/mcp-auth-guard";
+import type { McpAuthContext } from "../auth/mcp-auth-provider";
 import type { Logger } from "../logger/index";
+import type { ToolProxyService } from "../tools/proxy-service";
 import { handleMcpRequest, registerTools } from "./mcp-transport";
 import type { McpTransportDependencies } from "./mcp-transport";
-import type { ToolProxyService } from "../tools/proxy-service";
-import type { ValidateAccessTokenContext } from "../auth/oauth-token-validator";
 
 type MockCall = {
   toolName: string;
@@ -45,6 +47,8 @@ type MockAuthGuardTokenOptions = {
   validBearerToken: string;
   insufficientScopeBearerToken?: string;
 };
+
+type GuardDecision = Awaited<ReturnType<typeof authorizeMcpRequest>>;
 
 // START_CONTRACT: createNoopLogger
 //   PURPOSE: Create a no-op logger implementation for transport smoke tests.
@@ -107,58 +111,72 @@ function createMockTransportDependencies(): {
 // START_CONTRACT: createMockAuthGuardDependencies
 //   PURPOSE: Build auth guard dependencies that map Bearer tokens to valid, invalid_token, or insufficient_scope outcomes.
 //   INPUTS: { options: MockAuthGuardTokenOptions - Token mapping options for auth outcomes }
-//   OUTPUTS: { deps: McpAuthGuardDependencies - Mock auth guard dependencies, validateCalls: string[] - Captured validateAccessToken inputs }
-//   SIDE_EFFECTS: [Captures validateAccessToken calls in memory]
-//   LINKS: [M-MCP-AUTH-GUARD, M-LOGGER]
+//   OUTPUTS: { deps: McpAuthGuardDependencies - Mock auth guard dependencies, verifyCalls: string[] - Captured verifyAccessToken token values }
+//   SIDE_EFFECTS: [Captures verifyAccessToken calls in memory]
+//   LINKS: [M-MCP-AUTH-GUARD, M-MCP-AUTH-PROVIDER, M-LOGGER]
 // END_CONTRACT: createMockAuthGuardDependencies
 function createMockAuthGuardDependencies(options: MockAuthGuardTokenOptions): {
   deps: McpAuthGuardDependencies;
-  validateCalls: string[];
+  verifyCalls: string[];
 } {
   // START_BLOCK_CREATE_MOCK_AUTH_GUARD_DEPS_M_TRANSPORT_SMOKE_004
-  const validateCalls: string[] = [];
-  const validHeader = `Bearer ${options.validBearerToken}`;
-  const insufficientScopeHeader =
-    typeof options.insufficientScopeBearerToken === "string"
-      ? `Bearer ${options.insufficientScopeBearerToken}`
-      : null;
+  const verifyCalls: string[] = [];
+  const validToken = options.validBearerToken;
+  const insufficientScopeToken = options.insufficientScopeBearerToken;
+
+  const authContext: McpAuthContext = {
+    mcpAuth: {} as McpAuthContext["mcpAuth"],
+    verifyAccessToken: async (token: string): Promise<AuthInfo> => {
+      verifyCalls.push(token);
+
+      if (typeof insufficientScopeToken === "string" && token === insufficientScopeToken) {
+        return {
+          token,
+          issuer: "https://issuer.example.com/",
+          clientId: "client-smoke",
+          scopes: ["profile:read"],
+          audience: "travel-mcp",
+          subject: "subject-smoke-limited",
+          claims: {
+            scope: "profile:read",
+          },
+        };
+      }
+
+      if (token !== validToken) {
+        throw new MCPAuthTokenVerificationError("invalid_token");
+      }
+
+      return {
+        token,
+        issuer: "https://issuer.example.com/",
+        clientId: "client-smoke",
+        scopes: ["mcp:access"],
+        audience: "travel-mcp",
+        subject: "subject-smoke-1",
+        claims: {
+          scope: "mcp:access",
+        },
+      };
+    },
+    validateIssuer: () => {},
+    resourceMetadataUrl: "https://resource.example.com/.well-known/oauth-protected-resource/mcp",
+    protectedResourceMetadata: {
+      resource: "https://resource.example.com/mcp",
+      authorization_servers: ["https://issuer.example.com/"],
+      scopes_supported: ["mcp:access"],
+      bearer_methods_supported: ["header"],
+    },
+  };
 
   return {
     deps: {
       logger: createNoopLogger(),
+      audience: "travel-mcp",
       requiredScopes: ["mcp:access"],
-      issuer: "https://issuer.example.com",
-      resource: "https://resource.example.com/mcp",
-      oauthTokenValidator: {
-        validateAccessToken: async (
-          authorizationHeader: string | null,
-          context?: ValidateAccessTokenContext,
-        ) => {
-          const normalizedHeader = authorizationHeader ?? "<null>";
-          validateCalls.push(normalizedHeader);
-          if (insufficientScopeHeader !== null && normalizedHeader === insufficientScopeHeader) {
-            return {
-              isValid: false as const,
-              error: "insufficient_scope" as const,
-              errorDescription: "Token is valid but missing required scope for integrated smoke coverage.",
-            };
-          }
-          if (normalizedHeader !== validHeader) {
-            return {
-              isValid: false as const,
-              error: "invalid_token" as const,
-              errorDescription: "Token is invalid for integrated smoke coverage.",
-            };
-          }
-          return {
-            isValid: true as const,
-            subject: "subject-smoke-1",
-            grantedScopes: context?.requiredScopes ?? ["mcp:access"],
-          };
-        },
-      },
+      authContext,
     },
-    validateCalls,
+    verifyCalls,
   };
   // END_BLOCK_CREATE_MOCK_AUTH_GUARD_DEPS_M_TRANSPORT_SMOKE_004
 }
@@ -216,10 +234,25 @@ function createJsonRpcRequest(
   // END_BLOCK_BUILD_JSON_RPC_POST_REQUEST_M_TRANSPORT_SMOKE_003
 }
 
+// START_CONTRACT: isDeniedGuardDecision
+//   PURPOSE: Narrow guard decision union to denied branch for response passthrough in integrated smoke tests.
+//   INPUTS: { decision: GuardDecision - Decision returned by authorizeMcpRequest }
+//   OUTPUTS: { decision is Extract<GuardDecision, { isAuthorized: false }> - True when auth decision is denied }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-MCP-AUTH-GUARD]
+// END_CONTRACT: isDeniedGuardDecision
+function isDeniedGuardDecision(
+  decision: GuardDecision,
+): decision is Extract<GuardDecision, { isAuthorized: false }> {
+  // START_BLOCK_NARROW_DENIED_DECISION_FOR_TRANSPORT_SMOKE_M_TRANSPORT_SMOKE_007
+  return !decision.isAuthorized;
+  // END_BLOCK_NARROW_DENIED_DECISION_FOR_TRANSPORT_SMOKE_M_TRANSPORT_SMOKE_007
+}
+
 // START_CONTRACT: handleIntegratedMcpRoute
 //   PURPOSE: Emulate /mcp route auth guard gating before transport dispatch in integrated smoke tests.
 //   INPUTS: { request: Request - MCP HTTP request, deps: IntegratedMcpRouteDependencies - Auth and transport dependencies plus optional transport override }
-//   OUTPUTS: { Promise<Response> - Unauthorized JSON response or transport response }
+//   OUTPUTS: { Promise<Response> - Auth-denied response or transport response }
 //   SIDE_EFFECTS: [Invokes authorizeMcpRequest and optionally handleMcpRequest]
 //   LINKS: [M-MCP-AUTH-GUARD, M-TRANSPORT]
 // END_CONTRACT: handleIntegratedMcpRoute
@@ -228,24 +261,10 @@ async function handleIntegratedMcpRoute(
   deps: IntegratedMcpRouteDependencies,
 ): Promise<Response> {
   // START_BLOCK_RUN_AUTH_GUARD_AND_GATE_TRANSPORT_M_TRANSPORT_SMOKE_006
-  const authDecision = await authorizeMcpRequest(request.headers.get("authorization"), deps.authDeps);
+  const authDecision = await authorizeMcpRequest(request, deps.authDeps);
 
-  if (!authDecision.isAuthorized) {
-    return new Response(
-      JSON.stringify({
-        error: {
-          code: "UNAUTHORIZED",
-          message: "Invalid or missing OAuth access token.",
-        },
-      }),
-      {
-        status: 401,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          "www-authenticate": buildWwwAuthenticateHeader(authDecision.challenge),
-        },
-      },
-    );
+  if (isDeniedGuardDecision(authDecision)) {
+    return authDecision.response;
   }
 
   const transportHandler = deps.transportHandler ?? handleMcpRequest;
@@ -350,9 +369,8 @@ describe("M-TRANSPORT smoke checks", () => {
   });
 
   it("integrated /mcp route rejects missing or invalid Authorization headers with 401 and skips transport", async () => {
-    const validBearerToken =
-      "jp_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { deps: authDeps, validateCalls } = createMockAuthGuardDependencies({ validBearerToken });
+    const validBearerToken = "token-valid-smoke";
+    const { deps: authDeps, verifyCalls } = createMockAuthGuardDependencies({ validBearerToken });
     const { deps: transportDeps } = createMockTransportDependencies();
     let transportInvocationCount = 0;
 
@@ -377,37 +395,33 @@ describe("M-TRANSPORT smoke checks", () => {
       },
     );
 
-    const unauthorizedPayloadWithoutHeader = (await responseWithoutHeader.json()) as {
+    const payloadWithoutHeader = (await responseWithoutHeader.json()) as {
       error: { code: string; message: string };
     };
-    const unauthorizedPayloadWithInvalidScheme = (await responseWithInvalidScheme.json()) as {
+    const payloadWithInvalidScheme = (await responseWithInvalidScheme.json()) as {
       error: { code: string; message: string };
     };
 
     expect(responseWithoutHeader.status).toBe(401);
     expect(responseWithInvalidScheme.status).toBe(401);
-    expect(unauthorizedPayloadWithoutHeader).toEqual({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Invalid or missing OAuth access token.",
-      },
-    });
-    expect(unauthorizedPayloadWithInvalidScheme).toEqual({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Invalid or missing OAuth access token.",
-      },
-    });
+    expect(payloadWithoutHeader.error.code).toBe("UNAUTHORIZED");
+    expect(payloadWithInvalidScheme.error.code).toBe("UNAUTHORIZED");
+
+    const headerWithout = responseWithoutHeader.headers.get("www-authenticate") ?? "";
+    const headerInvalidScheme = responseWithInvalidScheme.headers.get("www-authenticate") ?? "";
+    expect(headerWithout).toContain("Bearer");
+    expect(headerInvalidScheme).toContain("Bearer");
+    expect(headerWithout).toContain('resource_metadata="https://resource.example.com/.well-known/oauth-protected-resource/mcp"');
+    expect(headerWithout).not.toContain('error="');
+
     expect(transportInvocationCount).toBe(0);
-    expect(validateCalls).toEqual([]);
+    expect(verifyCalls).toEqual([]);
   });
 
   it("integrated /mcp route rejects invalid Bearer token with 401 challenge and skips transport", async () => {
-    const validBearerToken =
-      "jp_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const invalidBearerToken =
-      "jp_cccccccccccc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
-    const { deps: authDeps, validateCalls } = createMockAuthGuardDependencies({ validBearerToken });
+    const validBearerToken = "token-valid-smoke";
+    const invalidBearerToken = "token-invalid-smoke";
+    const { deps: authDeps, verifyCalls } = createMockAuthGuardDependencies({ validBearerToken });
     const { deps: transportDeps } = createMockTransportDependencies();
     let transportInvocationCount = 0;
 
@@ -425,29 +439,22 @@ describe("M-TRANSPORT smoke checks", () => {
     const unauthorizedPayload = (await response.json()) as {
       error: { code: string; message: string };
     };
-    const challengeHeader = response.headers.get("www-authenticate");
+    const challengeHeader = response.headers.get("www-authenticate") ?? "";
 
     expect(response.status).toBe(401);
-    expect(unauthorizedPayload).toEqual({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Invalid or missing OAuth access token.",
-      },
-    });
-    expect(challengeHeader).not.toBeNull();
-    expect(challengeHeader).toContain("Bearer ");
+    expect(unauthorizedPayload.error.code).toBe("UNAUTHORIZED");
     expect(challengeHeader).toContain('error="invalid_token"');
-    expect(challengeHeader).toContain('scope="mcp:access"');
+    expect(challengeHeader).toContain(
+      'resource_metadata="https://resource.example.com/.well-known/oauth-protected-resource/mcp"',
+    );
     expect(transportInvocationCount).toBe(0);
-    expect(validateCalls).toEqual([`Bearer ${invalidBearerToken}`]);
+    expect(verifyCalls).toEqual([invalidBearerToken]);
   });
 
-  it("integrated /mcp route rejects insufficient-scope token with 401 challenge and skips transport", async () => {
-    const validBearerToken =
-      "jp_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const insufficientScopeBearerToken =
-      "jp_eeeeeeeeeeee_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-    const { deps: authDeps, validateCalls } = createMockAuthGuardDependencies({
+  it("integrated /mcp route rejects insufficient-scope token with 403 challenge and skips transport", async () => {
+    const validBearerToken = "token-valid-smoke";
+    const insufficientScopeBearerToken = "token-insufficient-smoke";
+    const { deps: authDeps, verifyCalls } = createMockAuthGuardDependencies({
       validBearerToken,
       insufficientScopeBearerToken,
     });
@@ -465,32 +472,22 @@ describe("M-TRANSPORT smoke checks", () => {
         },
       },
     );
-    const unauthorizedPayload = (await response.json()) as {
+    const payload = (await response.json()) as {
       error: { code: string; message: string };
     };
-    const challengeHeader = response.headers.get("www-authenticate");
+    const challengeHeader = response.headers.get("www-authenticate") ?? "";
 
-    expect(response.status).toBe(401);
-    expect(unauthorizedPayload).toEqual({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Invalid or missing OAuth access token.",
-      },
-    });
-    expect(challengeHeader).not.toBeNull();
-    expect(challengeHeader).toContain("Bearer ");
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("FORBIDDEN");
     expect(challengeHeader).toContain('error="insufficient_scope"');
     expect(challengeHeader).toContain('scope="mcp:access"');
-    expect(challengeHeader).toContain('issuer="https://issuer.example.com"');
-    expect(challengeHeader).toContain('resource="https://resource.example.com/mcp"');
     expect(transportInvocationCount).toBe(0);
-    expect(validateCalls).toEqual([`Bearer ${insufficientScopeBearerToken}`]);
+    expect(verifyCalls).toEqual([insufficientScopeBearerToken]);
   });
 
   it("integrated /mcp route authorizes valid Bearer token and forwards to transport/proxy", async () => {
-    const validBearerToken =
-      "jp_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { deps: authDeps, validateCalls } = createMockAuthGuardDependencies({ validBearerToken });
+    const validBearerToken = "token-valid-smoke";
+    const { deps: authDeps, verifyCalls } = createMockAuthGuardDependencies({ validBearerToken });
     const { deps: transportDeps, calls } = createMockTransportDependencies();
     let transportInvocationCount = 0;
 
@@ -520,7 +517,7 @@ describe("M-TRANSPORT smoke checks", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(validateCalls).toEqual([`Bearer ${validBearerToken}`]);
+    expect(verifyCalls).toEqual([validBearerToken]);
     expect(transportInvocationCount).toBe(1);
     expect(payload.result.structuredContent).toEqual({
       toolName: "search_messages",
