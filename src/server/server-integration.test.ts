@@ -1,5 +1,5 @@
 // FILE: src/server/server-integration.test.ts
-// VERSION: 3.1.0
+// VERSION: 3.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Integration verification of OAuth well-known metadata, admin route delegation, and /mcp auth+dispatch behavior on the OAuthProxy runtime model.
 //   SCOPE: Build an in-memory FastMCP harness with deterministic OAuthProxy and ToolProxy mocks, assert OAuth metadata responses, validate /admin delegation through mounted FastMCP app routes, and verify /mcp denied/allowed flow through OAuthProxy token loading plus tool proxy dispatch.
@@ -24,7 +24,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.1.0 - Updated protected-resource discovery assertions to use OAuth proxy issuer metadata even when Logto tenant URL differs.
+//   LAST_CHANGE: v3.2.0 - Added FastMCP OAuth diagnostics route assertions for sanitized authorize/callback logging with no raw code/state leakage.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -784,5 +784,66 @@ describe("M-SERVER FastMCP integration", () => {
     ]);
 
     expect(harness.tokenLoadCalls).toEqual(["bad.integration.jwt", "good.integration.jwt"]);
+  });
+
+  it("logs sanitized diagnostics for oauth authorize and callback notFound proxy routes", async () => {
+    const { logger, logEntries } = createDeterministicLogger();
+    const config = createMockAppConfig();
+    const { oauthProxyContext } = createMockOauthProxyContext("valid.oauth.diagnostics.jwt");
+    const { proxyService } = createMockProxyService();
+    const { adminHandler } = createMockAdminHandler();
+
+    const runtime = createFastMcpRuntime({
+      config,
+      logger,
+      oauthProxyContext,
+      proxyService,
+      adminHandler,
+    });
+
+    const app = runtime.getApp();
+
+    const authorizeResponse = await app.request(
+      "https://travel.example.com/oauth/authorize?client_id=client-id-12345&redirect_uri=https%3A%2F%2Fclient.travel.example.com%2Foauth%2Fcallback&scope=openid%20profile%20email",
+      { method: "GET" },
+    );
+    expect(authorizeResponse.status).toBe(404);
+
+    const callbackResponse = await app.request(
+      "https://travel.example.com/oauth/callback?error=access_denied&error_description=User%20cancelled&iss=https%3A%2F%2Fissuer.example.com%2F&code=secret-code-value&state=secret-state-value",
+      { method: "GET" },
+    );
+    expect(callbackResponse.status).toBe(404);
+
+    const authorizeDiagnosticsEntry = logEntries.find(
+      (entry) =>
+        entry.functionName === "mountOauthDiagnosticsNotFoundRoutes" &&
+        entry.blockName === "LOG_OAUTH_AUTHORIZE_PROXY_DIAGNOSTICS",
+    );
+    expect(authorizeDiagnosticsEntry).toBeDefined();
+    expect(authorizeDiagnosticsEntry?.extra).toEqual({
+      clientIdMasked: "cl***45",
+      redirectUriOrigin: "https://client.travel.example.com",
+      hasScope: true,
+      scopeCount: 3,
+    });
+
+    const callbackDiagnosticsEntry = logEntries.find(
+      (entry) =>
+        entry.functionName === "mountOauthDiagnosticsNotFoundRoutes" &&
+        entry.blockName === "LOG_OAUTH_CALLBACK_PROXY_DIAGNOSTICS",
+    );
+    expect(callbackDiagnosticsEntry).toBeDefined();
+    expect(callbackDiagnosticsEntry?.extra).toEqual({
+      error: "access_denied",
+      errorDescription: "User cancelled",
+      iss: "https://issuer.example.com/",
+      hasCode: true,
+      hasState: true,
+    });
+
+    const callbackDiagnosticsText = JSON.stringify(callbackDiagnosticsEntry?.extra ?? {});
+    expect(callbackDiagnosticsText).not.toContain("secret-code-value");
+    expect(callbackDiagnosticsText).not.toContain("secret-state-value");
   });
 });

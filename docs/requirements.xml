@@ -1,129 +1,103 @@
-<RequirementsAnalysis VERSION="0.4.0">
+<RequirementsAnalysis VERSION="0.5.0">
   <UseCases>
     <UC-001>
-      <Actor>External AI Agent</Actor>
-      <Action>Calls MCP tool `search_context` with query and routing keys (`workspace_id`, `region_pack_id`, `source_list_version`)</Action>
-      <Goal>Retrieve the best evidence from curated travel sources for downstream orchestration</Goal>
-      <AcceptanceCriteria>Response contains deterministic evidence objects with source, URL, timestamp, language, and citation context</AcceptanceCriteria>
+      <Actor>External MCP Client</Actor>
+      <Action>Calls MCP tool `search_messages` with query and optional filters (without `filters.chat_ids`)</Action>
+      <Goal>Search tg-chat-rag corpus through MCP with deterministic proxy behavior</Goal>
+      <AcceptanceCriteria>Request with nested `filters.chat_ids` is rejected; request without it gets internal chat scope injected from env</AcceptanceCriteria>
     </UC-001>
 
     <UC-002>
-      <Actor>System</Actor>
-      <Action>Runs hybrid retrieval (lexical + vector + rerank) over region-pack scoped corpus</Action>
-      <Goal>Maximize cross-source retrieval relevance for curated content</Goal>
-      <AcceptanceCriteria>Retrieval returns merged and deduplicated candidates with match signals and provenance metadata</AcceptanceCriteria>
+      <Actor>External MCP Client</Actor>
+      <Action>Calls MCP tool `get_message_context(message_uid)`</Action>
+      <Goal>Retrieve surrounding context for a specific message UID</Goal>
+      <AcceptanceCriteria>Non-empty `message_uid` is required and upstream response is returned in deterministic MCP result envelope</AcceptanceCriteria>
     </UC-002>
 
     <UC-003>
-      <Actor>System</Actor>
-      <Action>Applies RU↔EN query translation/expansion for lexical branch while using multilingual embeddings for vector branch</Action>
-      <Goal>Improve cross-language recall for RU/EN/JA mixed datasets</Goal>
-      <AcceptanceCriteria>Same-intent RU and EN queries can retrieve overlapping relevant evidence without corpus-wide translation</AcceptanceCriteria>
+      <Actor>External MCP Client</Actor>
+      <Action>Calls MCP tool `get_related_messages(message_uid)`</Action>
+      <Goal>Retrieve semantically related messages for exploration workflows</Goal>
+      <AcceptanceCriteria>Non-empty `message_uid` is required and result is proxied without hidden business branching</AcceptanceCriteria>
     </UC-003>
 
     <UC-004>
-      <Actor>Content Maintainer</Actor>
-      <Action>Ingests only public sources listed in region pack version (Telegram channels, Reddit communities, curated websites, Tabelog pages)</Action>
-      <Goal>Keep source scope curated and reproducible</Goal>
-      <AcceptanceCriteria>Every indexed record stores `region_pack_id` and `source_list_version` lineage</AcceptanceCriteria>
+      <Actor>External MCP Client</Actor>
+      <Action>Calls MCP tool `list_sources(message_uids[])`</Action>
+      <Goal>Resolve source metadata for message identifiers</Goal>
+      <AcceptanceCriteria>`message_uids` is required, min=1, max=100; invalid payloads fail deterministically</AcceptanceCriteria>
     </UC-004>
 
     <UC-005>
       <Actor>System</Actor>
-      <Action>Runs ingest pipeline fetch -> normalize -> language detect -> redact PII -> dedup -> chunk -> embed -> index</Action>
-      <Goal>Produce safe and searchable evidence units</Goal>
-      <AcceptanceCriteria>Ingest supports exact-hash + near-dup + URL canonical dedup and regex-based PII redaction</AcceptanceCriteria>
+      <Action>Proxies supported tool calls to tg-chat-rag methods API</Action>
+      <Goal>Keep MCP surface thin and deterministic while delegating retrieval logic upstream</Goal>
+      <AcceptanceCriteria>All upstream calls use `TG_CHAT_RAG_BEARER_TOKEN` and are made via `/api/v1/methods/&lt;tool_name&gt;`</AcceptanceCriteria>
     </UC-005>
 
     <UC-006>
-      <Actor>Platform Operator</Actor>
-      <Action>Triggers source backfill with checkpoint resume and retries</Action>
-      <Goal>Support historical discovery and replayable indexing</Goal>
-      <AcceptanceCriteria>Backfill supports default window=last 2 years and optional `from_start_of_time`, exposed only in admin/internal surface</AcceptanceCriteria>
+      <Actor>System</Actor>
+      <Action>Exposes only fixed allowlist of MCP tools</Action>
+      <Goal>Prevent accidental tool-surface drift and uncontrolled method passthrough</Goal>
+      <AcceptanceCriteria>Only `search_messages`, `get_message_context`, `get_related_messages`, `list_sources` are registerable in runtime</AcceptanceCriteria>
     </UC-006>
 
     <UC-007>
-      <Actor>External AI Agent</Actor>
-      <Action>Calls MCP tool `validate_google_map_link(url, expected)`</Action>
-      <Goal>Verify map URL against expected place attributes with deterministic contract</Goal>
-      <AcceptanceCriteria>Tool returns `match|partial|mismatch|inconclusive` with confidence and reason codes</AcceptanceCriteria>
+      <Actor>External MCP Client</Actor>
+      <Action>Authenticates against `/mcp` using FastMCP OAuth Proxy flow</Action>
+      <Goal>Use OAuth-based auth only for MCP transport surface</Goal>
+      <AcceptanceCriteria>Unauthenticated `/mcp` calls receive OAuth challenge/flow; successful OAuth session is required for tool execution</AcceptanceCriteria>
     </UC-007>
 
     <UC-008>
-      <Actor>External AI Agent</Actor>
-      <Action>Calls MCP tool `verify_tabelog(input)`</Action>
-      <Goal>Verify Tabelog entity consistency against expected attributes and canonical POI graph</Goal>
-      <AcceptanceCriteria>Tool returns deterministic verdict, reasons, and evidence references</AcceptanceCriteria>
+      <Actor>Platform Operator</Actor>
+      <Action>Authenticates to `/admin/login` with `ROOT_AUTH_TOKEN`</Action>
+      <Goal>Keep admin surface simple and restricted to root secret workflow</Goal>
+      <AcceptanceCriteria>Unauthenticated `/admin/*` access redirects to `/admin/login`; valid token creates admin session cookie</AcceptanceCriteria>
     </UC-008>
 
     <UC-009>
       <Actor>System</Actor>
-      <Action>Maintains lazy canonical POI graph from observed assertions</Action>
-      <Goal>Scale verification without pre-building full country POI database</Goal>
-      <AcceptanceCriteria>Unknown POI is stored as provisional and does not default to mismatch</AcceptanceCriteria>
+      <Action>Enforces strict auth-path isolation between MCP and admin surfaces</Action>
+      <Goal>Avoid credential confusion and privilege crossover</Goal>
+      <AcceptanceCriteria>`ROOT_AUTH_TOKEN` is never accepted on `/mcp`; OAuth session is not used as admin session</AcceptanceCriteria>
     </UC-009>
 
     <UC-010>
-      <Actor>Reviewer</Actor>
-      <Action>Resolves uncertain POI cases in HITL queue</Action>
-      <Goal>Improve precision for ambiguous place matching</Goal>
-      <AcceptanceCriteria>Queue supports `approve|merge|split|reject` decisions with audit trail</AcceptanceCriteria>
+      <Actor>System</Actor>
+      <Action>Validates tool inputs with described Zod schemas</Action>
+      <Goal>Provide deterministic machine-consumable contracts for MCP clients</Goal>
+      <AcceptanceCriteria>Schema errors are stable and explicit; tool descriptions and parameters are available via FastMCP metadata</AcceptanceCriteria>
     </UC-010>
 
     <UC-011>
-      <Actor>System</Actor>
-      <Action>Enforces query-abuse guardrails</Action>
-      <Goal>Reduce misuse and personal identifier lookup attempts</Goal>
-      <AcceptanceCriteria>Queries requesting lookup by phone/email/personal identifiers are blocked by policy</AcceptanceCriteria>
+      <Actor>Platform Owner</Actor>
+      <Action>Runs MCP runtime without API-key CRUD dependency</Action>
+      <Goal>Reduce operational complexity in current scope</Goal>
+      <AcceptanceCriteria>No runtime requirement for API-key repository/DB-backed key lifecycle to authorize `/mcp`</AcceptanceCriteria>
     </UC-011>
 
     <UC-012>
-      <Actor>Workspace Owner</Actor>
-      <Action>Uses one workspace with multiple region packs and versions</Action>
-      <Goal>Support reproducible experiments and future multi-region expansion</Goal>
-      <AcceptanceCriteria>All read/write/query paths are isolated by `workspace_id + region_pack_id + source_list_version`</AcceptanceCriteria>
-    </UC-012>
-
-    <UC-013>
       <Actor>External AI Agent</Actor>
-      <Action>Performs orchestration, correctness judgment, and final answer synthesis outside MCP</Action>
-      <Goal>Keep MCP boundary narrow and deterministic</Goal>
-      <AcceptanceCriteria>No internal planning/orchestration/memory subsystem is required for v1 release</AcceptanceCriteria>
-    </UC-013>
-
-    <UC-014>
-      <Actor>Platform Owner</Actor>
-      <Action>Runs weekly quality guardrails without full automated eval pipeline</Action>
-      <Goal>Ship v1 quickly while preventing obvious quality regressions</Goal>
-      <AcceptanceCriteria>Smoke set (30-50), evidence coverage >=95%, connector replay tests pass, validator obvious error &lt;=10%</AcceptanceCriteria>
-    </UC-014>
-
-    <UC-015>
-      <Actor>Platform Operator</Actor>
-      <Action>Authenticates to `/admin/login` with `ROOT_AUTH_TOKEN` from environment variables</Action>
-      <Goal>Restrict admin surface access to operators with root-level secret</Goal>
-      <AcceptanceCriteria>Unauthenticated access to `/admin/*` is redirected to `/admin/login`; `ROOT_AUTH_TOKEN` is never accepted on `/mcp`</AcceptanceCriteria>
-    </UC-015>
-
-    <UC-016>
-      <Actor>Platform Operator</Actor>
-      <Action>Uses admin UI (Bun JSX + HTMX + daisyUI) to create and revoke API keys with `label` and optional `expires_at`</Action>
-      <Goal>Manage machine credentials that authorize MCP callers</Goal>
-      <AcceptanceCriteria>Created key secret is displayed exactly once, only hashed value is persisted, and revoked keys cannot authenticate</AcceptanceCriteria>
-    </UC-016>
-
-    <UC-017>
-      <Actor>External MCP Client</Actor>
-      <Action>Calls `/mcp` with `Authorization: Bearer &lt;api_key&gt;`</Action>
-      <Goal>Access MCP tools only with valid non-expired API key</Goal>
-      <AcceptanceCriteria>Requests without valid API key receive authorization error before transport handling</AcceptanceCriteria>
-    </UC-017>
-
-    <UC-018>
-      <Actor>System</Actor>
-      <Action>Stores and resolves API keys in PostgreSQL via Drizzle using `DATABASE_URL` runtime configuration</Action>
-      <Goal>Provide durable key management and auditable key lifecycle</Goal>
-      <AcceptanceCriteria>Startup fails fast when `DATABASE_URL` is missing or invalid and key CRUD uses PostgreSQL-backed persistence</AcceptanceCriteria>
-    </UC-018>
+      <Action>Performs orchestration and final answer synthesis outside MCP server</Action>
+      <Goal>Keep MCP boundary narrow (proxy + contracts + auth)</Goal>
+      <AcceptanceCriteria>No internal trip planner or long-horizon reasoning subsystem is required in this phase</AcceptanceCriteria>
+    </UC-012>
   </UseCases>
+
+  <DeferredUseCases>
+    <UC-101>
+      <Actor>External AI Agent</Actor>
+      <Action>Calls `search_context` with routing keys</Action>
+      <Goal>Hybrid evidence retrieval over curated multi-source index</Goal>
+      <Status>Deferred</Status>
+    </UC-101>
+
+    <UC-102>
+      <Actor>External AI Agent</Actor>
+      <Action>Calls `validate_google_map_link` and `verify_tabelog`</Action>
+      <Goal>Deterministic POI verification contract</Goal>
+      <Status>Deferred</Status>
+    </UC-102>
+  </DeferredUseCases>
 </RequirementsAnalysis>

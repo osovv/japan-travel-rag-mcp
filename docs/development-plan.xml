@@ -363,7 +363,7 @@
   </ImplementationOrder>
 
   <RiskAssessment>
-    <risk-1 severity="high">Legacy requirements about API-key-based /mcp auth conflict with OAuth-proxy-only target and must be explicitly marked deprecated.</risk-1>
+    <risk-1 severity="high">Runtime still contains legacy mcp-auth/api-key-era modules that can create implementation drift until OAuth Proxy migration is completed in code.</risk-1>
     <risk-2 severity="medium">OAuth callback/base URL misconfiguration can break authorization flow in production.</risk-2>
     <risk-3 severity="medium">Schema tightening may break existing client payloads that relied on permissive behavior.</risk-3>
     <risk-4 severity="medium">If /admin route mounting order is wrong, auth middleware can leak or over-protect endpoints.</risk-4>

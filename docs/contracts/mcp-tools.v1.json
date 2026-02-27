@@ -1,89 +1,72 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "japan-travel-rag-mcp/contracts/mcp-tools.v1.json",
-  "title": "MCP Tool Schemas v1",
+  "title": "MCP Tool Schemas v1 (Current Proxy Surface)",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "commonRouting": {
+    "search_messages": {
       "type": "object",
-      "required": ["workspace_id", "region_pack_id", "source_list_version"],
+      "description": "Public input for search_messages. Caller must not send filters.chat_ids.",
+      "additionalProperties": true,
       "properties": {
-        "workspace_id": { "type": "string", "minLength": 1 },
-        "region_pack_id": { "type": "string", "minLength": 1 },
-        "source_list_version": { "type": "string", "minLength": 1 }
-      }
-    },
-    "search_context": {
-      "type": "object",
-      "required": ["workspace_id", "region_pack_id", "source_list_version", "query"],
-      "properties": {
-        "workspace_id": { "type": "string" },
-        "region_pack_id": { "type": "string" },
-        "source_list_version": { "type": "string" },
-        "query": { "type": "string", "minLength": 1 },
-        "time_window": {
+        "query": {
+          "type": "string",
+          "description": "Search query string passed to upstream retrieval service"
+        },
+        "filters": {
           "type": "object",
-          "required": ["from", "to"],
-          "properties": {
-            "from": { "type": "string", "format": "date-time" },
-            "to": { "type": "string", "format": "date-time" }
-          }
-        },
-        "source_filters": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "lang_pref": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
-        "require_outbound_links": { "type": "boolean" },
-        "top_k": { "type": "integer", "minimum": 1, "maximum": 100 }
-      }
+          "description": "Optional filter object; chat_ids path is forbidden at public boundary",
+          "additionalProperties": true
+        }
+      },
+      "x_forbidden_paths": [
+        "filters.chat_ids"
+      ]
     },
-    "validate_google_map_link": {
+    "get_message_context": {
       "type": "object",
-      "required": ["workspace_id", "region_pack_id", "source_list_version", "url", "expected"],
+      "description": "Get contextual neighborhood for a message UID.",
+      "required": [
+        "message_uid"
+      ],
+      "additionalProperties": true,
       "properties": {
-        "workspace_id": { "type": "string" },
-        "region_pack_id": { "type": "string" },
-        "source_list_version": { "type": "string" },
-        "url": { "type": "string", "format": "uri" },
-        "expected": {
-          "type": "object",
-          "required": ["name"],
-          "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "location": {
-              "type": "object",
-              "required": ["lat", "lon", "radius_m"],
-              "properties": {
-                "lat": { "type": "number", "minimum": -90, "maximum": 90 },
-                "lon": { "type": "number", "minimum": -180, "maximum": 180 },
-                "radius_m": { "type": "number", "minimum": 1 }
-              }
-            },
-            "category": { "type": "string" }
-          }
+        "message_uid": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
-    "verify_tabelog": {
+    "get_related_messages": {
       "type": "object",
-      "required": ["workspace_id", "region_pack_id", "source_list_version", "tabelog_url", "expected"],
+      "description": "Get related messages for a message UID.",
+      "required": [
+        "message_uid"
+      ],
+      "additionalProperties": true,
       "properties": {
-        "workspace_id": { "type": "string" },
-        "region_pack_id": { "type": "string" },
-        "source_list_version": { "type": "string" },
-        "tabelog_url": { "type": "string", "format": "uri" },
-        "expected": {
-          "type": "object",
-          "required": ["name"],
-          "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "area": { "type": "string" },
-            "category": { "type": "string" }
+        "message_uid": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "list_sources": {
+      "type": "object",
+      "description": "List source records for provided message UIDs.",
+      "required": [
+        "message_uids"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "message_uids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }

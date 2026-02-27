@@ -1,8 +1,8 @@
 // FILE: src/runtime/fastmcp-runtime.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface, health endpoint, and delegated /admin routes.
-//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService, and mount /admin routes through FastMCP.getApp().
+//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService, mount OAuth diagnostics notFound routes, and mount /admin routes through FastMCP.getApp().
 //   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI
 //   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI
 // END_MODULE_CONTRACT
@@ -11,12 +11,16 @@
 //   FastMcpRuntimeDependencies - Runtime dependency contract for FastMCP wiring.
 //   FastMcpRuntimeError - Typed runtime error with FASTMCP_RUNTIME_ERROR code.
 //   createFastMcpRuntime - Build a FastMCP runtime with auth, oauth, health, tools, and admin routes.
+//   maskSensitiveTextValue - Mask sensitive OAuth query values for diagnostics logs.
+//   readUrlOriginIfParseable - Read URL origin from optional URI query values when parseable.
+//   countScopesFromQueryValue - Count normalized scope entries from OAuth scope query value.
+//   mountOauthDiagnosticsNotFoundRoutes - Mount OAuth diagnostics notFound routes to log sanitized authorize/callback query diagnostics.
 //   registerProxyTools - Register fixed four-tool proxy surface on FastMCP.
 //   mountAdminRoutes - Mount /admin and /admin/* handlers via FastMCP.getApp().
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Switched protected-resource authorization_servers source to OAuth proxy authorization-server issuer metadata instead of Logto tenant URL.
+//   LAST_CHANGE: v1.3.0 - Added sanitized OAuth authorize/callback diagnostics routes on Hono that return notFound to preserve FastMCP built-in OAuth proxy handling.
 // END_CHANGE_SUMMARY
 
 import { FastMCP, type ServerOptions } from "fastmcp";
@@ -108,6 +112,10 @@ type RegisterProxyToolsDependencies = {
 type MountAdminRoutesDependencies = {
   logger: Logger;
   adminHandler: (request: Request) => Promise<Response>;
+};
+
+type MountOauthDiagnosticsRoutesDependencies = {
+  logger: Logger;
 };
 
 export type FastMcpRuntimeDependencies = {
@@ -669,6 +677,140 @@ function canAccessAuthenticatedProxyTools(auth: RuntimeSessionAuth): boolean {
   // END_BLOCK_ENFORCE_CAN_ACCESS_AUTHENTICATED_SESSION_M_FASTMCP_RUNTIME_025
 }
 
+// START_CONTRACT: maskSensitiveTextValue
+//   PURPOSE: Mask potentially sensitive query values before writing runtime diagnostics logs.
+//   INPUTS: { value: unknown - Candidate sensitive value }
+//   OUTPUTS: { string|undefined - Masked value preserving only limited edge characters }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-FASTMCP-RUNTIME, M-LOGGER]
+// END_CONTRACT: maskSensitiveTextValue
+function maskSensitiveTextValue(value: unknown): string | undefined {
+  // START_BLOCK_MASK_SENSITIVE_QUERY_VALUE_FOR_DIAGNOSTICS_M_FASTMCP_RUNTIME_026
+  const normalizedValue = normalizeOptionalText(value);
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  if (normalizedValue.length <= 2) {
+    return "*".repeat(normalizedValue.length);
+  }
+
+  if (normalizedValue.length <= 6) {
+    return `${normalizedValue.slice(0, 1)}***${normalizedValue.slice(-1)}`;
+  }
+
+  return `${normalizedValue.slice(0, 2)}***${normalizedValue.slice(-2)}`;
+  // END_BLOCK_MASK_SENSITIVE_QUERY_VALUE_FOR_DIAGNOSTICS_M_FASTMCP_RUNTIME_026
+}
+
+// START_CONTRACT: readUrlOriginIfParseable
+//   PURPOSE: Parse URL origin for diagnostics-safe logging from redirect URI query values.
+//   INPUTS: { value: unknown - Candidate redirect URI query value }
+//   OUTPUTS: { string|undefined - URL origin when parseable; otherwise undefined }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-FASTMCP-RUNTIME]
+// END_CONTRACT: readUrlOriginIfParseable
+function readUrlOriginIfParseable(value: unknown): string | undefined {
+  // START_BLOCK_PARSE_URL_ORIGIN_FOR_DIAGNOSTICS_LOGGING_M_FASTMCP_RUNTIME_027
+  const normalizedValue = normalizeOptionalText(value);
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  try {
+    return new URL(normalizedValue).origin;
+  } catch {
+    return undefined;
+  }
+  // END_BLOCK_PARSE_URL_ORIGIN_FOR_DIAGNOSTICS_LOGGING_M_FASTMCP_RUNTIME_027
+}
+
+// START_CONTRACT: countScopesFromQueryValue
+//   PURPOSE: Count normalized OAuth scope entries from an incoming scope query value.
+//   INPUTS: { value: unknown - Candidate OAuth scope query value }
+//   OUTPUTS: { number - Number of non-empty scopes in the value }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-FASTMCP-RUNTIME]
+// END_CONTRACT: countScopesFromQueryValue
+function countScopesFromQueryValue(value: unknown): number {
+  // START_BLOCK_COUNT_NORMALIZED_SCOPE_ENTRIES_M_FASTMCP_RUNTIME_028
+  const normalizedValue = normalizeOptionalText(value);
+  if (!normalizedValue) {
+    return 0;
+  }
+
+  return normalizedValue
+    .split(/\s+/)
+    .map((scope) => scope.trim())
+    .filter((scope) => scope.length > 0).length;
+  // END_BLOCK_COUNT_NORMALIZED_SCOPE_ENTRIES_M_FASTMCP_RUNTIME_028
+}
+
+// START_CONTRACT: mountOauthDiagnosticsNotFoundRoutes
+//   PURPOSE: Mount OAuth authorize/callback diagnostics routes that log sanitized request query data and return notFound for FastMCP fallback handling.
+//   INPUTS: { fastMcpServer: FastMCP<RuntimeSessionAuth> - Runtime instance, deps: MountOauthDiagnosticsRoutesDependencies - Diagnostics route dependencies }
+//   OUTPUTS: { void - Diagnostics routes are mounted on Hono app }
+//   SIDE_EFFECTS: [Mutates FastMCP Hono app route table and emits structured logs]
+//   LINKS: [M-FASTMCP-RUNTIME, M-LOGGER]
+// END_CONTRACT: mountOauthDiagnosticsNotFoundRoutes
+export function mountOauthDiagnosticsNotFoundRoutes(
+  fastMcpServer: FastMCP<RuntimeSessionAuth>,
+  deps: MountOauthDiagnosticsRoutesDependencies,
+): void {
+  // START_BLOCK_MOUNT_OAUTH_DIAGNOSTIC_NOT_FOUND_ROUTES_M_FASTMCP_RUNTIME_029
+  const app = fastMcpServer.getApp();
+
+  app.all("/oauth/authorize", (context) => {
+    const requestUrl = new URL(context.req.url);
+    const scopeValue = requestUrl.searchParams.get("scope");
+
+    deps.logger.info(
+      "Captured OAuth authorize diagnostics at Hono proxy route boundary.",
+      "mountOauthDiagnosticsNotFoundRoutes",
+      "LOG_OAUTH_AUTHORIZE_PROXY_DIAGNOSTICS",
+      {
+        clientIdMasked: maskSensitiveTextValue(requestUrl.searchParams.get("client_id")),
+        redirectUriOrigin: readUrlOriginIfParseable(requestUrl.searchParams.get("redirect_uri")),
+        hasScope: requestUrl.searchParams.has("scope"),
+        scopeCount: countScopesFromQueryValue(scopeValue),
+      },
+    );
+
+    return context.notFound();
+  });
+
+  app.all("/oauth/callback", (context) => {
+    const requestUrl = new URL(context.req.url);
+    const codeValue = normalizeOptionalText(requestUrl.searchParams.get("code"));
+    const stateValue = normalizeOptionalText(requestUrl.searchParams.get("state"));
+
+    deps.logger.info(
+      "Captured OAuth callback diagnostics at Hono proxy route boundary.",
+      "mountOauthDiagnosticsNotFoundRoutes",
+      "LOG_OAUTH_CALLBACK_PROXY_DIAGNOSTICS",
+      {
+        error: normalizeOptionalText(requestUrl.searchParams.get("error")),
+        errorDescription: normalizeOptionalText(requestUrl.searchParams.get("error_description")),
+        iss: normalizeOptionalText(requestUrl.searchParams.get("iss")),
+        hasCode: codeValue !== undefined,
+        hasState: stateValue !== undefined,
+      },
+    );
+
+    return context.notFound();
+  });
+
+  deps.logger.info(
+    "Mounted OAuth diagnostics notFound routes on FastMCP Hono app.",
+    "mountOauthDiagnosticsNotFoundRoutes",
+    "MOUNT_OAUTH_DIAGNOSTIC_NOT_FOUND_ROUTES",
+    {
+      routes: ["/oauth/authorize", "/oauth/callback"],
+    },
+  );
+  // END_BLOCK_MOUNT_OAUTH_DIAGNOSTIC_NOT_FOUND_ROUTES_M_FASTMCP_RUNTIME_029
+}
+
 // START_CONTRACT: toFastMcpRuntimeError
 //   PURPOSE: Normalize unknown failures to typed FastMcpRuntimeError with stable diagnostics.
 //   INPUTS: { error: unknown - Runtime failure, message: string - Stable user-safe message, field: string|undefined - Optional diagnostics field }
@@ -931,7 +1073,7 @@ export function mountAdminRoutes(
 }
 
 // START_CONTRACT: createFastMcpRuntime
-//   PURPOSE: Build a fully configured FastMCP runtime with OAuthProxy auth, oauth metadata, health endpoint, proxy tools, and admin routes.
+//   PURPOSE: Build a fully configured FastMCP runtime with OAuthProxy auth, oauth metadata, health endpoint, proxy tools, oauth diagnostics routes, and admin routes.
 //   INPUTS: { deps: FastMcpRuntimeDependencies - Runtime dependencies }
 //   OUTPUTS: { FastMCP<RuntimeSessionAuth> - Configured FastMCP runtime instance }
 //   SIDE_EFFECTS: [Registers tool handlers/routes on runtime and emits structured logs]
@@ -964,6 +1106,10 @@ export function createFastMcpRuntime(
       },
     });
 
+    mountOauthDiagnosticsNotFoundRoutes(fastMcpServer, {
+      logger: runtimeLogger.child({ component: "oauthDiagnosticsRoutes" }),
+    });
+
     registerProxyTools(fastMcpServer, {
       logger: runtimeLogger.child({ component: "proxyTools" }),
       proxyService: deps.proxyService,
@@ -975,7 +1121,7 @@ export function createFastMcpRuntime(
     });
 
     runtimeLogger.info(
-      "Created FastMCP runtime with OAuthProxy auth, oauth metadata, health endpoint, tools, and admin routes.",
+      "Created FastMCP runtime with OAuthProxy auth, oauth metadata, health endpoint, tools, oauth diagnostics routes, and admin routes.",
       "createFastMcpRuntime",
       "BUILD_CONFIGURED_FASTMCP_RUNTIME_INSTANCE",
       {

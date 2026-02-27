@@ -1,115 +1,65 @@
-<TechnologyStack VERSION="0.4.0">
+<TechnologyStack VERSION="0.5.0">
   <Runtime>Bun 1.3.8</Runtime>
   <Language>TypeScript 5.x</Language>
-  <Framework>@modelcontextprotocol/sdk 1.x</Framework>
+  <Framework>fastmcp 3.33.x</Framework>
 
   <Dependencies>
-    <dep name="@modelcontextprotocol/sdk" version="1.x" purpose="MCP transport and tool exposure" />
-    <dep name="pg" version="8.x" purpose="PostgreSQL data access" />
-    <dep name="drizzle-orm" version="0.36.x" purpose="Type-safe PostgreSQL queries and schema mapping for admin API key management" />
-    <dep name="pgvector" version="0.7.x (PostgreSQL extension)" purpose="Vector search" />
-    <dep name="pg-boss" version="9.x" purpose="Background jobs (ingest/backfill/enrichment/review)" />
-    <dep name="voyageai" version="TBD (pin before implementation)" purpose="Multilingual embeddings and reranker" />
-    <dep name="zod" version="3.x" purpose="Tool schema and policy validation" />
-    <dep name="pino" version="9.x" purpose="Structured logs and audit trails" />
+    <dep-fastmcp name="fastmcp" version="3.33.x" purpose="MCP runtime, OAuth Proxy integration, tool registration, and HTTP stream transport" />
+    <dep-zod name="zod" version="4.x" purpose="Tool input schemas with deterministic validation" />
+    <dep-pg name="pg" version="8.x" purpose="Deferred/legacy persistence modules outside current runtime auth path" />
+    <dep-drizzle name="drizzle-orm" version="0.45.x" purpose="Deferred/legacy persistence modules outside current runtime auth path" />
   </Dependencies>
 
   <VersionConstraints>
-    <constraint lib="bun" min="1.3.8" max="1.3.x" reason="Runtime consistency" />
-    <constraint lib="typescript" min="5.0.0" max="5.x" reason="Type-safety and modern syntax" />
-    <constraint lib="@modelcontextprotocol/sdk" min="1.0.0" max="1.x" reason="MCP compatibility" />
-    <constraint lib="pg" min="8.11.0" max="8.x" reason="Stable PostgreSQL behavior" />
-    <constraint lib="drizzle-orm" min="0.36.0" max="0.36.x" reason="Pinned ORM surface for migration/query stability" />
-    <constraint lib="pg-boss" min="9.0.0" max="9.x" reason="Reliable queue semantics" />
-    <constraint lib="voyageai" min="TBD" max="TBD" reason="Model and API pin required before production" />
+    <constraint-bun lib="bun" min="1.3.8" max="1.3.x" reason="Runtime consistency" />
+    <constraint-ts lib="typescript" min="5.0.0" max="5.x" reason="Type safety and modern syntax" />
+    <constraint-fastmcp lib="fastmcp" min="3.33.0" max="3.33.x" reason="OAuth Proxy support and route mounting APIs" />
+    <constraint-zod lib="zod" min="4.0.0" max="4.x" reason="Schema ergonomics and deterministic tool contracts" />
   </VersionConstraints>
 
   <Tooling>
-    <tool name="package-manager" value="bun" version="1.3.x" />
-    <tool name="test-runner" value="bun test" version="1.3.x" />
-    <tool name="linter" value="eslint" version="9.x" />
-    <tool name="formatter" value="prettier" version="3.x" />
-    <tool name="migration-tool" value="drizzle-kit" version="0.2x" />
-    <tool name="scheduler" value="pg-boss workers" version="9.x" />
+    <tool-package-manager name="package-manager" value="bun" version="1.3.x" />
+    <tool-test-runner name="test-runner" value="bun test" version="1.3.x" />
   </Tooling>
 
-  <AdminSurface>
-    <UiRuntime>Bun JSX server-rendered HTML</UiRuntime>
-    <UiEnhancement>HTMX partial updates for key CRUD actions</UiEnhancement>
-    <UiStyle>daisyUI component classes</UiStyle>
-    <AdminAuth>ROOT_AUTH_TOKEN is valid only for /admin/login</AdminAuth>
-    <McpAuth>Only Bearer API keys are valid for /mcp</McpAuth>
-  </AdminSurface>
+  <TransportSurface>
+    <McpTransport>FastMCP HTTP stream endpoint `/mcp`</McpTransport>
+    <AdminTransport>FastMCP underlying Hono app routes `/admin/*`</AdminTransport>
+  </TransportSurface>
 
-  <ProductBoundary>
-    <InScope>`search_context`, `validate_google_map_link`, `verify_tabelog`, curated ingest/indexing, backfill, lazy canonical POI, deterministic evidence output</InScope>
-    <OutOfScope>Trip planning, internal orchestration, persistent user memory, final answer synthesis, truth scoring engine</OutOfScope>
-    <OrchestrationOwner>External AI agent using MCP tools</OrchestrationOwner>
-  </ProductBoundary>
+  <AuthModel>
+    <McpAuth>FastMCP OAuth Proxy (Logto OIDC upstream) is required for `/mcp`</McpAuth>
+    <AdminAuth>ROOT_AUTH_TOKEN login/session is required for `/admin/*`</AdminAuth>
+    <IsolationRule>ROOT_AUTH_TOKEN is never valid for `/mcp`; OAuth session is not admin credential</IsolationRule>
+  </AuthModel>
 
-  <IsolationModel>
-    <WorkspaceKey>workspace_id</WorkspaceKey>
-    <RegionPackKey>region_pack_id</RegionPackKey>
-    <SourceListVersionKey>source_list_version</SourceListVersionKey>
-    <ScopeRule>All reads/writes/jobs/tool responses are scoped by workspace + region pack + source list version</ScopeRule>
-    <InitialRegionPack>jp</InitialRegionPack>
-  </IsolationModel>
+  <CurrentToolSurface>
+    <tool-1>search_messages</tool-1>
+    <tool-2>get_message_context</tool-2>
+    <tool-3>get_related_messages</tool-3>
+    <tool-4>list_sources</tool-4>
+    <Policy>Tool allowlist is fixed; unsupported tool names are rejected deterministically</Policy>
+  </CurrentToolSurface>
 
   <RuntimeConfigPolicy>
     <RequiredEnv-1>TG_CHAT_RAG_BASE_URL</RequiredEnv-1>
     <RequiredEnv-2>TG_CHAT_RAG_BEARER_TOKEN</RequiredEnv-2>
     <RequiredEnv-3>TG_CHAT_RAG_CHAT_IDS</RequiredEnv-3>
     <RequiredEnv-4>ROOT_AUTH_TOKEN</RequiredEnv-4>
-    <RequiredEnv-5>DATABASE_URL</RequiredEnv-5>
+    <RequiredEnv-5>PUBLIC_URL</RequiredEnv-5>
+    <RequiredEnv-6>LOGTO_TENANT_URL</RequiredEnv-6>
+    <RequiredEnv-7>LOGTO_CLIENT_ID</RequiredEnv-7>
+    <RequiredEnv-8>LOGTO_CLIENT_SECRET</RequiredEnv-8>
   </RuntimeConfigPolicy>
 
-  <SourcePolicy>
-    <V1Scope>Public sources only</V1Scope>
-    <PolicyMatrix>Maintain per-source policy for allowed storage, snippet length, attribution, and retention</PolicyMatrix>
-    <PiiGuardrails>Regex redaction for phone/email/obvious identifiers at ingest</PiiGuardrails>
-    <QueryAbuseGuardrails>Block identifier lookup intents (phone/email/person lookup)</QueryAbuseGuardrails>
-  </SourcePolicy>
+  <ProductBoundary>
+    <InScope>OAuth-protected MCP proxy for existing 4 tools, root-token admin auth, deterministic schema validation</InScope>
+    <OutOfScope>API-key auth for `/mcp`, `search_context`, `validate_google_map_link`, `verify_tabelog`, trip planning/orchestration/memory subsystems</OutOfScope>
+  </ProductBoundary>
 
-  <IngestionPolicy>
-    <Pipeline>fetch -> normalize -> language_detect -> pii_redact -> dedup -> chunk -> embed -> index</Pipeline>
-    <Dedup>exact_hash + near_dup(simhash/minhash) + canonical_url normalization</Dedup>
-    <Backfill>default=last_2_years, optional=from_start_of_time, checkpointed/resumable/retryable</Backfill>
-    <BackfillControl>admin/internal only</BackfillControl>
-  </IngestionPolicy>
-
-  <RetrievalPolicy>
-    <Architecture>lexical + vector hybrid retrieval, candidate merge/dedup, rerank top-N</Architecture>
-    <CrossLanguage>RU↔EN query translation/expansion for lexical branch + one multilingual vector pass</CrossLanguage>
-    <OutputContract>evidence-first response, no truth/final correctness score in v1</OutputContract>
-    <Signals>Expose lexical_match and vector_match signals for auditability</Signals>
-  </RetrievalPolicy>
-
-  <VerificationPolicy>
-    <Tools>validate_google_map_link, verify_tabelog</Tools>
-    <Verdicts>match, partial, mismatch, inconclusive</Verdicts>
-    <UnknownPoiRule>Missing local POI record must not auto-produce mismatch</UnknownPoiRule>
-    <UnknownPoiBehavior>Create provisional_place and return inconclusive when data is insufficient</UnknownPoiBehavior>
-    <ReasonCodes>name_mismatch, location_mismatch, category_mismatch, insufficient_data, source_unreachable</ReasonCodes>
-  </VerificationPolicy>
-
-  <PoiPolicy>
-    <Canonicalization>Lazy from observed assertions, not prebuilt full-country directory</Canonicalization>
-    <CoreEntities>canonical_places, provisional_places, place_aliases, place_assertions, place_links</CoreEntities>
-    <ResolutionOrder>external_id exact -> geo+name similarity -> provisional fallback</ResolutionOrder>
-  </PoiPolicy>
-
-  <HitlPolicy>
-    <AutoApproveThreshold>confidence &gt;= 0.92</AutoApproveThreshold>
-    <ReviewQueueThreshold>0.75 &lt;= confidence &lt; 0.92</ReviewQueueThreshold>
-    <LowConfidenceBehavior>confidence &lt; 0.75 -> inconclusive + enrichment job</LowConfidenceBehavior>
-    <ReviewerActions>approve, merge, split, reject</ReviewerActions>
-  </HitlPolicy>
-
-  <QualityGuardrailsV1>
-    <ReleaseGate-1>Weekly smoke set of 30-50 realistic queries must run</ReleaseGate-1>
-    <ReleaseGate-2>Evidence/citation coverage must be &gt;= 95%</ReleaseGate-2>
-    <ReleaseGate-3>Connector contract tests and replay fixtures must pass</ReleaseGate-3>
-    <ReleaseGate-4>Validator obvious error rate must be &lt;= 10% on manual audit sample</ReleaseGate-4>
-    <Note>Full automated eval pipeline is deferred to post-v1</Note>
-  </QualityGuardrailsV1>
+  <DeferredCapabilities>
+    <capability-1>search_context hybrid retrieval with evidence contract</capability-1>
+    <capability-2>validate_google_map_link deterministic verifier</capability-2>
+    <capability-3>verify_tabelog deterministic verifier</capability-3>
+  </DeferredCapabilities>
 </TechnologyStack>
