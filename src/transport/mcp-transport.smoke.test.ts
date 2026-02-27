@@ -332,9 +332,9 @@ describe("M-TRANSPORT smoke checks", () => {
       unknown
     > = {
       search_messages: {},
-      get_message_context: { message_id: "msg-context-1" },
-      get_related_messages: { message_id: "msg-related-1" },
-      list_sources: {},
+      get_message_context: { message_uid: "msg-context-1" },
+      get_related_messages: { message_uid: "msg-related-1" },
+      list_sources: { message_uids: ["test-uid-1"] },
     };
 
     const allowedToolNames = [

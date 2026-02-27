@@ -62,27 +62,35 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
   },
   get_message_context: {
     type: "object",
-    description: "Input for get_message_context. Requires message_id.",
-    required: ["message_id"],
+    description: "Input for get_message_context. Requires message_uid.",
+    required: ["message_uid"],
     additionalProperties: true,
     properties: {
-      message_id: { type: "string", minLength: 1 },
+      message_uid: { type: "string", minLength: 1 },
     },
   },
   get_related_messages: {
     type: "object",
-    description: "Input for get_related_messages. Requires message_id.",
-    required: ["message_id"],
+    description: "Input for get_related_messages. Requires message_uid.",
+    required: ["message_uid"],
     additionalProperties: true,
     properties: {
-      message_id: { type: "string", minLength: 1 },
+      message_uid: { type: "string", minLength: 1 },
     },
   },
   list_sources: {
     type: "object",
-    description: "Input for list_sources. Only empty object is allowed.",
-    additionalProperties: false,
-    properties: {},
+    description: "Input for list_sources. Requires message_uids array.",
+    additionalProperties: true,
+    properties: {
+      message_uids: {
+        type: "array",
+        items: { type: "string", minLength: 1 },
+        minItems: 1,
+        maxItems: 100,
+      },
+    },
+    required: ["message_uids"],
   },
 };
 
@@ -162,28 +170,30 @@ export const SearchMessagesInputPublicSchema = z
 
 export const GetMessageContextInputSchema = z
   .object({
-    message_id: z
+    message_uid: z
       .string()
       .trim()
-      .min(1, "get_message_context requires non-empty string field message_id."),
+      .min(1, "get_message_context requires non-empty string field message_uid."),
   })
   .passthrough();
 
 export const GetRelatedMessagesInputSchema = z
   .object({
-    message_id: z
+    message_uid: z
       .string()
       .trim()
-      .min(1, "get_related_messages requires non-empty string field message_id."),
+      .min(1, "get_related_messages requires non-empty string field message_uid."),
   })
   .passthrough();
 
-export const ListSourcesInputSchema = z.object({}).strict();
+export const ListSourcesInputSchema = z.object({
+  message_uids: z.array(z.string().min(1)).min(1).max(100),
+});
 
 export type SearchMessagesInputPublic = z.infer<typeof SearchMessagesInputPublicSchema>;
 export type GetMessageContextInput = z.infer<typeof GetMessageContextInputSchema>;
 export type GetRelatedMessagesInput = z.infer<typeof GetRelatedMessagesInputSchema>;
-export type ListSourcesInput = Record<string, never>;
+export type ListSourcesInput = z.infer<typeof ListSourcesInputSchema>;
 
 // START_CONTRACT: buildSchemaValidationError
 //   PURPOSE: Build and throw typed schema validation errors with optional diagnostics logging.
@@ -298,7 +308,7 @@ export function validateSearchMessagesInputPublic(
 }
 
 // START_CONTRACT: validateGetMessageContextInput
-//   PURPOSE: Validate get_message_context input and require non-empty message_id.
+//   PURPOSE: Validate get_message_context input and require non-empty message_uid.
 //   INPUTS: { rawArgs: unknown - Untrusted tool args, logger: Logger | undefined - Optional diagnostics logger }
 //   OUTPUTS: { GetMessageContextInput - Validated get_message_context input }
 //   SIDE_EFFECTS: [Throws SchemaValidationError on validation failures]
@@ -321,7 +331,7 @@ export function validateGetMessageContextInput(
 }
 
 // START_CONTRACT: validateGetRelatedMessagesInput
-//   PURPOSE: Validate get_related_messages input and require non-empty message_id.
+//   PURPOSE: Validate get_related_messages input and require non-empty message_uid.
 //   INPUTS: { rawArgs: unknown - Untrusted tool args, logger: Logger | undefined - Optional diagnostics logger }
 //   OUTPUTS: { GetRelatedMessagesInput - Validated get_related_messages input }
 //   SIDE_EFFECTS: [Throws SchemaValidationError on validation failures]
@@ -344,19 +354,15 @@ export function validateGetRelatedMessagesInput(
 }
 
 // START_CONTRACT: validateListSourcesInput
-//   PURPOSE: Validate list_sources input allowing only empty object or undefined normalized to empty object.
+//   PURPOSE: Validate list_sources input requiring message_uids array.
 //   INPUTS: { rawArgs: unknown - Untrusted tool args, logger: Logger | undefined - Optional diagnostics logger }
-//   OUTPUTS: { ListSourcesInput - Normalized empty object input }
+//   OUTPUTS: { ListSourcesInput - Validated list_sources input with message_uids }
 //   SIDE_EFFECTS: [Throws SchemaValidationError on validation failures]
 //   LINKS: [M-TOOLS-CONTRACTS, M-LOGGER]
 // END_CONTRACT: validateListSourcesInput
 export function validateListSourcesInput(rawArgs: unknown, logger?: Logger): ListSourcesInput {
   // START_BLOCK_VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_009
-  if (rawArgs === undefined) {
-    return {};
-  }
-
-  parseWithSchema(
+  return parseWithSchema(
     rawArgs,
     ListSourcesInputSchema,
     "list_sources",
@@ -364,7 +370,6 @@ export function validateListSourcesInput(rawArgs: unknown, logger?: Logger): Lis
     "validateListSourcesInput",
     "VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD",
   );
-  return {};
   // END_BLOCK_VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_009
 }
 
