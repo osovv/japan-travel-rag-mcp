@@ -208,6 +208,15 @@
       </annotations>
     </M-TG-CHAT-RAG-CLIENT-TEST>
 
+    <M-TOOL-PROXY-TEST NAME="ToolProxyServiceTests" TYPE="TEST" STATUS="active">
+      <purpose>Deterministic tests for proxy orchestration, allowlist enforcement, search policy injection, and upstream error mapping.</purpose>
+      <path>src/tools/proxy-service.test.ts</path>
+      <depends>M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT</depends>
+      <annotations>
+        <fn-ToolProxyServiceTests description="Focused coverage for validate-policy-upstream-normalize flow and proxy error codes." />
+      </annotations>
+    </M-TOOL-PROXY-TEST>
+
     <CrossLinks>
       <CrossLink FROM="M-CONFIG" TO="M-LOGGER" REL="configures" />
       <CrossLink FROM="M-LOGGER" TO="M-CONFIG" REL="depends_on" />
@@ -244,6 +253,9 @@
 
       <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TG-CHAT-RAG-CLIENT-TEST" REL="validated_by" />
       <CrossLink FROM="M-TG-CHAT-RAG-CLIENT-TEST" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
+
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOL-PROXY-TEST" REL="validated_by" />
+      <CrossLink FROM="M-TOOL-PROXY-TEST" TO="M-TOOL-PROXY" REL="depends_on" />
 
       <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOLS-CONTRACTS-TEST" REL="validated_by" />
       <CrossLink FROM="M-TOOLS-CONTRACTS-TEST" TO="M-TOOLS-CONTRACTS" REL="depends_on" />

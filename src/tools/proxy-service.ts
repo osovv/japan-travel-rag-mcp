@@ -1,5 +1,5 @@
 // FILE: src/tools/proxy-service.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Apply policy-safe normalization and proxy supported MCP tool calls to tg-chat-rag.
 //   SCOPE: Enforce tool allowlist, validate inputs, inject internal search chat scope policy, call upstream methods API, and map results/errors to MCP proxy outputs.
@@ -17,7 +17,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-TOOL-PROXY.
+//   LAST_CHANGE: v1.1.0 - Simplified executeTool orchestration to explicit validate -> policy -> upstream -> normalize flow while keeping deterministic error mapping and chat_ids policy enforcement.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -122,42 +122,6 @@ function hasForbiddenChatIdsInFiltersTree(filtersValue: unknown): boolean {
   // END_BLOCK_DETECT_CHAT_IDS_IN_FILTERS_SUBTREE_M_TOOL_PROXY_002
 }
 
-// START_CONTRACT: rejectForbiddenSearchFiltersChatIds
-//   PURPOSE: Enforce defense-in-depth rejection for public search requests containing filters.chat_ids.
-//   INPUTS: { rawArgs: unknown - Raw input from caller, logger: Logger - Module logger }
-//   OUTPUTS: { void - Returns only when input passes policy }
-//   SIDE_EFFECTS: [Throws ProxyExecutionError on policy violation and logs warning]
-//   LINKS: [M-TOOL-PROXY, M-LOGGER]
-// END_CONTRACT: rejectForbiddenSearchFiltersChatIds
-function rejectForbiddenSearchFiltersChatIds(rawArgs: unknown, logger: Logger): void {
-  // START_BLOCK_ENFORCE_PUBLIC_SEARCH_CHAT_IDS_REJECTION_M_TOOL_PROXY_003
-  if (!isPlainObject(rawArgs)) {
-    return;
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(rawArgs, "filters")) {
-    return;
-  }
-
-  if (!hasForbiddenChatIdsInFiltersTree(rawArgs.filters)) {
-    return;
-  }
-
-  logger.warn(
-    "Rejected search_messages request containing forbidden filters.chat_ids.",
-    "executeTool",
-    "ENFORCE_PUBLIC_SEARCH_CHAT_IDS_REJECTION",
-    {},
-  );
-
-  throw new ProxyExecutionError(
-    "VALIDATION_ERROR",
-    "search_messages input forbids filters.chat_ids at public boundary.",
-    { reason: "FORBIDDEN_PUBLIC_SEARCH_CHAT_IDS" },
-  );
-  // END_BLOCK_ENFORCE_PUBLIC_SEARCH_CHAT_IDS_REJECTION_M_TOOL_PROXY_003
-}
-
 // START_CONTRACT: validateAndMapInput
 //   PURPOSE: Validate tool input and map schema validation failures to proxy validation errors.
 //   INPUTS: { toolName: ProxiedToolName - Supported tool name, rawArgs: unknown - Untrusted tool args, logger: Logger - Module logger }
@@ -207,7 +171,7 @@ function validateAndMapInput(
 //   PURPOSE: Build upstream payload and enforce internal search chat scope policy for search_messages.
 //   INPUTS: { toolName: ProxiedToolName - Supported tool name, validatedArgs: ValidatedToolInput - Validated input object, config: AppConfig - Runtime configuration, logger: Logger - Module logger }
 //   OUTPUTS: { Record<string, unknown> - Upstream payload object }
-//   SIDE_EFFECTS: [Logs policy injection for search_messages]
+//   SIDE_EFFECTS: [Logs policy injection for search_messages, throws ProxyExecutionError on policy boundary violation]
 //   LINKS: [M-TOOL-PROXY, M-CONFIG, M-LOGGER]
 // END_CONTRACT: buildUpstreamPayloadWithPolicy
 function buildUpstreamPayloadWithPolicy(
@@ -222,6 +186,20 @@ function buildUpstreamPayloadWithPolicy(
   }
 
   const searchArgs = validatedArgs as SearchMessagesInputPublic;
+  if (hasForbiddenChatIdsInFiltersTree(searchArgs.filters)) {
+    logger.warn(
+      "Rejected search_messages request containing forbidden filters.chat_ids.",
+      "executeTool",
+      "APPLY_SEARCH_CHAT_SCOPE_POLICY",
+      { toolName },
+    );
+    throw new ProxyExecutionError(
+      "VALIDATION_ERROR",
+      "search_messages input forbids filters.chat_ids at public boundary.",
+      { reason: "FORBIDDEN_PUBLIC_SEARCH_CHAT_IDS" },
+    );
+  }
+
   const basePayload: Record<string, unknown> = { ...searchArgs };
   const existingFilters = isPlainObject(searchArgs.filters) ? { ...searchArgs.filters } : {};
 
@@ -298,7 +276,7 @@ export async function executeTool(
   toolName: string,
   rawArgs: unknown,
 ): Promise<McpToolResult> {
-  // START_BLOCK_VALIDATE_TOOL_NAME_AND_DISPATCH_M_TOOL_PROXY_008
+  // START_BLOCK_VALIDATE_ALLOWLIST_AND_INPUT_M_TOOL_PROXY_008
   const functionName = "executeTool";
   const startedAt = Date.now();
   const normalizedToolName = toolName.trim();
@@ -306,7 +284,7 @@ export async function executeTool(
   logger.info(
     "Dispatching tool execution request.",
     functionName,
-    "VALIDATE_TOOL_NAME_AND_DISPATCH",
+    "VALIDATE_ALLOWLIST_AND_INPUT",
     { toolName: normalizedToolName },
   );
 
@@ -314,7 +292,7 @@ export async function executeTool(
     logger.warn(
       "Rejected unsupported tool request.",
       functionName,
-      "VALIDATE_TOOL_NAME_AND_DISPATCH",
+      "VALIDATE_ALLOWLIST_AND_INPUT",
       { toolName: normalizedToolName, allowlist: [...PROXIED_TOOL_NAMES] },
     );
     throw new ProxyExecutionError(
@@ -323,13 +301,9 @@ export async function executeTool(
       { toolName: normalizedToolName, allowlist: [...PROXIED_TOOL_NAMES] },
     );
   }
-  // END_BLOCK_VALIDATE_TOOL_NAME_AND_DISPATCH_M_TOOL_PROXY_008
+  // END_BLOCK_VALIDATE_ALLOWLIST_AND_INPUT_M_TOOL_PROXY_008
 
-  // START_BLOCK_VALIDATE_ARGS_AND_BUILD_POLICY_PAYLOAD_M_TOOL_PROXY_009
-  if (normalizedToolName === "search_messages") {
-    rejectForbiddenSearchFiltersChatIds(rawArgs, logger);
-  }
-
+  // START_BLOCK_APPLY_POLICY_AFTER_VALIDATION_M_TOOL_PROXY_009
   const validatedArgs = validateAndMapInput(normalizedToolName, rawArgs, logger);
   const upstreamPayload = buildUpstreamPayloadWithPolicy(
     normalizedToolName,
@@ -337,9 +311,9 @@ export async function executeTool(
     config,
     logger,
   );
-  // END_BLOCK_VALIDATE_ARGS_AND_BUILD_POLICY_PAYLOAD_M_TOOL_PROXY_009
+  // END_BLOCK_APPLY_POLICY_AFTER_VALIDATION_M_TOOL_PROXY_009
 
-  // START_BLOCK_CALL_UPSTREAM_AND_MAP_RESULT_M_TOOL_PROXY_010
+  // START_BLOCK_EXECUTE_UPSTREAM_AND_NORMALIZE_RESULT_M_TOOL_PROXY_010
   try {
     const upstreamResponse = await client.callMethod(normalizedToolName, upstreamPayload);
     const durationMs = Date.now() - startedAt;
@@ -347,11 +321,12 @@ export async function executeTool(
     logger.info(
       "Tool execution completed successfully.",
       functionName,
-      "CALL_UPSTREAM_AND_MAP_RESULT",
+      "EXECUTE_UPSTREAM_AND_NORMALIZE_RESULT",
       { toolName: normalizedToolName, durationMs },
     );
 
-    return buildMcpToolResult(upstreamResponse);
+    const normalizedResult = buildMcpToolResult(upstreamResponse);
+    return normalizedResult;
   } catch (error: unknown) {
     const durationMs = Date.now() - startedAt;
 
@@ -401,5 +376,5 @@ export async function executeTool(
       },
     );
   }
-  // END_BLOCK_CALL_UPSTREAM_AND_MAP_RESULT_M_TOOL_PROXY_010
+  // END_BLOCK_EXECUTE_UPSTREAM_AND_NORMALIZE_RESULT_M_TOOL_PROXY_010
 }
