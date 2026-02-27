@@ -337,25 +337,25 @@
   </MentalTests>
 
   <ImplementationOrder>
-    <Phase-1 name="ConfigAndContracts">
+    <Phase-1 name="ConfigAndContracts" status="done">
       <step-1>Finalize M-CONFIG env contract for OAuth Proxy + admin root token + tg-chat-rag.</step-1>
       <step-2>Finalize M-TOOLS-CONTRACTS with field descriptions and deterministic errors.</step-2>
       <justification>All runtime branches depend on validated config and stable tool schemas.</justification>
     </Phase-1>
 
-    <Phase-2 name="Integrations">
+    <Phase-2 name="Integrations" status="pending">
       <step-1>Implement M-AUTH-PROXY wrapper around FastMCP OAuthProxy.</step-1>
       <step-2>Keep M-TG-CHAT-RAG-CLIENT focused on one method call contract.</step-2>
       <justification>External boundaries should be explicit before wiring runtime entrypoints.</justification>
     </Phase-2>
 
-    <Phase-3 name="CoreLogicAndAdmin">
+    <Phase-3 name="CoreLogicAndAdmin" status="pending">
       <step-1>Simplify M-TOOL-PROXY orchestration around validate -> policy -> upstream -> normalize.</step-1>
       <step-2>Keep M-ADMIN-AUTH and M-ADMIN-UI root-token-only with no MCP auth coupling.</step-2>
       <justification>Core behavior and admin guardrails are independent and testable in isolation.</justification>
     </Phase-3>
 
-    <Phase-4 name="RuntimeAndBoot">
+    <Phase-4 name="RuntimeAndBoot" status="pending">
       <step-1>Wire M-FASTMCP-RUNTIME with oauth proxy for /mcp and mount admin routes.</step-1>
       <step-2>Finalize M-SERVER/M-ROOT-ENTRYPOINT startup and shutdown lifecycle.</step-2>
       <justification>Entrypoints are assembled last to avoid hidden coupling and ease smoke validation.</justification>
