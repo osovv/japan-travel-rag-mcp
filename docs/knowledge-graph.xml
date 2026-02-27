@@ -190,6 +190,15 @@
       </annotations>
     </M-ADMIN-UI-OPS-TEST>
 
+    <M-TOOLS-CONTRACTS-TEST NAME="ToolContractsTests" TYPE="TEST" STATUS="active">
+      <purpose>Deterministic validation checks for four-tool schema contract and stable SchemaValidationError behavior.</purpose>
+      <path>src/tools/contracts.test.ts</path>
+      <depends>M-TOOLS-CONTRACTS</depends>
+      <annotations>
+        <fn-ToolContractsTests description="Focused coverage for allowlist, schema metadata, forbidden filters.chat_ids, and validation detail stability." />
+      </annotations>
+    </M-TOOLS-CONTRACTS-TEST>
+
     <CrossLinks>
       <CrossLink FROM="M-CONFIG" TO="M-LOGGER" REL="configures" />
       <CrossLink FROM="M-LOGGER" TO="M-CONFIG" REL="depends_on" />
@@ -223,6 +232,9 @@
 
       <CrossLink FROM="M-SERVER" TO="M-ROOT-ENTRYPOINT" REL="invoked_by" />
       <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" REL="depends_on" />
+
+      <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOLS-CONTRACTS-TEST" REL="validated_by" />
+      <CrossLink FROM="M-TOOLS-CONTRACTS-TEST" TO="M-TOOLS-CONTRACTS" REL="depends_on" />
     </CrossLinks>
 
     <DataFlows>

@@ -1,5 +1,5 @@
 // FILE: src/tools/contracts.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Define and export MCP tool schemas and tool allowlist for the proxy surface.
 //   SCOPE: Provide input types, tool metadata schemas, and zod-based runtime validators for proxied MCP tool inputs.
@@ -25,7 +25,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Refactored runtime validation layer to zod while preserving module API.
+//   LAST_CHANGE: v1.2.0 - Strengthened tool field descriptions and deterministic validation details while preserving four-tool public surface.
 // END_CHANGE_SUMMARY
 
 import { z } from "zod";
@@ -40,6 +40,19 @@ export const PROXIED_TOOL_NAMES = [
 
 export type ProxiedToolName = (typeof PROXIED_TOOL_NAMES)[number];
 
+const SEARCH_MESSAGES_FORBIDDEN_CHAT_IDS_ERROR =
+  "search_messages input forbids filters.chat_ids at the public boundary.";
+const GET_MESSAGE_CONTEXT_MESSAGE_UID_REQUIRED_ERROR =
+  "get_message_context requires non-empty string field message_uid.";
+const GET_RELATED_MESSAGES_MESSAGE_UID_REQUIRED_ERROR =
+  "get_related_messages requires non-empty string field message_uid.";
+const LIST_SOURCES_MESSAGE_UID_ENTRY_REQUIRED_ERROR =
+  "list_sources requires each message_uids entry to be a non-empty string.";
+const LIST_SOURCES_MESSAGE_UIDS_MIN_ERROR =
+  "list_sources requires message_uids array with at least one message UID.";
+const LIST_SOURCES_MESSAGE_UIDS_MAX_ERROR =
+  "list_sources supports at most 100 message_uids per request.";
+
 type ToolInputSchema = {
   type: "object";
   description: string;
@@ -52,40 +65,65 @@ type ToolInputSchema = {
 export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> = {
   search_messages: {
     type: "object",
-    description: "Public input for search_messages. filters.chat_ids is forbidden.",
+    description:
+      "Public input for search_messages. Caller may provide query and filters, but filters.chat_ids is forbidden and injected internally.",
     additionalProperties: true,
     properties: {
-      query: { type: "string" },
-      filters: { type: "object", additionalProperties: true },
+      query: {
+        type: "string",
+        description: "Search query text sent to upstream semantic retrieval.",
+      },
+      filters: {
+        type: "object",
+        additionalProperties: true,
+        description:
+          "Optional search filter object. Any nested filters.chat_ids path is forbidden at public boundary.",
+      },
     },
     x_forbidden_paths: ["filters.chat_ids"],
   },
   get_message_context: {
     type: "object",
-    description: "Input for get_message_context. Requires message_uid.",
+    description:
+      "Input for get_message_context. Requires a non-empty message_uid identifying the anchor message.",
     required: ["message_uid"],
     additionalProperties: true,
     properties: {
-      message_uid: { type: "string", minLength: 1 },
+      message_uid: {
+        type: "string",
+        minLength: 1,
+        description: "Unique message identifier used to fetch context window.",
+      },
     },
   },
   get_related_messages: {
     type: "object",
-    description: "Input for get_related_messages. Requires message_uid.",
+    description:
+      "Input for get_related_messages. Requires a non-empty message_uid used as relation anchor.",
     required: ["message_uid"],
     additionalProperties: true,
     properties: {
-      message_uid: { type: "string", minLength: 1 },
+      message_uid: {
+        type: "string",
+        minLength: 1,
+        description: "Unique message identifier used to retrieve semantically related messages.",
+      },
     },
   },
   list_sources: {
     type: "object",
-    description: "Input for list_sources. Requires message_uids array.",
+    description:
+      "Input for list_sources. Requires bounded message_uids array to resolve source provenance for each message.",
     additionalProperties: true,
     properties: {
       message_uids: {
         type: "array",
-        items: { type: "string", minLength: 1 },
+        description: "List of message UIDs to resolve source records for.",
+        items: {
+          type: "string",
+          minLength: 1,
+          description: "Single message UID entry.",
+        },
         minItems: 1,
         maxItems: 100,
       },
@@ -162,7 +200,7 @@ export const SearchMessagesInputPublicSchema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "search_messages input forbids filters.chat_ids at the public boundary.",
+        message: SEARCH_MESSAGES_FORBIDDEN_CHAT_IDS_ERROR,
         path: ["filters"],
       });
     }
@@ -173,7 +211,7 @@ export const GetMessageContextInputSchema = z
     message_uid: z
       .string()
       .trim()
-      .min(1, "get_message_context requires non-empty string field message_uid."),
+      .min(1, GET_MESSAGE_CONTEXT_MESSAGE_UID_REQUIRED_ERROR),
   })
   .passthrough();
 
@@ -182,12 +220,15 @@ export const GetRelatedMessagesInputSchema = z
     message_uid: z
       .string()
       .trim()
-      .min(1, "get_related_messages requires non-empty string field message_uid."),
+      .min(1, GET_RELATED_MESSAGES_MESSAGE_UID_REQUIRED_ERROR),
   })
   .passthrough();
 
 export const ListSourcesInputSchema = z.object({
-  message_uids: z.array(z.string().min(1)).min(1).max(100),
+  message_uids: z
+    .array(z.string().min(1, LIST_SOURCES_MESSAGE_UID_ENTRY_REQUIRED_ERROR))
+    .min(1, LIST_SOURCES_MESSAGE_UIDS_MIN_ERROR)
+    .max(100, LIST_SOURCES_MESSAGE_UIDS_MAX_ERROR),
 });
 
 export type SearchMessagesInputPublic = z.infer<typeof SearchMessagesInputPublicSchema>;
