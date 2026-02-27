@@ -1,370 +1,249 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.2.1">
-    <keywords>japan-travel, mcp, fastmcp, hono, proxy, tg-chat-rag, oauth, logto, mcp-auth, jose, admin-ui, postgres, drizzle, contract-first</keywords>
-    <annotation>Target runtime architecture uses FastMCP HTTP stream for /mcp with mcp-auth-backed authenticate adapter and Hono-mounted /admin routes. OAuth discovery metadata is exposed through FastMCP oauth configuration.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.3.0">
+    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, tg-chat-rag, root-auth, admin-ui, zod, contract-first</keywords>
+    <annotation>Simplified target architecture keeps existing four proxy tools and uses FastMCP OAuth Proxy only on /mcp while preserving ROOT_AUTH_TOKEN-protected /admin surface.</annotation>
 
-    <M-CONFIG NAME="Config" TYPE="UTILITY">
-      <purpose>Runtime config validation for FastMCP runtime, admin authentication, OAuth resource-server settings, and upstream tg-chat-rag integration.</purpose>
+    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
+      <purpose>Runtime config validation for OAuth Proxy, tg-chat-rag proxy settings, and admin root auth settings.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
       <annotations>
-        <fn-loadConfig description="Validate env and return typed AppConfig" />
-        <type-AppConfig description="Configuration object including tg-chat-rag, ROOT_AUTH_TOKEN, FastMCP runtime settings, and OAuth issuer/audience/requiredScopes" />
+        <fn-loadConfig description="Validate env and build typed AppConfig." />
+        <type-AppConfig description="App config including tg-chat-rag, admin token, public URL, and OAuth proxy credentials." />
       </annotations>
     </M-CONFIG>
 
-    <M-LOGGER NAME="Logger" TYPE="UTILITY">
-      <purpose>Structured logging for boot lifecycle, auth decisions, admin surface events, and upstream failures.</purpose>
+    <M-LOGGER NAME="Logger" TYPE="UTILITY" STATUS="active">
+      <purpose>Structured logger factory used by all runtime modules.</purpose>
       <path>src/logger/index.ts</path>
       <depends>M-CONFIG</depends>
       <annotations>
-        <fn-createLogger description="Create module-scoped logger" />
+        <fn-createLogger description="Create scoped logger with block-based log conventions." />
       </annotations>
     </M-LOGGER>
 
-    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER">
-      <purpose>Initialize and expose Drizzle PostgreSQL client from DATABASE_URL for current and future persistence modules.</purpose>
-      <path>src/db/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-createDb description="Create Drizzle database client and connection pool" />
-        <type-DbClient description="Typed Drizzle DB handle" />
-      </annotations>
-    </M-DB>
-
-    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY">
-      <purpose>Schema and allowlist registry for MCP tools proxied in v1 with Standard Schema compatible definitions.</purpose>
+    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" STATUS="active">
+      <purpose>Tool schema registry and validators for current proxied tool set.</purpose>
       <path>src/tools/contracts.ts</path>
       <depends>M-LOGGER</depends>
       <annotations>
-        <schema-SearchMessagesInputPublic description="Public search_messages schema that forbids filters.chat_ids" />
-        <schema-GetMessageContextInput description="Input schema for get_message_context" />
-        <schema-GetRelatedMessagesInput description="Input schema for get_related_messages" />
-        <schema-ListSourcesInput description="Input schema for list_sources" />
-        <const-PROXIED_TOOL_NAMES description="Allowed tools: search_messages, get_message_context, get_related_messages, list_sources" />
+        <schema-SearchMessagesInputPublic description="Public schema for search_messages with filters.chat_ids forbidden." />
+        <schema-GetMessageContextInput description="Input schema for get_message_context." />
+        <schema-GetRelatedMessagesInput description="Input schema for get_related_messages." />
+        <schema-ListSourcesInput description="Input schema for list_sources." />
+        <const-PROXIED_TOOL_NAMES description="Allowlist: search_messages, get_message_context, get_related_messages, list_sources." />
+        <const-TOOL_INPUT_JSON_SCHEMAS description="Tool descriptions and parameter contracts consumed by runtime registration." />
       </annotations>
     </M-TOOLS-CONTRACTS>
 
-    <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION">
-      <purpose>HTTP adapter for tg-chat-rag methods API with service-level Bearer token authentication.</purpose>
+    <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION" STATUS="active">
+      <purpose>HTTP methods adapter for tg-chat-rag upstream API.</purpose>
       <path>src/integrations/tg-chat-rag-client.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-callMethod description="POST to /api/v1/methods/&lt;tool_name&gt; and return parsed response" />
-        <type-UpstreamCallError description="Normalized error payload for timeout, auth, and protocol failures" />
+        <fn-callMethod description="Call /api/v1/methods/&lt;tool_name&gt; with service bearer token." />
+        <type-UpstreamCallError description="Normalized upstream error surface for protocol/timeout/http failures." />
       </annotations>
     </M-TG-CHAT-RAG-CLIENT>
 
-    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" TYPE="INTEGRATION">
-      <purpose>Initialize mcp-auth with Logto OIDC discovery and expose framework-agnostic verification + metadata context.</purpose>
-      <path>src/auth/mcp-auth-provider.ts</path>
+    <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" STATUS="planned">
+      <purpose>FastMCP OAuthProxy integration for /mcp authentication backed by Logto OIDC upstream endpoints.</purpose>
+      <path>src/auth/oauth-proxy.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-initMcpAuth description="Async init: fetch Logto OIDC metadata, create MCPAuth context, expose verify/issuer utilities and metadata payloads" />
-        <type-McpAuthContext description="Initialized auth context with verifyAccessToken, validateIssuer, metadata payloads, and resource metadata URL" />
+        <fn-createOauthProxy description="Create OAuthProxy and provide authorization server metadata for FastMCP oauth config." />
+        <type-OauthProxyDeps description="Validated dependency bundle for proxy construction." />
       </annotations>
-    </M-MCP-AUTH-PROVIDER>
+    </M-AUTH-PROXY>
 
-    <M-MCP-AUTH-ADAPTER NAME="McpAuthAdapter" TYPE="CORE_LOGIC">
-      <purpose>Bridge mcp-auth token verification to FastMCP authenticate(request) contract and emit typed auth session.</purpose>
-      <path>src/auth/mcp-auth-adapter.ts</path>
-      <depends>M-MCP-AUTH-PROVIDER, M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-authenticateFastMcpRequest description="Parse Authorization header, verify token, validate issuer/audience/scopes, return session or throw auth response" />
-        <type-McpAuthSession description="Typed auth payload for FastMCP tool session context" />
-      </annotations>
-    </M-MCP-AUTH-ADAPTER>
-
-    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC">
-      <purpose>Authenticate admin login attempts using ROOT_AUTH_TOKEN and enforce admin session cookie checks.</purpose>
-      <path>src/admin/auth.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
-      <annotations>
-        <fn-authenticateAdmin description="Validate login token and issue signed session cookie" />
-        <fn-requireAdminSession description="Allow admin request or return redirect decision" />
-        <fn-clearAdminSession description="Invalidate admin session cookie" />
-      </annotations>
-    </M-ADMIN-AUTH>
-
-    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC">
-      <purpose>Tool-level proxy orchestration: validate input, enforce internal chat scope, forward request, normalize response.</purpose>
+    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" STATUS="active">
+      <purpose>Tool execution orchestration: validate input, apply policy, call upstream, normalize MCP result.</purpose>
       <path>src/tools/proxy-service.ts</path>
       <depends>M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER</depends>
       <annotations>
-        <fn-executeTool description="Main proxy execution function for all exposed MCP tools" />
-        <fn-buildSearchPayload description="Inject filters.chat_ids from config and reject external chat_ids" />
-        <type-ProxyExecutionResult description="Normalized MCP tool response envelope" />
+        <fn-executeTool description="Main proxy execution method for all supported tools." />
+        <fn-buildUpstreamPayloadWithPolicy description="Inject internal chat scope for search_messages." />
+        <type-ProxyExecutionError description="Deterministic error for validation/unsupported/upstream failures." />
       </annotations>
     </M-TOOL-PROXY>
 
-    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT">
-      <purpose>Render Bun JSX admin pages and HTMX fragments for operator login and OAuth diagnostics.</purpose>
+    <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" STATUS="active">
+      <purpose>ROOT_AUTH_TOKEN-based login/session guard for /admin routes.</purpose>
+      <path>src/admin/auth.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-authenticateAdmin description="Validate login token and issue signed session cookie." />
+        <fn-requireAdminSession description="Allow/deny decision for protected admin routes." />
+        <fn-clearAdminSession description="Generate cookie invalidation header for logout." />
+      </annotations>
+    </M-ADMIN-AUTH>
+
+    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
+      <purpose>Server-rendered admin login and ops routes guarded by AdminAuth.</purpose>
       <path>src/admin/ui-routes.tsx</path>
       <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-handleAdminRequest description="Dispatch /admin/login and /admin/ops route actions" />
-        <fn-renderAdminLayout description="Render admin layout with OAuth ops tab" />
-        <fn-renderOpsStatus description="Render OAuth runtime status fragment" />
+        <fn-handleAdminRequest description="Dispatch /admin/login and /admin/ops route handling." />
+        <fn-renderAdminLayout description="Render top-level admin HTML shell." />
+        <fn-renderOpsStatus description="Render runtime diagnostics for operators." />
       </annotations>
     </M-ADMIN-UI>
 
-    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER">
-      <purpose>Persist and query API key lifecycle records used for MCP Bearer authentication.</purpose>
-      <path>src/admin/api-key-repository.ts</path>
-      <depends>M-DB, M-LOGGER</depends>
-      <annotations>
-        <fn-createApiKeyRepository description="Build repository for API key create/list/revoke/resolve lifecycle operations" />
-        <type-ApiKeyRecord description="Public API key metadata shape for admin and auth layers" />
-      </annotations>
-    </M-API-KEY-REPOSITORY>
-
-    <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT">
-      <purpose>Create FastMCP runtime, register proxy tools, configure oauth metadata endpoints, and mount /admin routes on underlying Hono app.</purpose>
+    <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" STATUS="active-target">
+      <purpose>Construct FastMCP runtime, register current tool surface, configure OAuth Proxy on /mcp, and mount admin routes.</purpose>
       <path>src/runtime/fastmcp-runtime.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-ADAPTER, M-ADMIN-UI</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI</depends>
       <annotations>
-        <fn-createFastMcpRuntime description="Build FastMCP instance with httpStream/oAuth/authenticate configuration" />
-        <fn-registerProxyTools description="Register supported tool set and connect handlers to ToolProxyService" />
-        <fn-mountAdminRoutes description="Mount /admin route handlers via FastMCP.getApp()" />
+        <fn-createFastMcpRuntime description="Build FastMCP instance with oauth proxy and route extension." />
+        <fn-registerProxyTools description="Register current four tool handlers with Zod schemas." />
+        <fn-mountAdminRoutes description="Mount /admin routes through Hono app returned by getApp()." />
       </annotations>
     </M-FASTMCP-RUNTIME>
 
-    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT">
-      <purpose>Process entrypoint with async mcp-auth init, FastMCP runtime boot sequence, and lifecycle control.</purpose>
+    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active-target">
+      <purpose>Bootstrap config and dependencies, then start FastMCP HTTP stream runtime.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-AUTH, M-ADMIN-UI, M-FASTMCP-RUNTIME</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-FASTMCP-RUNTIME</depends>
       <annotations>
-        <fn-main description="Boot server dependencies and start FastMCP HTTP stream runtime" />
+        <fn-main description="Initialize runtime dependencies and start server lifecycle." />
       </annotations>
     </M-SERVER>
 
-    <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT">
-      <purpose>Root runtime bootstrap that invokes server main and maps fatal startup failures to process exit code.</purpose>
+    <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT" STATUS="active">
+      <purpose>Top-level process bootstrap and fatal error mapping.</purpose>
       <path>index.ts</path>
       <depends>M-SERVER</depends>
       <annotations>
-        <fn-bootstrap description="Run server main() and handle fatal startup errors" />
+        <fn-bootstrap description="Invoke main() and terminate process on fatal startup error." />
       </annotations>
     </M-ROOT-ENTRYPOINT>
 
-    <M-MCP-AUTH-ADAPTER-TEST NAME="McpAuthAdapterTests" TYPE="TEST">
-      <purpose>Unit verification of mcp-auth adapter decision mapping for FastMCP authenticate hook.</purpose>
-      <path>src/auth/mcp-auth-adapter.test.ts</path>
-      <depends>M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-LOGGER</depends>
+    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" TYPE="INTEGRATION" STATUS="deprecated">
+      <purpose>Legacy mcp-auth provider integration scheduled for removal after OAuth Proxy migration.</purpose>
+      <path>src/auth/mcp-auth-provider.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-McpAuthAdapterTests description="Checks missing header, invalid token, insufficient scope, valid token, and error response behavior" />
+        <fn-initMcpAuth description="Legacy provider init kept only during transition." />
+      </annotations>
+    </M-MCP-AUTH-PROVIDER>
+
+    <M-MCP-AUTH-ADAPTER NAME="McpAuthAdapter" TYPE="CORE_LOGIC" STATUS="deprecated">
+      <purpose>Legacy authenticate(request) bridge scheduled for removal after OAuth Proxy migration.</purpose>
+      <path>src/auth/mcp-auth-adapter.ts</path>
+      <depends>M-MCP-AUTH-PROVIDER, M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-authenticateFastMcpRequest description="Legacy request auth adapter for mcp-auth flow." />
+      </annotations>
+    </M-MCP-AUTH-ADAPTER>
+
+    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" STATUS="deprecated">
+      <purpose>Legacy PostgreSQL bootstrap used by previously planned API-key lifecycle.</purpose>
+      <path>src/db/index.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-createDb description="Legacy DB bootstrap retained pending cleanup." />
+      </annotations>
+    </M-DB>
+
+    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER" STATUS="deprecated">
+      <purpose>Legacy API-key repository outside simplified runtime target.</purpose>
+      <path>src/admin/api-key-repository.ts</path>
+      <depends>M-DB, M-LOGGER</depends>
+      <annotations>
+        <fn-createApiKeyRepository description="Legacy API-key CRUD repository." />
+      </annotations>
+    </M-API-KEY-REPOSITORY>
+
+    <M-MCP-AUTH-ADAPTER-TEST NAME="McpAuthAdapterTests" TYPE="TEST" STATUS="legacy">
+      <purpose>Legacy auth adapter tests to be replaced by OAuth Proxy integration tests.</purpose>
+      <path>src/auth/mcp-auth-adapter.test.ts</path>
+      <depends>M-MCP-AUTH-ADAPTER</depends>
+      <annotations>
+        <fn-McpAuthAdapterTests description="Legacy auth adapter coverage." />
       </annotations>
     </M-MCP-AUTH-ADAPTER-TEST>
 
-    <M-SERVER-INTEGRATION-TEST NAME="ServerIntegrationTests" TYPE="TEST">
-      <purpose>Integration verification of FastMCP discovery/auth flow, admin routing, and authorized MCP dispatch.</purpose>
-      <path>src/server/server-integration.test.ts</path>
-      <depends>M-SERVER, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER</depends>
-      <annotations>
-        <fn-ServerIntegrationTests description="Validates well-known metadata, auth challenge/allow behavior, admin routes, and tool dispatch" />
-      </annotations>
-    </M-SERVER-INTEGRATION-TEST>
-
-    <M-FASTMCP-RUNTIME-SMOKE NAME="FastMcpRuntimeSmokeTests" TYPE="TEST">
-      <purpose>Smoke verification for FastMCP tool registration and denied/allowed dispatch behavior.</purpose>
+    <M-FASTMCP-RUNTIME-SMOKE NAME="FastMcpRuntimeSmokeTests" TYPE="TEST" STATUS="active-target">
+      <purpose>Runtime smoke tests for tool registration and dispatch behavior.</purpose>
       <path>src/runtime/fastmcp-runtime.smoke.test.ts</path>
-      <depends>M-FASTMCP-RUNTIME, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-ADAPTER</depends>
+      <depends>M-FASTMCP-RUNTIME, M-TOOL-PROXY</depends>
       <annotations>
-        <fn-FastMcpRuntimeSmokeTests description="Checks tool list/dispatch behavior and schema validation at runtime boundary" />
+        <fn-FastMcpRuntimeSmokeTests description="Tool exposure and dispatch smoke coverage." />
       </annotations>
     </M-FASTMCP-RUNTIME-SMOKE>
 
-    <M-CONFIG-TEST NAME="ConfigTests" TYPE="TEST">
-      <purpose>Validation of OAuth/public runtime config parsing defaults and strict error behavior.</purpose>
-      <path>src/config/index.test.ts</path>
-      <depends>M-CONFIG</depends>
+    <M-SERVER-INTEGRATION-TEST NAME="ServerIntegrationTests" TYPE="TEST" STATUS="active-target">
+      <purpose>End-to-end checks for /mcp auth flow boundaries and /admin behavior.</purpose>
+      <path>src/server/server-integration.test.ts</path>
+      <depends>M-SERVER, M-FASTMCP-RUNTIME</depends>
       <annotations>
-        <fn-ConfigParsingTests description="Verifies config defaults, overrides, and CONFIG_VALIDATION_ERROR conditions" />
+        <fn-ServerIntegrationTests description="Integration coverage for transport/auth route isolation." />
       </annotations>
-    </M-CONFIG-TEST>
+    </M-SERVER-INTEGRATION-TEST>
 
-    <M-ADMIN-UI-OPS-TEST NAME="AdminUiOpsRouteTests" TYPE="TEST">
-      <purpose>Stability verification for admin login/session and ops routes.</purpose>
+    <M-ADMIN-UI-OPS-TEST NAME="AdminUiOpsRouteTests" TYPE="TEST" STATUS="active">
+      <purpose>Regression checks for root-token admin login/session and ops rendering.</purpose>
       <path>src/admin/ui-routes.ops.test.ts</path>
-      <depends>M-ADMIN-UI, M-CONFIG, M-LOGGER, M-ADMIN-AUTH</depends>
+      <depends>M-ADMIN-UI, M-ADMIN-AUTH</depends>
       <annotations>
-        <fn-AdminUiOpsRouteTests description="Checks login/session redirects and ops rendering" />
+        <fn-AdminUiOpsRouteTests description="Admin auth and ops route behavior coverage." />
       </annotations>
     </M-ADMIN-UI-OPS-TEST>
 
-    <M-DOCKER-DEV NAME="DockerComposeDev" TYPE="INFRA">
-      <purpose>Development container orchestration for MCP server with local source mount and .env loading.</purpose>
-      <path>docker-compose.yaml</path>
-      <depends>M-DOCKER-IMAGE, M-SERVER, M-CONFIG</depends>
-      <annotations>
-        <cfg-mcp-service description="Single mcp service running bun run index.ts with healthcheck" />
-      </annotations>
-    </M-DOCKER-DEV>
+    <CrossLinks>
+      <CrossLink FROM="M-CONFIG" TO="M-LOGGER" REL="configures" />
+      <CrossLink FROM="M-LOGGER" TO="M-CONFIG" REL="depends_on" />
 
-    <M-DOCKER-PROD NAME="DockerComposeProd" TYPE="INFRA">
-      <purpose>Production container orchestration for MCP server with required runtime env vars and external network.</purpose>
-      <path>docker-compose.prod.yaml</path>
-      <depends>M-DOCKER-IMAGE, M-SERVER, M-CONFIG</depends>
-      <annotations>
-        <cfg-mcp-service description="Single mcp service running bun run index.ts on external coolify network" />
-      </annotations>
-    </M-DOCKER-PROD>
+      <CrossLink FROM="M-CONFIG" TO="M-AUTH-PROXY" REL="configures" />
+      <CrossLink FROM="M-AUTH-PROXY" TO="M-CONFIG" REL="depends_on" />
 
-    <M-DOCKER-IMAGE NAME="DockerImage" TYPE="INFRA">
-      <purpose>Container image build definition for MCP HTTP server runtime.</purpose>
-      <path>Dockerfile</path>
-      <depends>M-SERVER, M-CONFIG</depends>
-      <annotations>
-        <cfg-release-stage description="Builds Bun runtime image with sources and production dependencies" />
-      </annotations>
-    </M-DOCKER-IMAGE>
+      <CrossLink FROM="M-CONFIG" TO="M-TG-CHAT-RAG-CLIENT" REL="configures" />
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" REL="depends_on" />
 
-    <DELETED-MODULES>
-      <M-MCP-AUTH-GUARD NAME="McpAuthGuard (DELETED)" reason="Replaced by M-MCP-AUTH-ADAPTER for FastMCP authenticate flow">
-        <previous-path>src/auth/mcp-auth-guard.ts</previous-path>
-      </M-MCP-AUTH-GUARD>
-      <M-TRANSPORT NAME="McpTransport (DELETED)" reason="Replaced by M-FASTMCP-RUNTIME FastMCP registration/dispatch layer">
-        <previous-path>src/transport/mcp-transport.ts</previous-path>
-      </M-TRANSPORT>
-      <M-MCP-AUTH-GUARD-TEST NAME="McpAuthGuardTests (DELETED)" reason="Replaced by adapter-focused tests">
-        <previous-path>src/auth/mcp-auth-guard.test.ts</previous-path>
-      </M-MCP-AUTH-GUARD-TEST>
-      <M-TRANSPORT-SMOKE NAME="TransportSmokeTests (DELETED)" reason="Replaced by FastMCP runtime smoke tests">
-        <previous-path>src/transport/mcp-transport.smoke.test.ts</previous-path>
-      </M-TRANSPORT-SMOKE>
-      <M-OAUTH-JWKS NAME="OAuthJwksClient (DELETED)" reason="Replaced by jose via mcp-auth TokenVerifier">
-        <previous-path>src/auth/oauth-jwks-client.ts</previous-path>
-      </M-OAUTH-JWKS>
-      <M-OAUTH-TOKEN-VALIDATOR NAME="OAuthTokenValidator (DELETED)" reason="Replaced by mcp-auth TokenVerifier.createVerifyJwtFunction()">
-        <previous-path>src/auth/oauth-token-validator.ts</previous-path>
-      </M-OAUTH-TOKEN-VALIDATOR>
-      <M-OAUTH-DISCOVERY NAME="OAuthDiscoveryRoutes (DELETED)" reason="Replaced by runtime-served oauth metadata endpoints">
-        <previous-path>src/auth/oauth-discovery-routes.ts</previous-path>
-      </M-OAUTH-DISCOVERY>
-    </DELETED-MODULES>
+      <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOL-PROXY" REL="validates_inputs_for" />
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" REL="depends_on" />
+
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TOOL-PROXY" REL="integrates_with" />
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
+
+      <CrossLink FROM="M-AUTH-PROXY" TO="M-FASTMCP-RUNTIME" REL="authenticates" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-AUTH-PROXY" REL="depends_on" />
+
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-FASTMCP-RUNTIME" REL="handles_tool_execution_for" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOL-PROXY" REL="depends_on" />
+
+      <CrossLink FROM="M-ADMIN-AUTH" TO="M-ADMIN-UI" REL="authorizes" />
+      <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" REL="depends_on" />
+
+      <CrossLink FROM="M-ADMIN-UI" TO="M-FASTMCP-RUNTIME" REL="mounted_by" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-ADMIN-UI" REL="depends_on" />
+
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-SERVER" REL="booted_by" />
+      <CrossLink FROM="M-SERVER" TO="M-FASTMCP-RUNTIME" REL="depends_on" />
+
+      <CrossLink FROM="M-SERVER" TO="M-ROOT-ENTRYPOINT" REL="invoked_by" />
+      <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" REL="depends_on" />
+    </CrossLinks>
 
     <DataFlows>
-      <DF-ADMIN-LOGIN NAME="admin login flow">
-        <step-1>Operator submits ROOT_AUTH_TOKEN via /admin/login form.</step-1>
-        <step-2>M-ADMIN-AUTH validates token and sets signed admin session cookie.</step-2>
-        <step-3>Operator is redirected to /admin/ops.</step-3>
-      </DF-ADMIN-LOGIN>
+      <DF-MCP-OAUTH NAME="mcp oauth proxy flow">
+        <step-1>Client starts OAuth flow through FastMCP endpoints.</step-1>
+        <step-2>M-AUTH-PROXY exchanges code/tokens with Logto upstream.</step-2>
+        <step-3>Authenticated session can execute registered /mcp tools.</step-3>
+      </DF-MCP-OAUTH>
 
-      <DF-ADMIN-GUARD NAME="admin route guard flow">
-        <step-1>Request targets /admin/* route mounted on FastMCP Hono app.</step-1>
-        <step-2>M-ADMIN-AUTH checks session cookie validity.</step-2>
-        <step-3>Unauthenticated request is redirected to /admin/login.</step-3>
-      </DF-ADMIN-GUARD>
+      <DF-TOOL-PROXY NAME="tool proxy flow">
+        <step-1>Tool call enters M-FASTMCP-RUNTIME.</step-1>
+        <step-2>M-TOOLS-CONTRACTS validates payload.</step-2>
+        <step-3>M-TOOL-PROXY applies policy and calls M-TG-CHAT-RAG-CLIENT.</step-3>
+        <step-4>Normalized result is returned via MCP transport.</step-4>
+      </DF-TOOL-PROXY>
 
-      <DF-OAUTH-DISCOVERY NAME="oauth protected resource discovery flow">
-        <step-1>Client requests /.well-known/oauth-protected-resource or /.well-known/oauth-protected-resource/mcp.</step-1>
-        <step-2>M-FASTMCP-RUNTIME serves metadata from FastMCP oauth protectedResource + authorizationServer config.</step-2>
-        <step-3>Client initiates OAuth authorization at Logto.</step-3>
-      </DF-OAUTH-DISCOVERY>
-
-      <DF-MCP-AUTH NAME="mcp oauth auth flow">
-        <step-1>Client calls /mcp with Authorization Bearer access token.</step-1>
-        <step-2>FastMCP invokes authenticate(request) before tool dispatch.</step-2>
-        <step-3>M-MCP-AUTH-ADAPTER verifies token via M-MCP-AUTH-PROVIDER and validates issuer/audience/scopes.</step-3>
-        <step-4>Denied request returns 401/403 challenge; authorized request proceeds with auth session context.</step-4>
-      </DF-MCP-AUTH>
-
-      <DF-PROXY-SEARCH NAME="search_messages proxy flow">
-        <step-1>Authorized MCP caller invokes search_messages without chat_ids input.</step-1>
-        <step-2>M-FASTMCP-RUNTIME validates input schema and invokes tool handler.</step-2>
-        <step-3>M-TOOL-PROXY injects chat IDs from TG_CHAT_RAG_CHAT_IDS and forwards to upstream.</step-3>
-        <step-4>Response is returned to caller in MCP format.</step-4>
-      </DF-PROXY-SEARCH>
-
-      <DF-PROXY-CONTEXT NAME="get_message_context proxy flow">
-        <step-1>Authorized MCP caller invokes get_message_context.</step-1>
-        <step-2>M-FASTMCP-RUNTIME validates payload and routes to M-TOOL-PROXY.</step-2>
-        <step-3>Upstream response is returned to caller in MCP format.</step-3>
-      </DF-PROXY-CONTEXT>
-
-      <DF-PROXY-RELATED NAME="get_related_messages proxy flow">
-        <step-1>Authorized MCP caller invokes get_related_messages.</step-1>
-        <step-2>M-FASTMCP-RUNTIME validates payload and routes to M-TOOL-PROXY.</step-2>
-        <step-3>Upstream response is returned to caller in MCP format.</step-3>
-      </DF-PROXY-RELATED>
-
-      <DF-PROXY-SOURCES NAME="list_sources proxy flow">
-        <step-1>Authorized MCP caller invokes list_sources.</step-1>
-        <step-2>M-FASTMCP-RUNTIME validates payload and routes to M-TOOL-PROXY.</step-2>
-        <step-3>Upstream response is returned to caller in MCP format.</step-3>
-      </DF-PROXY-SOURCES>
-
-      <DF-TOOL-EXCLUSION NAME="list_chats exclusion flow">
-        <step-1>Caller tries list_chats.</step-1>
-        <step-2>M-FASTMCP-RUNTIME has no list_chats registration.</step-2>
-        <step-3>No upstream call is made.</step-3>
-      </DF-TOOL-EXCLUSION>
+      <DF-ADMIN-ROOT-AUTH NAME="admin root auth flow">
+        <step-1>Operator posts token to /admin/login.</step-1>
+        <step-2>M-ADMIN-AUTH verifies ROOT_AUTH_TOKEN and issues session cookie.</step-2>
+        <step-3>M-ADMIN-UI serves protected /admin/ops route.</step-3>
+      </DF-ADMIN-ROOT-AUTH>
     </DataFlows>
-
-    <CrossLink FROM="M-LOGGER" TO="M-CONFIG" relation="reads runtime config for log setup" />
-    <CrossLink FROM="M-DB" TO="M-CONFIG" relation="uses DATABASE_URL to initialize Drizzle PostgreSQL client" />
-    <CrossLink FROM="M-DB" TO="M-LOGGER" relation="emits db initialization and connectivity diagnostics" />
-    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-DB" relation="persists API key records through Drizzle database client" />
-    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-LOGGER" relation="emits repository lifecycle and failure diagnostics" />
-    <CrossLink FROM="M-ADMIN-AUTH" TO="M-CONFIG" relation="uses ROOT_AUTH_TOKEN for login validation" />
-    <CrossLink FROM="M-ADMIN-AUTH" TO="M-LOGGER" relation="emits admin auth success and failure events" />
-    <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-CONFIG" relation="reads OAUTH_ISSUER, OAUTH_AUDIENCE, OAUTH_REQUIRED_SCOPES, PUBLIC_URL for auth init" />
-    <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-LOGGER" relation="emits auth provider initialization and metadata fetch diagnostics" />
-    <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-MCP-AUTH-PROVIDER" relation="uses provider context for token verification and issuer validation" />
-    <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-CONFIG" relation="uses audience and required scopes for authorization checks" />
-    <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-LOGGER" relation="logs FastMCP authenticate allow/deny decisions" />
-    <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" relation="enforces admin session guard on protected UI routes" />
-    <CrossLink FROM="M-ADMIN-UI" TO="M-CONFIG" relation="renders OAuth config diagnostics for operators" />
-    <CrossLink FROM="M-ADMIN-UI" TO="M-LOGGER" relation="emits admin route and HTMX action logs" />
-    <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-LOGGER" relation="emits schema validation diagnostics" />
-    <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" relation="uses base URL, bearer token, and timeout settings" />
-    <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-LOGGER" relation="emits upstream request and failure logs" />
-    <CrossLink FROM="M-TOOL-PROXY" TO="M-CONFIG" relation="reads TG_CHAT_RAG_CHAT_IDS for enforced search scope" />
-    <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" relation="validates tool inputs and enforces allowlist" />
-    <CrossLink FROM="M-TOOL-PROXY" TO="M-TG-CHAT-RAG-CLIENT" relation="forwards validated tool calls to upstream methods API" />
-    <CrossLink FROM="M-TOOL-PROXY" TO="M-LOGGER" relation="emits proxy decisions and error mapping logs" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-CONFIG" relation="uses runtime transport and OAuth settings during FastMCP bootstrap" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOLS-CONTRACTS" relation="registers FastMCP tools with validated schemas" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOL-PROXY" relation="routes FastMCP tool handlers to proxy execution" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-MCP-AUTH-PROVIDER" relation="maps provider metadata into FastMCP OAuth authorization/protected-resource config" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-MCP-AUTH-ADAPTER" relation="uses authenticate hook for /mcp authorization" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-LOGGER" relation="emits runtime startup and dispatch diagnostics" />
-    <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server and auth settings" />
-    <CrossLink FROM="M-SERVER" TO="M-DB" relation="initializes database client before runtime startup" />
-    <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="imports admin route handler for delegated /admin mounting" />
-    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-PROVIDER" relation="calls initMcpAuth() at startup" />
-    <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-ADAPTER" relation="constructs authenticate dependency from provider context" />
-    <CrossLink FROM="M-SERVER" TO="M-TG-CHAT-RAG-CLIENT" relation="creates upstream client for proxied MCP tool execution" />
-    <CrossLink FROM="M-SERVER" TO="M-TOOL-PROXY" relation="creates tool proxy service used by FastMCP handlers" />
-    <CrossLink FROM="M-SERVER" TO="M-FASTMCP-RUNTIME" relation="starts and stops FastMCP runtime" />
-    <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
-    <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
-    <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-CONFIG" relation="imports AppConfig type for adapter test dependency fixtures" />
-    <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-LOGGER" relation="imports Logger type for adapter test dependency fixtures" />
-    <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-MCP-AUTH-ADAPTER" relation="verifies authenticate decision mapping and challenge behavior" />
-    <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-MCP-AUTH-PROVIDER" relation="mocks auth provider context for isolated adapter tests" />
-    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-CONFIG" relation="imports AppConfig type for deterministic integration dependency fixtures" />
-    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-LOGGER" relation="imports Logger type for deterministic integration dependency fixtures" />
-    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-MCP-AUTH-ADAPTER" relation="uses authenticate adapter in integration harness request flow" />
-    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-MCP-AUTH-PROVIDER" relation="imports McpAuthContext type for auth dependency fixtures" />
-    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-FASTMCP-RUNTIME" relation="builds FastMCP runtime for end-to-end metadata/admin/mcp assertions" />
-    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-TOOL-PROXY" relation="mocks ToolProxyService for authorized MCP dispatch assertions" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-FASTMCP-RUNTIME" relation="verifies FastMCP tool registration and routing smoke behavior" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-CONFIG" relation="imports AppConfig type for smoke runtime fixtures" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-LOGGER" relation="imports Logger type for smoke runtime fixtures" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-MCP-AUTH-PROVIDER" relation="imports McpAuthContext type for auth fixture wiring" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-TOOL-PROXY" relation="uses ToolProxyService mock for authorized tools/call dispatch assertions" />
-    <CrossLink FROM="M-CONFIG-TEST" TO="M-CONFIG" relation="verifies runtime config parsing and validation conditions" />
-    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-ADMIN-UI" relation="verifies admin route stability" />
-    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-CONFIG" relation="imports AppConfig fixture types for ops route rendering tests" />
-    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-LOGGER" relation="imports Logger fixture types for route diagnostics tests" />
-    <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
-    <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
-    <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />
-    <CrossLink FROM="M-DOCKER-DEV" TO="M-CONFIG" relation="provides runtime env variables for config loading in development profile" />
-    <CrossLink FROM="M-DOCKER-DEV" TO="M-DOCKER-IMAGE" relation="builds MCP runtime image from local Dockerfile in development profile" />
-    <CrossLink FROM="M-DOCKER-PROD" TO="M-SERVER" relation="runs MCP server process in production container profile" />
-    <CrossLink FROM="M-DOCKER-PROD" TO="M-CONFIG" relation="provides required runtime env variables for production config loading" />
-    <CrossLink FROM="M-DOCKER-PROD" TO="M-DOCKER-IMAGE" relation="builds MCP runtime image from Dockerfile for production deployment" />
   </Project>
 </KnowledgeGraph>

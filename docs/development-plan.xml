@@ -1,27 +1,25 @@
-<DevelopmentPlan VERSION="0.8.1">
+<DevelopmentPlan VERSION="0.9.0">
   <Context>
-    <purpose>Ship v1 as a thin MCP proxy over tg-chat-rag with FastMCP runtime, OAuth-only authorization for /mcp, and an internal admin surface for operator login and diagnostics.</purpose>
-    <scope>Expose search_messages, get_message_context, get_related_messages, and list_sources on /mcp via FastMCP; provide /admin/login and /admin/ops via FastMCP's underlying Hono app; keep API key lifecycle out of product surface.</scope>
+    <purpose>Simplify MCP runtime to a clear FastMCP structure: OAuth Proxy protection only for /mcp, fixed proxy tool set, and root-token admin surface.</purpose>
+    <scope>Keep existing public tools (search_messages, get_message_context, get_related_messages, list_sources), preserve tg-chat-rag proxy behavior, and keep /admin protected by ROOT_AUTH_TOKEN.</scope>
     <constraints>
-      <constraint-1>External MCP callers cannot provide filters.chat_ids.</constraint-1>
-      <constraint-2>search_messages always uses chat IDs from TG_CHAT_RAG_CHAT_IDS env.</constraint-2>
+      <constraint-1>Public MCP surface remains exactly four tools: search_messages, get_message_context, get_related_messages, list_sources.</constraint-1>
+      <constraint-2>search_messages always injects filters.chat_ids from TG_CHAT_RAG_CHAT_IDS; caller-provided filters.chat_ids stays forbidden.</constraint-2>
       <constraint-3>All upstream tg-chat-rag calls use Bearer token from TG_CHAT_RAG_BEARER_TOKEN.</constraint-3>
-      <constraint-4>/mcp authorization is enforced through FastMCP authenticate(request) backed by mcp-auth token verification.</constraint-4>
-      <constraint-5>ROOT_AUTH_TOKEN is valid only for /admin/login and must never authorize /mcp.</constraint-5>
-      <constraint-6>FastMCP HTTP Stream transport is the single MCP transport surface; endpoint is /mcp.</constraint-6>
-      <constraint-7>OAuth metadata must be published at /.well-known/oauth-protected-resource and /.well-known/oauth-protected-resource/mcp using FastMCP oauth config.</constraint-7>
-      <constraint-8>OAuth client registration and refresh token lifecycle are owned by Logto; this server acts only as OAuth protected resource.</constraint-8>
-      <constraint-9>FastMCP v3.33.0 runtime route extension uses getApp() (Hono). Do not rely on addRoute runtime API.</constraint-9>
-      <constraint-10>API key CRUD and API key repository are removed from runtime architecture.</constraint-10>
-      <constraint-11>Tool parameter schemas remain deterministic and Standard Schema compatible (Zod-based in implementation).</constraint-11>
-      <constraint-12>No internal trip planning/orchestration/memory subsystem is required for v1 release.</constraint-12>
+      <constraint-4>FastMCP OAuth Proxy is enabled only for /mcp transport surface.</constraint-4>
+      <constraint-5>/admin/* is not OAuth-protected; it is protected only by ROOT_AUTH_TOKEN login/session policy.</constraint-5>
+      <constraint-6>ROOT_AUTH_TOKEN must never be accepted for /mcp authentication.</constraint-6>
+      <constraint-7>FastMCP HTTP stream transport is the single MCP transport; endpoint is /mcp.</constraint-7>
+      <constraint-8>Tool parameter schemas stay Zod-based and richly described for deterministic MCP contracts.</constraint-8>
+      <constraint-9>No API-key repository lifecycle is required in this simplified runtime target.</constraint-9>
+      <constraint-10>No internal trip-planning/orchestration subsystem is introduced in this phase.</constraint-10>
     </constraints>
   </Context>
 
   <Modules>
     <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1">
       <contract>
-        <purpose>Load and validate runtime configuration for FastMCP runtime, admin authentication, OAuth resource-server validation, and upstream proxy calls.</purpose>
+        <purpose>Load and validate runtime configuration for FastMCP server, OAuth Proxy upstream credentials, admin auth, and tg-chat-rag proxy calls.</purpose>
         <inputs>
           <param-1 name="env" type="NodeJS.ProcessEnv" />
         </inputs>
@@ -33,26 +31,25 @@
         </errors>
       </contract>
       <interface>
-        <export-loadConfig PURPOSE="Validate env and return typed runtime config" />
-        <type-AppConfig PURPOSE="Typed app config with tg-chat-rag, admin auth, FastMCP runtime, and OAuth resource-server settings" />
+        <export-loadConfig PURPOSE="Validate env and return typed AppConfig." />
+        <type-AppConfig PURPOSE="Typed runtime config for OAuth Proxy, tool proxy policy, and admin auth." />
       </interface>
       <depends>none</depends>
       <notes>
         <note-1>Required env: TG_CHAT_RAG_BASE_URL</note-1>
         <note-2>Required env: TG_CHAT_RAG_BEARER_TOKEN</note-2>
-        <note-3>Required env: TG_CHAT_RAG_CHAT_IDS (CSV, non-empty)</note-3>
+        <note-3>Required env: TG_CHAT_RAG_CHAT_IDS</note-3>
         <note-4>Required env: ROOT_AUTH_TOKEN</note-4>
-        <note-5>Required env: DATABASE_URL</note-5>
-        <note-6>Required env: PUBLIC_URL</note-6>
-        <note-7>Required env: OAUTH_ISSUER</note-7>
-        <note-8>Required env: OAUTH_AUDIENCE</note-8>
-        <note-9>Required env: OAUTH_REQUIRED_SCOPES (CSV, default contains mcp:access)</note-9>
+        <note-5>Required env: PUBLIC_URL</note-5>
+        <note-6>Required env: LOGTO_TENANT_URL</note-6>
+        <note-7>Required env: LOGTO_CLIENT_ID</note-7>
+        <note-8>Required env: LOGTO_CLIENT_SECRET</note-8>
       </notes>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY" LAYER="0" ORDER="2">
       <contract>
-        <purpose>Provide structured logs for MCP requests, OAuth validation decisions, admin actions, upstream calls, and failures.</purpose>
+        <purpose>Provide structured logs for runtime startup, auth decisions, tool execution, upstream failures, and admin actions.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
@@ -64,59 +61,41 @@
         </errors>
       </contract>
       <interface>
-        <export-createLogger PURPOSE="Create module-scoped logger" />
+        <export-createLogger PURPOSE="Create module-scoped logger with semantic block labels." />
       </interface>
       <depends>M-CONFIG</depends>
     </M-LOGGER>
 
-    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" LAYER="1" ORDER="1">
+    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="1">
       <contract>
-        <purpose>Create and expose Drizzle PostgreSQL database client from DATABASE_URL runtime configuration for current and upcoming data modules.</purpose>
-        <inputs>
-          <param-1 name="config" type="AppConfig" />
-        </inputs>
-        <outputs>
-          <param-1 name="db" type="DrizzleDatabase" />
-        </outputs>
-        <errors>
-          <error-DB_CONNECTION_ERROR code="DB_CONNECTION_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-createDb PURPOSE="Initialize Drizzle client and pooled PostgreSQL connection" />
-        <type-DbClient PURPOSE="Typed Drizzle database handle used by repositories" />
-      </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
-    </M-DB>
-
-    <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="2">
-      <contract>
-        <purpose>Define and export MCP tool schemas and tool allowlist for the proxy surface using Standard Schema-compatible contracts.</purpose>
+        <purpose>Define deterministic Zod schemas and allowlist for the four existing proxied MCP tools.</purpose>
         <inputs>
           <param-1 name="rawArgs" type="unknown" />
+          <param-2 name="toolName" type="string" />
         </inputs>
         <outputs>
           <param-1 name="validatedArgs" type="object" />
-          <param-2 name="allowedToolNames" type="string[]" />
-          <param-3 name="toolParameterSchema" type="StandardSchema" />
+          <param-2 name="allowlist" type="readonly string[]" />
+          <param-3 name="toolDescriptions" type="record" />
         </outputs>
         <errors>
           <error-SCHEMA_VALIDATION_ERROR code="SCHEMA_VALIDATION_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-SearchMessagesInputPublic PURPOSE="Public schema for search_messages with filters.chat_ids forbidden" />
-        <export-GetMessageContextInput PURPOSE="Schema for get_message_context" />
-        <export-GetRelatedMessagesInput PURPOSE="Schema for get_related_messages" />
-        <export-ListSourcesInput PURPOSE="Schema for list_sources" />
-        <export-PROXIED_TOOL_NAMES PURPOSE="Constant allowlist for proxied tool names" />
+        <export-SearchMessagesInputPublic PURPOSE="Public input schema for search_messages with forbidden filters.chat_ids path." />
+        <export-GetMessageContextInput PURPOSE="Input schema for get_message_context." />
+        <export-GetRelatedMessagesInput PURPOSE="Input schema for get_related_messages." />
+        <export-ListSourcesInput PURPOSE="Input schema for list_sources." />
+        <export-PROXIED_TOOL_NAMES PURPOSE="Stable allowlist for tool registration and proxy dispatch." />
+        <export-TOOL_INPUT_JSON_SCHEMAS PURPOSE="Tool descriptions used by FastMCP addTool metadata." />
       </interface>
       <depends>M-LOGGER</depends>
     </M-TOOLS-CONTRACTS>
 
     <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION" LAYER="2" ORDER="1">
       <contract>
-        <purpose>Call tg-chat-rag methods API via POST /api/v1/methods/&lt;tool_name&gt; with service-level Bearer auth.</purpose>
+        <purpose>Call tg-chat-rag methods API and normalize protocol/timeouts/errors for proxy handlers.</purpose>
         <inputs>
           <param-1 name="toolName" type="string" />
           <param-2 name="payload" type="object" />
@@ -131,71 +110,64 @@
         </errors>
       </contract>
       <interface>
-        <export-callMethod PURPOSE="Execute proxied tool call to tg-chat-rag methods API" />
+        <export-callMethod PURPOSE="POST /api/v1/methods/&lt;tool_name&gt; with service bearer token." />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
     </M-TG-CHAT-RAG-CLIENT>
 
-    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" TYPE="INTEGRATION" LAYER="2" ORDER="2">
+    <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" LAYER="2" ORDER="2">
       <contract>
-        <purpose>Initialize mcp-auth with Logto OIDC discovery and expose framework-agnostic token verification and metadata utilities.</purpose>
+        <purpose>Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for /mcp authentication.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
         <outputs>
-          <param-1 name="verifyAccessToken" type="VerifyAccessTokenFunction" />
-          <param-2 name="validateIssuer" type="ValidateIssuerFunction" />
-          <param-3 name="protectedResourceMetadata" type="object" />
-          <param-4 name="authorizationServerMetadata" type="object" />
-          <param-5 name="resourceMetadataUrl" type="string" />
+          <param-1 name="oauthProxy" type="OAuthProxy" />
+          <param-2 name="authorizationServerMetadata" type="object" />
         </outputs>
         <errors>
-          <error-MCP_AUTH_INIT_ERROR code="MCP_AUTH_INIT_ERROR" />
+          <error-OAUTH_PROXY_INIT_ERROR code="OAUTH_PROXY_INIT_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-initMcpAuth PURPOSE="Async init: fetch Logto OIDC metadata, create MCPAuth instance, expose verify/issuer utilities and metadata payloads" />
-        <export-McpAuthContext PURPOSE="Type for initialized auth context returned by initMcpAuth" />
+        <export-createOauthProxy PURPOSE="Instantiate OAuthProxy with Logto auth/token endpoints and configured scopes." />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
       <notes>
-        <note-1>Uses fetchServerConfig(OAUTH_ISSUER, { type: 'oidc' }) to obtain Logto metadata at startup.</note-1>
-        <note-2>Creates MCPAuth in resource-server mode and keeps metadata payload for FastMCP oauth config.</note-2>
-        <note-3>JWKS caching/rotation remains delegated to jose through mcp-auth internals.</note-3>
+        <note-1>Upstream Authorization endpoint: &lt;LOGTO_TENANT_URL&gt;/oidc/auth</note-1>
+        <note-2>Upstream Token endpoint: &lt;LOGTO_TENANT_URL&gt;/oidc/token</note-2>
+        <note-3>Proxy base URL comes from PUBLIC_URL.</note-3>
       </notes>
-    </M-MCP-AUTH-PROVIDER>
+    </M-AUTH-PROXY>
 
-    <M-MCP-AUTH-ADAPTER NAME="McpAuthAdapter" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
+    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
       <contract>
-        <purpose>Adapt mcp-auth verification to FastMCP authenticate(request) contract and return typed auth session payload for tool execution context.</purpose>
+        <purpose>Validate tool input, apply policy normalization, execute upstream methods, and map deterministic MCP tool responses.</purpose>
         <inputs>
-          <param-1 name="request" type="IncomingMessage" />
-          <param-2 name="authContext" type="McpAuthContext" />
+          <param-1 name="toolName" type="string" />
+          <param-2 name="rawArgs" type="unknown" />
         </inputs>
         <outputs>
-          <param-1 name="authSession" type="McpAuthSession" />
+          <param-1 name="McpToolResult" type="object" />
         </outputs>
         <errors>
-          <error-MCP_AUTH_ERROR code="MCP_AUTH_ERROR" />
+          <error-VALIDATION_ERROR code="VALIDATION_ERROR" />
+          <error-UNSUPPORTED_TOOL code="UNSUPPORTED_TOOL" />
+          <error-UPSTREAM_ERROR code="UPSTREAM_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-authenticateFastMcpRequest PURPOSE="FastMCP authenticate hook implementation: parse Bearer, verify token, validate issuer/audience/scopes, return session or throw HTTP error response" />
-        <export-McpAuthSession PURPOSE="Typed auth session context passed to FastMCP tool handlers" />
+        <export-executeTool PURPOSE="Main proxy entrypoint for all registered tools." />
       </interface>
-      <depends>M-MCP-AUTH-PROVIDER, M-CONFIG, M-LOGGER</depends>
-      <notes>
-        <note-1>Maps denied auth outcomes to deterministic 401/403 responses with WWW-Authenticate metadata challenges.</note-1>
-        <note-2>No direct dependency on @modelcontextprotocol/sdk request auth types in runtime surface.</note-2>
-      </notes>
-    </M-MCP-AUTH-ADAPTER>
+      <depends>M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER</depends>
+    </M-TOOL-PROXY>
 
     <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="3" ORDER="2">
       <contract>
-        <purpose>Authenticate admin operators with ROOT_AUTH_TOKEN and enforce cookie session checks for /admin routes.</purpose>
+        <purpose>Authenticate admin operators with ROOT_AUTH_TOKEN and protect /admin routes via signed cookie session checks.</purpose>
         <inputs>
-          <param-1 name="loginToken" type="string" />
-          <param-2 name="request" type="Request" />
+          <param-1 name="request" type="Request" />
+          <param-2 name="loginToken" type="string" />
         </inputs>
         <outputs>
           <param-1 name="sessionCookie" type="string" />
@@ -206,38 +178,16 @@
         </errors>
       </contract>
       <interface>
-        <export-authenticateAdmin PURPOSE="Verify login token and produce admin session cookie" />
-        <export-requireAdminSession PURPOSE="Check admin session and decide allow/redirect" />
-        <export-clearAdminSession PURPOSE="Clear admin auth cookie on logout" />
+        <export-authenticateAdmin PURPOSE="Validate ROOT_AUTH_TOKEN on /admin/login and issue session cookie." />
+        <export-requireAdminSession PURPOSE="Allow or redirect for /admin/* routes." />
+        <export-clearAdminSession PURPOSE="Invalidate admin auth cookie on logout." />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
     </M-ADMIN-AUTH>
 
-    <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="4" ORDER="1">
+    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="1">
       <contract>
-        <purpose>Apply policy-safe normalization and proxy supported MCP tool calls to tg-chat-rag.</purpose>
-        <inputs>
-          <param-1 name="toolName" type="string" />
-          <param-2 name="rawArgs" type="unknown" />
-        </inputs>
-        <outputs>
-          <param-1 name="mcpToolResult" type="object" />
-        </outputs>
-        <errors>
-          <error-VALIDATION_ERROR code="VALIDATION_ERROR" />
-          <error-UNSUPPORTED_TOOL code="UNSUPPORTED_TOOL" />
-          <error-UPSTREAM_ERROR code="UPSTREAM_ERROR" />
-        </errors>
-      </contract>
-      <interface>
-        <export-executeTool PURPOSE="Validate args, inject internal chat_ids policy, call upstream, normalize result" />
-      </interface>
-      <depends>M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER</depends>
-    </M-TOOL-PROXY>
-
-    <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
-      <contract>
-        <purpose>Render admin HTML with Bun JSX for operator login and OAuth runtime diagnostics.</purpose>
+        <purpose>Render admin login and ops pages with simple root-token auth workflow.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
         </inputs>
@@ -249,21 +199,22 @@
         </errors>
       </contract>
       <interface>
-        <export-handleAdminRequest PURPOSE="Route /admin/login and /admin/ops actions" />
-        <export-renderAdminLayout PURPOSE="Render operator layout with OAuth status tab" />
-        <export-renderOpsStatus PURPOSE="Render OAuth and MCP runtime status diagnostics" />
+        <export-handleAdminRequest PURPOSE="Handle /admin/login and /admin/ops endpoints." />
+        <export-renderAdminLayout PURPOSE="Render HTML layout for admin pages." />
+        <export-renderOpsStatus PURPOSE="Render runtime diagnostic fragment." />
       </interface>
       <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
     </M-ADMIN-UI>
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Create and configure FastMCP runtime: register tools, bind authentication adapter, publish OAuth metadata, and mount admin routes via Hono app.</purpose>
+        <purpose>Create FastMCP server with OAuth Proxy for /mcp, register fixed tool set, and mount admin routes on Hono app.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
-          <param-2 name="authenticate" type="AuthenticateFunction" />
-          <param-3 name="proxyService" type="ToolProxyService" />
-          <param-4 name="adminHandler" type="AdminRouteHandler" />
+          <param-2 name="logger" type="Logger" />
+          <param-3 name="oauthProxy" type="OAuthProxy" />
+          <param-4 name="proxyService" type="ToolProxyService" />
+          <param-5 name="adminHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
         </inputs>
         <outputs>
           <param-1 name="fastMcpServer" type="FastMCP" />
@@ -273,241 +224,156 @@
         </errors>
       </contract>
       <interface>
-        <export-createFastMcpRuntime PURPOSE="Build FastMCP instance with oauth/authenticate configuration and health endpoint" />
-        <export-registerProxyTools PURPOSE="Register proxied MCP tools on FastMCP with schemas from contracts" />
-        <export-mountAdminRoutes PURPOSE="Mount /admin routes on FastMCP's Hono app via getApp()" />
+        <export-createFastMcpRuntime PURPOSE="Build FastMCP with oauth.enabled=true and oauth.proxy wired from M-AUTH-PROXY." />
+        <export-registerProxyTools PURPOSE="Register the four existing tools with described schemas and canAccess guards." />
+        <export-mountAdminRoutes PURPOSE="Mount /admin and /admin/* handlers via getApp()." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-ADAPTER, M-ADMIN-UI</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI</depends>
       <notes>
-        <note-1>Custom HTTP routes are mounted through FastMCP.getApp() because addRoute is not available in installed runtime API.</note-1>
-        <note-2>FastMCP oauth config publishes well-known endpoints for authorization server and protected resource metadata.</note-2>
+        <note-1>/mcp is OAuth-protected through FastMCP oauth proxy flow.</note-1>
+        <note-2>/admin routes are handled separately by AdminAuth flow.</note-2>
       </notes>
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
       <contract>
-        <purpose>Boot process runtime, initialize auth/provider dependencies, construct FastMCP runtime, and start HTTP stream server with graceful shutdown.</purpose>
+        <purpose>Bootstrap runtime dependencies and start FastMCP HTTP stream server.</purpose>
         <inputs>
-          <param-1 name="processSignals" type="SIGTERM|SIGINT" />
+          <param-1 name="none" type="void" />
         </inputs>
         <outputs>
-          <param-1 name="runningFastMcpServer" type="object" />
+          <param-1 name="startedServer" type="FastMCP" />
         </outputs>
         <errors>
           <error-SERVER_START_ERROR code="SERVER_START_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-main PURPOSE="Boot sequence with async mcp-auth init, FastMCP runtime wiring, and lifecycle management" />
+        <export-main PURPOSE="Load config, create dependencies, start FastMCP runtime, install graceful shutdown." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-TOOL-PROXY, M-ADMIN-AUTH, M-ADMIN-UI, M-FASTMCP-RUNTIME</depends>
-      <notes>
-        <note-1>main() calls initMcpAuth() at startup to fail fast on invalid OAuth configuration.</note-1>
-        <note-2>Server.start() uses FastMCP transportType=httpStream and endpoint=/mcp.</note-2>
-      </notes>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-FASTMCP-RUNTIME</depends>
     </M-SERVER>
 
-    <M-MCP-AUTH-ADAPTER-TEST NAME="McpAuthAdapterTests" TYPE="TEST" LAYER="6" ORDER="2">
+    <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT" LAYER="7" ORDER="1">
       <contract>
-        <purpose>Unit verification of FastMCP authenticate adapter behavior for missing/invalid/insufficient/valid tokens and challenge responses.</purpose>
+        <purpose>Call ServerMain and map fatal startup errors to process exit behavior.</purpose>
         <inputs>
-          <param-1 name="testRuntime" type="bun:test" />
+          <param-1 name="none" type="void" />
         </inputs>
         <outputs>
-          <param-1 name="testReport" type="object" />
+          <param-1 name="processExit" type="void" />
         </outputs>
         <errors>
-          <error-TEST_FAILURE code="TEST_FAILURE" />
+          <error-BOOTSTRAP_ERROR code="BOOTSTRAP_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-McpAuthAdapterTests PURPOSE="Checks adapter mapping from mcp-auth outcomes to FastMCP authenticate contract" />
+        <export-bootstrap PURPOSE="Invoke main() and handle fatal startup exceptions." />
       </interface>
-      <depends>M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-LOGGER</depends>
-    </M-MCP-AUTH-ADAPTER-TEST>
-
-    <M-SERVER-INTEGRATION-TEST NAME="ServerIntegrationTests" TYPE="TEST" LAYER="6" ORDER="3">
-      <contract>
-        <purpose>Integration verification of FastMCP well-known discovery routes, auth challenge flow, admin routes, and authorized MCP dispatch.</purpose>
-        <inputs>
-          <param-1 name="testRuntime" type="bun:test" />
-        </inputs>
-        <outputs>
-          <param-1 name="testReport" type="object" />
-        </outputs>
-        <errors>
-          <error-TEST_FAILURE code="TEST_FAILURE" />
-        </errors>
-      </contract>
-      <interface>
-        <export-ServerIntegrationTests PURPOSE="Validates discovery metadata, auth decisions, and MCP tool dispatch via FastMCP runtime" />
-      </interface>
-      <depends>M-SERVER, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER</depends>
-    </M-SERVER-INTEGRATION-TEST>
-
-    <M-FASTMCP-RUNTIME-SMOKE NAME="FastMcpRuntimeSmokeTests" TYPE="TEST" LAYER="6" ORDER="4">
-      <contract>
-        <purpose>Smoke verification for FastMCP tool registration surface and denied/allowed dispatch behavior.</purpose>
-        <inputs>
-          <param-1 name="testRuntime" type="bun:test" />
-        </inputs>
-        <outputs>
-          <param-1 name="testReport" type="object" />
-        </outputs>
-        <errors>
-          <error-TEST_FAILURE code="TEST_FAILURE" />
-        </errors>
-      </contract>
-      <interface>
-        <export-FastMcpRuntimeSmokeTests PURPOSE="Checks tool list exposure, schema validation, and dispatch routing through proxy service" />
-      </interface>
-      <depends>M-FASTMCP-RUNTIME, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-MCP-AUTH-ADAPTER</depends>
-    </M-FASTMCP-RUNTIME-SMOKE>
+      <depends>M-SERVER</depends>
+    </M-ROOT-ENTRYPOINT>
   </Modules>
 
   <DataFlows>
-    <DF-ADMIN-LOGIN NAME="Admin Login Flow" TRIGGER="POST /admin/login">
-      <step-1>Operator submits login form with ROOT_AUTH_TOKEN candidate.</step-1>
-      <step-2>M-ADMIN-AUTH validates token and issues signed HTTP-only admin session cookie.</step-2>
-      <step-3>Admin route mounted on FastMCP Hono app redirects authenticated operator to /admin/ops.</step-3>
-    </DF-ADMIN-LOGIN>
+    <DF-MCP-OAUTH NAME="mcp oauth proxy auth flow">
+      <step-1>External MCP client reaches /mcp and receives OAuth discovery/register/authorize flow from FastMCP.</step-1>
+      <step-2>FastMCP OAuthProxy exchanges auth code with Logto upstream using pre-registered client credentials.</step-2>
+      <step-3>FastMCP tool execution proceeds only for authenticated session.</step-3>
+    </DF-MCP-OAUTH>
 
-    <DF-ADMIN-GUARD NAME="Admin Route Guard Flow" TRIGGER="GET /admin/*">
-      <step-1>Request arrives for admin route on FastMCP Hono app.</step-1>
-      <step-2>M-ADMIN-AUTH verifies session cookie.</step-2>
-      <step-3>Unauthenticated request receives 302 redirect to /admin/login.</step-3>
-      <step-4>Authenticated request is routed to M-ADMIN-UI handlers.</step-4>
-    </DF-ADMIN-GUARD>
+    <DF-SEARCH-MESSAGES NAME="search messages proxy flow">
+      <step-1>Client invokes search_messages with public args.</step-1>
+      <step-2>M-TOOLS-CONTRACTS validates args and blocks filters.chat_ids from caller input.</step-2>
+      <step-3>M-TOOL-PROXY injects internal TG_CHAT_RAG_CHAT_IDS and forwards request to tg-chat-rag.</step-3>
+      <step-4>Response is normalized into deterministic MCP tool result envelope.</step-4>
+    </DF-SEARCH-MESSAGES>
 
-    <DF-OAUTH-DISCOVERY NAME="OAuth Protected Resource Discovery Flow" TRIGGER="GET /.well-known/oauth-protected-resource*">
-      <step-1>MCP client requests protected resource metadata for /mcp.</step-1>
-      <step-2>M-FASTMCP-RUNTIME serves metadata from FastMCP oauth configuration.</step-2>
-      <step-3>Client starts OAuth authorization against Logto and obtains access token.</step-3>
-    </DF-OAUTH-DISCOVERY>
+    <DF-MESSAGE-CONTEXT NAME="message context proxy flow">
+      <step-1>Client invokes get_message_context with message_uid.</step-1>
+      <step-2>Schema validation ensures deterministic payload constraints.</step-2>
+      <step-3>Request is proxied to tg-chat-rag and upstream response is returned in MCP envelope.</step-3>
+    </DF-MESSAGE-CONTEXT>
 
-    <DF-MCP-AUTH NAME="MCP OAuth Auth Flow" TRIGGER="POST /mcp">
-      <step-1>Client sends Authorization header with OAuth Bearer access token.</step-1>
-      <step-2>FastMCP invokes authenticate(request) for the HTTP stream request.</step-2>
-      <step-3>M-MCP-AUTH-ADAPTER extracts Bearer token and calls mcp-auth verify + issuer/audience/scopes validation.</step-3>
-      <step-4>Unauthorized request returns 401/403 with WWW-Authenticate challenge metadata.</step-4>
-      <step-5>Authorized request receives auth session context and proceeds to tool dispatch.</step-5>
-    </DF-MCP-AUTH>
+    <DF-RELATED-MESSAGES NAME="related messages proxy flow">
+      <step-1>Client invokes get_related_messages with message_uid.</step-1>
+      <step-2>Schema and allowlist checks run before upstream call.</step-2>
+      <step-3>Result is proxied and normalized without tool-side business branching.</step-3>
+    </DF-RELATED-MESSAGES>
 
-    <DF-PROXY-SEARCH NAME="search_messages Proxy Flow" TRIGGER="MCP tool search_messages">
-      <step-1>Authorized client calls MCP tool search_messages.</step-1>
-      <step-2>M-FASTMCP-RUNTIME validates parameters against public schema that forbids filters.chat_ids.</step-2>
-      <step-3>M-TOOL-PROXY injects filters.chat_ids from TG_CHAT_RAG_CHAT_IDS.</step-3>
-      <step-4>M-TG-CHAT-RAG-CLIENT sends POST {TG_CHAT_RAG_BASE_URL}/api/v1/methods/search_messages with Bearer token.</step-4>
-      <step-5>Response is normalized and returned to MCP client.</step-5>
-    </DF-PROXY-SEARCH>
+    <DF-LIST-SOURCES NAME="list sources proxy flow">
+      <step-1>Client invokes list_sources with message_uids array.</step-1>
+      <step-2>Schema enforces array bounds and non-empty entries.</step-2>
+      <step-3>Proxy returns deterministic structured output from upstream.</step-3>
+    </DF-LIST-SOURCES>
 
-    <DF-PROXY-CONTEXT NAME="get_message_context Proxy Flow" TRIGGER="MCP tool get_message_context">
-      <step-1>Authorized client calls MCP tool get_message_context.</step-1>
-      <step-2>M-FASTMCP-RUNTIME validates payload with M-TOOLS-CONTRACTS schema.</step-2>
-      <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
-      <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/get_message_context.</step-4>
-      <step-5>Upstream response returns unchanged in MCP result envelope.</step-5>
-    </DF-PROXY-CONTEXT>
-
-    <DF-PROXY-RELATED NAME="get_related_messages Proxy Flow" TRIGGER="MCP tool get_related_messages">
-      <step-1>Authorized client calls MCP tool get_related_messages.</step-1>
-      <step-2>M-FASTMCP-RUNTIME validates payload with M-TOOLS-CONTRACTS schema.</step-2>
-      <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
-      <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/get_related_messages.</step-4>
-      <step-5>Upstream response returns unchanged in MCP result envelope.</step-5>
-    </DF-PROXY-RELATED>
-
-    <DF-PROXY-SOURCES NAME="list_sources Proxy Flow" TRIGGER="MCP tool list_sources">
-      <step-1>Authorized client calls MCP tool list_sources.</step-1>
-      <step-2>M-FASTMCP-RUNTIME validates payload with M-TOOLS-CONTRACTS schema.</step-2>
-      <step-3>M-TOOL-PROXY forwards payload to M-TG-CHAT-RAG-CLIENT.</step-3>
-      <step-4>M-TG-CHAT-RAG-CLIENT calls /api/v1/methods/list_sources.</step-4>
-      <step-5>Upstream response returns unchanged in MCP result envelope.</step-5>
-    </DF-PROXY-SOURCES>
-
-    <DF-TOOL-EXCLUSION NAME="list_chats Exclusion Flow" TRIGGER="MCP tool list_chats attempt">
-      <step-1>Client attempts to call list_chats.</step-1>
-      <step-2>M-FASTMCP-RUNTIME does not register list_chats in tool registry.</step-2>
-      <step-3>Client receives MCP tool-not-found behavior; no upstream call is performed.</step-3>
-    </DF-TOOL-EXCLUSION>
+    <DF-ADMIN-ROOT-AUTH NAME="admin root token flow">
+      <step-1>Operator submits token on /admin/login.</step-1>
+      <step-2>M-ADMIN-AUTH verifies against ROOT_AUTH_TOKEN and issues session cookie.</step-2>
+      <step-3>Protected /admin/ops routes require valid admin session and never use OAuth /mcp auth path.</step-3>
+    </DF-ADMIN-ROOT-AUTH>
   </DataFlows>
 
+  <MentalTests>
+    <MT-1 NAME="oauth isolation test">
+      <step-1>Unauthenticated request to /mcp must receive OAuth flow challenge.</step-1>
+      <step-2>Same caller accessing /admin/login must not be processed by OAuth proxy.</step-2>
+      <step-3>No path overlap should allow ROOT_AUTH_TOKEN on /mcp.</step-3>
+      <result>Pass when /mcp and /admin auth paths remain strictly isolated.</result>
+    </MT-1>
+
+    <MT-2 NAME="tool policy integrity test">
+      <step-1>Caller sends search_messages with nested filters.chat_ids.</step-1>
+      <step-2>Validation rejects input deterministically.</step-2>
+      <step-3>When caller omits chat_ids, runtime injects configured internal chat IDs.</step-3>
+      <result>Pass when public chat scope cannot be overridden externally.</result>
+    </MT-2>
+
+    <MT-3 NAME="dependency direction test">
+      <step-1>Trace dependency chain from entrypoints to integrations.</step-1>
+      <step-2>Ensure no module in UTILITY/INTEGRATION depends on ENTRY_POINT modules.</step-2>
+      <step-3>Verify deprecated auth modules are not in active dependency chain.</step-3>
+      <result>Pass when graph is acyclic and top-down.</result>
+    </MT-3>
+  </MentalTests>
+
   <ImplementationOrder>
-    <Phase-1 name="Existing Proxy Foundation" status="done">
-      <step-1 module="M-CONFIG">Implemented typed env parsing and strict validation for TG_CHAT_RAG_* variables.</step-1>
-      <step-2 module="M-LOGGER">Implemented structured logger and request-scoped fields.</step-2>
-      <step-3 module="M-TOOLS-CONTRACTS">Implemented public schemas and proxied tool allowlist constants.</step-3>
-      <step-4 module="M-TG-CHAT-RAG-CLIENT">Implemented upstream tg-chat-rag adapter with timeout and normalized errors.</step-4>
+    <Phase-1 name="ConfigAndContracts">
+      <step-1>Finalize M-CONFIG env contract for OAuth Proxy + admin root token + tg-chat-rag.</step-1>
+      <step-2>Finalize M-TOOLS-CONTRACTS with field descriptions and deterministic errors.</step-2>
+      <justification>All runtime branches depend on validated config and stable tool schemas.</justification>
     </Phase-1>
 
-    <Phase-2 name="OAuth Contract Rewrite" status="done">
-      <step-1 module="M-CONFIG">Extended config contract with PUBLIC_URL and OAuth validation settings.</step-1>
-      <step-2 module="M-ADMIN-UI">Replaced API key management scope with operator diagnostics scope.</step-2>
+    <Phase-2 name="Integrations">
+      <step-1>Implement M-AUTH-PROXY wrapper around FastMCP OAuthProxy.</step-1>
+      <step-2>Keep M-TG-CHAT-RAG-CLIENT focused on one method call contract.</step-2>
+      <justification>External boundaries should be explicit before wiring runtime entrypoints.</justification>
     </Phase-2>
 
-    <Phase-3 name="OAuth Core Validation" status="done">
-      <step-1 module="M-MCP-AUTH-PROVIDER">Implemented provider-level OIDC discovery and token verification context.</step-1>
-      <step-2 module="M-SERVER">Wired auth verification and OAuth challenge behavior for /mcp.</step-2>
+    <Phase-3 name="CoreLogicAndAdmin">
+      <step-1>Simplify M-TOOL-PROXY orchestration around validate -> policy -> upstream -> normalize.</step-1>
+      <step-2>Keep M-ADMIN-AUTH and M-ADMIN-UI root-token-only with no MCP auth coupling.</step-2>
+      <justification>Core behavior and admin guardrails are independent and testable in isolation.</justification>
     </Phase-3>
 
-    <Phase-4 name="Legacy API Key Removal" status="done">
-      <step-1 module="M-SERVER">Removed API key repository dependency from /mcp auth path and startup wiring.</step-1>
-      <step-2 module="M-ADMIN-UI">Removed /admin/api-keys routes, forms, and fragments from operator UI.</step-2>
+    <Phase-4 name="RuntimeAndBoot">
+      <step-1>Wire M-FASTMCP-RUNTIME with oauth proxy for /mcp and mount admin routes.</step-1>
+      <step-2>Finalize M-SERVER/M-ROOT-ENTRYPOINT startup and shutdown lifecycle.</step-2>
+      <justification>Entrypoints are assembled last to avoid hidden coupling and ease smoke validation.</justification>
     </Phase-4>
-
-    <Phase-5 name="mcp-auth Library Migration" status="done">
-      <step-1 module="M-CONFIG">Removed obsolete JWKS cache/clock-skew env controls no longer used after mcp-auth cutover.</step-1>
-      <step-2 module="M-MCP-AUTH-PROVIDER">Adopted mcp-auth driven verification context and metadata payloads.</step-2>
-      <step-3 module="M-SERVER">Updated startup/auth route wiring to provider-backed flow.</step-3>
-    </Phase-5>
-
-    <Phase-6 name="FastMCP Architectural Planning" status="done">
-      <step-1 module="M-FASTMCP-RUNTIME">Defined FastMCP runtime as replacement for manual MCP transport layer.</step-1>
-      <step-2 module="M-MCP-AUTH-ADAPTER">Defined FastMCP authenticate adapter contract over mcp-auth verification.</step-2>
-      <step-3 module="M-SERVER">Defined server bootstrap contract around FastMCP start/stop lifecycle.</step-3>
-    </Phase-6>
-
-    <Phase-7 name="FastMCP Migration Execution" status="done">
-      <step-1 module="M-MCP-AUTH-ADAPTER">Create src/auth/mcp-auth-adapter.ts and implement authenticateFastMcpRequest() over McpAuthContext with deterministic 401/403 mapping.</step-1>
-      <step-2 module="M-FASTMCP-RUNTIME">Create src/runtime/fastmcp-runtime.ts: instantiate FastMCP, register four tools with schemas, bind authenticate hook, configure oauth metadata, health endpoint, and admin routes via getApp().</step-2>
-      <step-3 module="M-SERVER">Refactor src/server/index.ts to bootstrap dependencies and call fastmcp.start({ transportType: 'httpStream', httpStream: { endpoint: '/mcp' } }).</step-3>
-      <step-4 module="M-SERVER">Remove legacy manual MCP transport/guard wiring from runtime request path after parity tests pass.</step-4>
-      <step-5 module="M-FASTMCP-RUNTIME-SMOKE">Add smoke tests for tool registration, schema rejects, and authorized dispatch through proxy service.</step-5>
-      <step-6 module="M-MCP-AUTH-ADAPTER-TEST">Add adapter unit tests for missing header, malformed bearer, invalid token, insufficient scope, and valid token.</step-6>
-      <step-7 module="M-SERVER-INTEGRATION-TEST">Refresh integration tests to validate FastMCP well-known routes, /admin, and /mcp end-to-end auth+dispatch flow.</step-7>
-      <step-8 module="M-SERVER">Delete src/transport/mcp-transport.ts and src/auth/mcp-auth-guard.ts after successful cutover and test stability.</step-8>
-    </Phase-7>
   </ImplementationOrder>
 
   <RiskAssessment>
-    <RISK-1 name="FastMCP Route API Mismatch">
-      <impact>Installed fastmcp v3.33.0 runtime exposes getApp() but not addRoute(), while docs/examples may suggest addRoute().</impact>
-      <mitigation>Use only getApp() (Hono) for custom /admin routes. Add runtime assertion test that route mounting works via getApp().</mitigation>
-    </RISK-1>
-
-    <RISK-2 name="Auth Challenge Parity Drift">
-      <impact>Moving from manual /mcp guard to FastMCP authenticate hook can change 401/403 response shape and WWW-Authenticate fields.</impact>
-      <mitigation>Codify challenge behavior in adapter tests and server integration tests. Keep reason-code mapping deterministic.</mitigation>
-    </RISK-2>
-
-    <RISK-3 name="IncomingMessage Header Normalization Errors">
-      <impact>FastMCP authenticate receives IncomingMessage where headers may be string|string[]; parsing mistakes can cause false auth denies.</impact>
-      <mitigation>Centralize Authorization parsing helper in adapter and cover array/undefined cases in unit tests.</mitigation>
-    </RISK-3>
-
-    <RISK-4 name="Endpoint Ownership Conflicts">
-      <impact>FastMCP internal handling for /mcp and /.well-known/* can conflict with manually mounted routes if duplicated.</impact>
-      <mitigation>Reserve MCP and well-known routes for FastMCP config only; mount custom app routes strictly under /admin and optional health endpoint.</mitigation>
-    </RISK-4>
-
-    <RISK-5 name="Tool Access Session Shape Drift">
-      <impact>Tool canAccess/session behavior can break if auth session object shape changes during adapter implementation.</impact>
-      <mitigation>Define and export stable McpAuthSession type in adapter and consume that type in runtime/tool contracts.</mitigation>
-    </RISK-5>
-
-    <RISK-6 name="Startup Dependency on OIDC Discovery">
-      <impact>initMcpAuth() performs remote OIDC discovery at startup; transient network issues can block boot.</impact>
-      <mitigation>Fail fast with explicit diagnostics; consider optional deferred discovery strategy if startup availability becomes critical.</mitigation>
-    </RISK-6>
+    <risk-1 severity="high">Legacy requirements about API-key-based /mcp auth conflict with OAuth-proxy-only target and must be explicitly marked deprecated.</risk-1>
+    <risk-2 severity="medium">OAuth callback/base URL misconfiguration can break authorization flow in production.</risk-2>
+    <risk-3 severity="medium">Schema tightening may break existing client payloads that relied on permissive behavior.</risk-3>
+    <risk-4 severity="medium">If /admin route mounting order is wrong, auth middleware can leak or over-protect endpoints.</risk-4>
+    <risk-5 severity="low">Tool description drift between Zod schema and docs can confuse MCP clients.</risk-5>
   </RiskAssessment>
+
+  <DeprecatedModules>
+    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" reason="Replaced by FastMCP OAuth Proxy integration for /mcp." />
+    <M-MCP-AUTH-ADAPTER NAME="McpAuthAdapter" reason="No longer needed when FastMCP OAuth Proxy handles OAuth session flow." />
+    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" reason="Out of simplified runtime scope; admin remains ROOT_AUTH_TOKEN only." />
+    <M-DB NAME="DrizzleDb" reason="No active dependency in simplified runtime path." />
+  </DeprecatedModules>
 </DevelopmentPlan>
