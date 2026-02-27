@@ -1,5 +1,5 @@
 // FILE: src/auth/oauth-proxy.ts
-// VERSION: 1.1.0
+// VERSION: 1.7.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for /mcp authentication.
 //   SCOPE: Validate runtime config/logger dependencies, build deterministic OAuthProxy configuration from AppConfig Logto/public URL fields, instantiate OAuthProxy, expose authorization server metadata, and map init failures to OAUTH_PROXY_INIT_ERROR.
@@ -11,11 +11,12 @@
 //   OauthProxyDeps - Dependency bundle for OAuth proxy initialization (config + logger).
 //   OauthProxyContext - Initialized OAuthProxy and derived authorization-server metadata payload.
 //   OauthProxyInitError - Typed initialization failure with stable OAUTH_PROXY_INIT_ERROR code.
+//   DEFAULT_OAUTH_PROXY_SCOPES - Deterministic default upstream scopes forwarded to authorization requests.
 //   createOauthProxy - Build and return OAuthProxy plus authorization server metadata.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Normalized OAuthProxy baseUrl from PUBLIC_URL by removing trailing slash to prevent double-slash oauth metadata endpoints.
+//   LAST_CHANGE: v1.7.0 - Enforced single default upstream scope ["mcp:access"] for OAuthProxy authorization metadata and upstream authorize requests.
 // END_CHANGE_SUMMARY
 
 import { OAuthProxy, type OAuthProxyConfig } from "fastmcp/auth";
@@ -33,7 +34,10 @@ type ResolvedOauthProxyConfig = {
   upstreamTokenEndpoint: string;
   upstreamClientId: string;
   upstreamClientSecret: string;
+  scopes: string[];
 };
+
+const DEFAULT_OAUTH_PROXY_SCOPES = Object.freeze(["mcp:access"]);
 
 export type OauthProxyDeps = {
   config: AppConfig;
@@ -199,9 +203,9 @@ function validateLoggerDependency(logger: Logger | undefined): Logger {
 }
 
 // START_CONTRACT: resolveOauthProxyConfig
-//   PURPOSE: Validate and map AppConfig values into OAuthProxy constructor config fields.
+//   PURPOSE: Validate AppConfig values and map them into OAuthProxy constructor config fields with deterministic default upstream scopes.
 //   INPUTS: { config: AppConfig - Runtime app config with public URL and Logto OIDC endpoints/credentials }
-//   OUTPUTS: { ResolvedOauthProxyConfig - Normalized OAuthProxy constructor fields }
+//   OUTPUTS: { ResolvedOauthProxyConfig - Normalized OAuthProxy constructor fields including upstream scopes }
 //   SIDE_EFFECTS: [Throws OauthProxyInitError when required fields are missing/invalid]
 //   LINKS: [M-AUTH-PROXY, M-CONFIG]
 // END_CONTRACT: resolveOauthProxyConfig
@@ -236,12 +240,13 @@ function resolveOauthProxyConfig(config: AppConfig): ResolvedOauthProxyConfig {
     upstreamTokenEndpoint,
     upstreamClientId,
     upstreamClientSecret,
+    scopes: [...DEFAULT_OAUTH_PROXY_SCOPES],
   };
   // END_BLOCK_VALIDATE_AND_RESOLVE_OAUTH_PROXY_CONFIG_M_AUTH_PROXY_006
 }
 
 // START_CONTRACT: createOauthProxy
-//   PURPOSE: Create FastMCP OAuthProxy instance and derive authorization-server metadata for runtime oauth config wiring.
+//   PURPOSE: Create FastMCP OAuthProxy instance with deterministic default upstream scopes and derive authorization-server metadata for runtime oauth config wiring.
 //   INPUTS: { deps: OauthProxyDeps - Dependency bundle with AppConfig and logger }
 //   OUTPUTS: { OauthProxyContext - OAuthProxy instance plus authorization server metadata object }
 //   SIDE_EFFECTS: [Writes structured logs via logger; throws OauthProxyInitError on invalid input or proxy construction failure]
@@ -268,6 +273,7 @@ export function createOauthProxy(deps: OauthProxyDeps): OauthProxyContext {
       upstreamAuthorizationEndpoint: resolvedConfig.upstreamAuthorizationEndpoint,
       upstreamTokenEndpoint: resolvedConfig.upstreamTokenEndpoint,
       upstreamClientId: resolvedConfig.upstreamClientId,
+      scopes: resolvedConfig.scopes,
     },
   );
   // END_BLOCK_EMIT_OAUTH_PROXY_INIT_START_LOG_M_AUTH_PROXY_008
@@ -280,6 +286,7 @@ export function createOauthProxy(deps: OauthProxyDeps): OauthProxyContext {
       upstreamTokenEndpoint: resolvedConfig.upstreamTokenEndpoint,
       upstreamClientId: resolvedConfig.upstreamClientId,
       upstreamClientSecret: resolvedConfig.upstreamClientSecret,
+      scopes: resolvedConfig.scopes,
     };
 
     const oauthProxy = new OAuthProxy(oauthProxyConfig);
