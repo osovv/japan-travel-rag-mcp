@@ -1,5 +1,5 @@
 // FILE: src/admin/ui-routes.tsx
-// VERSION: 2.2.0
+// VERSION: 2.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Render admin login and authenticated operator diagnostics surfaces without legacy API-key route handling.
 //   SCOPE: Route /admin/login and /admin/ops requests, enforce admin session checks, and render safe HTML diagnostics from runtime config.
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.2.0 - Removed deprecated OAuth JWKS/clock-skew diagnostics fields from ops status after Phase-7 config simplification.
+//   LAST_CHANGE: v2.3.0 - Rebased ops diagnostics on AppConfig.logto fields, removed legacy config.oauth references, and masked Logto client secret in rendered status output.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -52,9 +52,11 @@ type AdminSessionDenyResult = Extract<RequireAdminSessionResult, { isAuthenticat
 
 type RenderOpsStatusModel = {
   publicUrl: string;
-  oauthIssuer: string;
-  oauthAudience: string;
-  oauthRequiredScopes: string[];
+  logtoTenantUrl: string;
+  logtoClientId: string;
+  logtoClientSecretMasked: string;
+  logtoOidcAuthEndpoint: string;
+  logtoOidcTokenEndpoint: string;
   mcpUrl: string;
   wellKnownResourceUrl: string;
   wellKnownMcpResourceUrl: string;
@@ -205,6 +207,23 @@ function asFormString(value: unknown): string {
   // END_BLOCK_NORMALIZE_FORMDATA_FIELD_TO_STRING_M_ADMIN_UI_106
 }
 
+// START_CONTRACT: maskSecretValueForDiagnostics
+//   PURPOSE: Prevent secret disclosure in rendered diagnostics while still signaling value presence.
+//   INPUTS: { secretValue: string - Raw secret value from runtime config }
+//   OUTPUTS: { string - Redacted secret placeholder text }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-UI]
+// END_CONTRACT: maskSecretValueForDiagnostics
+function maskSecretValueForDiagnostics(secretValue: string): string {
+  // START_BLOCK_MASK_SECRET_VALUE_FOR_SAFE_DIAGNOSTICS_RENDERING_M_ADMIN_UI_126
+  const normalizedSecret = secretValue.trim();
+  if (!normalizedSecret) {
+    return "(missing)";
+  }
+  return "[REDACTED]";
+  // END_BLOCK_MASK_SECRET_VALUE_FOR_SAFE_DIAGNOSTICS_RENDERING_M_ADMIN_UI_126
+}
+
 // START_CONTRACT: resolveDependencies
 //   PURPOSE: Resolve optional dependency overrides to concrete auth helpers for route execution.
 //   INPUTS: { deps: AdminUiDependencies - Admin UI dependency object with optional helper overrides }
@@ -287,9 +306,11 @@ function buildOpsStatusModel(config: AppConfig): RenderOpsStatusModel {
   // START_BLOCK_DERIVE_DIAGNOSTICS_MODEL_FROM_RUNTIME_CONFIG_M_ADMIN_UI_108
   return {
     publicUrl: config.publicUrl,
-    oauthIssuer: config.oauth.issuer,
-    oauthAudience: config.oauth.audience,
-    oauthRequiredScopes: [...config.oauth.requiredScopes],
+    logtoTenantUrl: config.logto.tenantUrl,
+    logtoClientId: config.logto.clientId,
+    logtoClientSecretMasked: maskSecretValueForDiagnostics(config.logto.clientSecret),
+    logtoOidcAuthEndpoint: config.logto.oidcAuthEndpoint,
+    logtoOidcTokenEndpoint: config.logto.oidcTokenEndpoint,
     mcpUrl: new URL("/mcp", config.publicUrl).toString(),
     wellKnownResourceUrl: new URL("/.well-known/oauth-protected-resource", config.publicUrl).toString(),
     wellKnownMcpResourceUrl: new URL(
@@ -323,7 +344,7 @@ function renderDiagnosticsTableRows(rows: Array<[label: string, value: string]>)
 }
 
 // START_CONTRACT: renderOpsStatus
-//   PURPOSE: Render operator diagnostics panel from config with OAuth runtime settings and derived endpoint URLs.
+//   PURPOSE: Render operator diagnostics panel from config with Logto runtime settings and derived endpoint URLs.
 //   INPUTS: { config: AppConfig - Runtime app configuration }
 //   OUTPUTS: { string - HTML diagnostics panel fragment }
 //   SIDE_EFFECTS: [none]
@@ -332,15 +353,14 @@ function renderDiagnosticsTableRows(rows: Array<[label: string, value: string]>)
 export function renderOpsStatus(config: AppConfig): string {
   // START_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
   const diagnostics = buildOpsStatusModel(config);
-  const requiredScopesDisplay = diagnostics.oauthRequiredScopes.length
-    ? diagnostics.oauthRequiredScopes.join(", ")
-    : "(none)";
 
   const rows = renderDiagnosticsTableRows([
     ["PUBLIC_URL", diagnostics.publicUrl],
-    ["OAUTH_ISSUER", diagnostics.oauthIssuer],
-    ["OAUTH_AUDIENCE", diagnostics.oauthAudience],
-    ["OAUTH_REQUIRED_SCOPES", requiredScopesDisplay],
+    ["LOGTO_TENANT_URL", diagnostics.logtoTenantUrl],
+    ["LOGTO_CLIENT_ID", diagnostics.logtoClientId],
+    ["LOGTO_CLIENT_SECRET", diagnostics.logtoClientSecretMasked],
+    ["LOGTO_OIDC_AUTH_ENDPOINT", diagnostics.logtoOidcAuthEndpoint],
+    ["LOGTO_OIDC_TOKEN_ENDPOINT", diagnostics.logtoOidcTokenEndpoint],
     ["Derived /mcp URL", diagnostics.mcpUrl],
     ["Derived protected resource URL", diagnostics.wellKnownResourceUrl],
     ["Derived MCP protected resource URL", diagnostics.wellKnownMcpResourceUrl],
@@ -350,7 +370,7 @@ export function renderOpsStatus(config: AppConfig): string {
     `<section id="ops-status-panel" class="stack">`,
     `<section class="card">`,
     `<h2>Ops diagnostics</h2>`,
-    `<p class="muted">Runtime OAuth resource settings loaded from environment and used by server routing.</p>`,
+    `<p class="muted">Runtime admin and Logto OAuth proxy settings loaded from environment and used by server routing.</p>`,
     `</section>`,
     `<section class="card table-wrap">`,
     `<h3>Configuration status</h3>`,

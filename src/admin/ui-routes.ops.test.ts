@@ -1,5 +1,5 @@
 // FILE: src/admin/ui-routes.ops.test.ts
-// VERSION: 1.3.1
+// VERSION: 1.4.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate admin UI route behavior after transitioning from API-key management to ops diagnostics surface.
 //   SCOPE: Assert admin login/session redirect stability, /admin/login POST success/failure behavior, /admin redirect target, /admin/ops diagnostics rendering for full and HTMX requests, and default not-found behavior for removed /admin/api-keys* routes.
@@ -9,14 +9,14 @@
 //
 // START_MODULE_MAP
 //   createNoopLogger - Create no-op logger implementation for deterministic route tests.
-//   createTestConfig - Build valid AppConfig fixture with OAuth diagnostics values.
+//   createTestConfig - Build valid AppConfig fixture with Logto diagnostics values.
 //   createDependencies - Build AdminUiDependencies with overrideable auth helper behavior.
 //   createLoginPostRequest - Build deterministic /admin/login POST request payload.
 //   AdminUiOpsRouteTests - Focused tests for login/session stability, ops diagnostics route behavior, and removed API-key surface behavior.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.1 - Aligned module contract LINKS identity to M-ADMIN-UI-OPS-TEST for GRACE consistency.
+//   LAST_CHANGE: v1.4.0 - Rebased AppConfig fixture and diagnostics assertions on logto.* fields after config.oauth removal and added secret redaction assertion.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -55,7 +55,7 @@ function createNoopLogger(): Logger {
 // START_CONTRACT: createTestConfig
 //   PURPOSE: Build deterministic AppConfig fixture for admin UI route tests.
 //   INPUTS: {}
-//   OUTPUTS: { AppConfig - Runtime config fixture with OAuth diagnostics values }
+//   OUTPUTS: { AppConfig - Runtime config fixture with Logto diagnostics values }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-CONFIG]
 // END_CONTRACT: createTestConfig
@@ -65,11 +65,12 @@ function createTestConfig(): AppConfig {
     port: 3000,
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-secret",
-    databaseUrl: "postgresql://user:pass@localhost:5432/db",
-    oauth: {
-      issuer: "https://issuer.example.com/",
-      audience: "travel-mcp",
-      requiredScopes: ["mcp:access", "profile:read"],
+    logto: {
+      tenantUrl: "https://travel-app.logto.app/",
+      clientId: "travel-client-id",
+      clientSecret: "travel-client-secret",
+      oidcAuthEndpoint: "https://travel-app.logto.app/oidc/auth",
+      oidcTokenEndpoint: "https://travel-app.logto.app/oidc/token",
     },
     tgChatRag: {
       baseUrl: "https://tg-rag.example.com/",
@@ -240,9 +241,12 @@ describe("M-ADMIN-UI ops diagnostics routing", () => {
     expect(html).toContain("<!doctype html>");
     expect(html).toContain("Ops diagnostics");
     expect(html).toContain("https://travel.example.com/");
-    expect(html).toContain("https://issuer.example.com/");
-    expect(html).toContain("travel-mcp");
-    expect(html).toContain("mcp:access, profile:read");
+    expect(html).toContain("https://travel-app.logto.app/");
+    expect(html).toContain("travel-client-id");
+    expect(html).toContain("[REDACTED]");
+    expect(html).not.toContain("travel-client-secret");
+    expect(html).toContain("https://travel-app.logto.app/oidc/auth");
+    expect(html).toContain("https://travel-app.logto.app/oidc/token");
     expect(html).toContain("https://travel.example.com/mcp");
     expect(html).toContain("https://travel.example.com/.well-known/oauth-protected-resource");
     expect(html).toContain("https://travel.example.com/.well-known/oauth-protected-resource/mcp");
