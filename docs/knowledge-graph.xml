@@ -46,7 +46,7 @@
       </annotations>
     </M-TG-CHAT-RAG-CLIENT>
 
-    <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" STATUS="planned">
+    <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" STATUS="active">
       <purpose>FastMCP OAuthProxy integration for /mcp authentication backed by Logto OIDC upstream endpoints.</purpose>
       <path>src/auth/oauth-proxy.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
