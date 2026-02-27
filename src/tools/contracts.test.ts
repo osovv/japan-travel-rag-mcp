@@ -1,5 +1,5 @@
 // FILE: src/tools/contracts.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.2.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Verify deterministic validation behavior and public tool surface for M-TOOLS-CONTRACTS.
 //   SCOPE: Assert four-tool allowlist, schema metadata, forbidden filters.chat_ids behavior, and SchemaValidationError details.
@@ -13,7 +13,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Added focused Step 2/8 verification tests for M-TOOLS-CONTRACTS deterministic behavior.
+//   LAST_CHANGE: v1.2.1 - Added strict metadata assertion for list_sources additionalProperties=false to keep JSON schema hints aligned with runtime validators.
+//   PREVIOUS: v1.2.0 - Updated tests to strict full-parameter contracts (query/top_k/filters and context/related defaults) and strict unknown-key rejection.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -82,6 +83,7 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
     expect(TOOL_INPUT_JSON_SCHEMAS.search_messages.x_forbidden_paths).toEqual([
       "filters.chat_ids",
     ]);
+    expect(TOOL_INPUT_JSON_SCHEMAS.list_sources.additionalProperties).toBe(false);
   });
 
   it("accepts known proxied tool names and rejects non-public names", () => {
@@ -92,38 +94,66 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
     expect(isProxiedToolName("list_chats")).toBe(false);
   });
 
-  it("accepts search_messages payloads that do not include filters.chat_ids", () => {
+  it("accepts search_messages payloads that satisfy strict field contracts", () => {
     const input = {
       query: "tokyo coffee roasters",
-      filters: {
-        source: "telegram",
-        nested: {
-          tenant_id: "JP",
-          tags: ["specialty", "sangenjaya"],
-        },
-      },
       top_k: 20,
+      filters: {
+        date_from: "2026-01-01T00:00:00.000Z",
+        date_to: "2026-01-31T23:59:59.000Z",
+        authors: ["alice", "bob"],
+        has_media: true,
+      },
     };
 
     expect(validateSearchMessagesInputPublic(input)).toEqual(input);
   });
 
-  it("rejects search_messages payloads with nested filters.chat_ids", () => {
+  it("fills search_messages top_k default when omitted", () => {
+    expect(
+      validateSearchMessagesInputPublic({
+        query: "kyoto breakfast",
+      }),
+    ).toEqual({
+      query: "kyoto breakfast",
+      top_k: 10,
+    });
+  });
+
+  it("rejects search_messages payloads when filters.chat_ids is provided", () => {
     assertSchemaValidationError(
       () =>
         validateSearchMessagesInputPublic({
           query: "osaka",
+          top_k: 5,
           filters: {
-            nested: [
-              {
-                deeper: {
-                  chat_ids: ["chat-1"],
-                },
-              },
-            ],
+            chat_ids: ["chat-1"],
           },
         }),
       "search_messages input forbids filters.chat_ids at the public boundary.",
+    );
+  });
+
+  it("rejects search_messages payloads when filters is not an object", () => {
+    assertSchemaValidationError(
+      () =>
+        validateSearchMessagesInputPublic({
+          query: "sapporo ramen",
+          filters: 123,
+        }),
+      "filters",
+    );
+  });
+
+  it("rejects search_messages payloads when unknown top-level keys are provided", () => {
+    assertSchemaValidationError(
+      () =>
+        validateSearchMessagesInputPublic({
+          query: "nara",
+          top_k: 3,
+          unknown_flag: true,
+        }),
+      "Unrecognized key",
     );
   });
 
@@ -131,11 +161,11 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
     expect(
       validateGetMessageContextInput({
         message_uid: "  msg-context-001  ",
-        include_neighbors: true,
       }),
     ).toEqual({
       message_uid: "msg-context-001",
-      include_neighbors: true,
+      before: 5,
+      after: 5,
     });
 
     assertSchemaValidationError(
@@ -145,6 +175,15 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
   });
 
   it("enforces deterministic message_uid validation for get_related_messages", () => {
+    expect(
+      validateGetRelatedMessagesInput({
+        message_uid: "msg-related-001",
+      }),
+    ).toEqual({
+      message_uid: "msg-related-001",
+      top_k: 5,
+    });
+
     assertSchemaValidationError(
       () => validateGetRelatedMessagesInput({ message_uid: "" }),
       "get_related_messages requires non-empty string field message_uid.",

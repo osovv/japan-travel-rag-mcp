@@ -1,5 +1,5 @@
 // FILE: src/tools/contracts.ts
-// VERSION: 1.2.0
+// VERSION: 1.4.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Define and export MCP tool schemas and tool allowlist for the proxy surface.
 //   SCOPE: Provide input types, tool metadata schemas, and zod-based runtime validators for proxied MCP tool inputs.
@@ -8,6 +8,7 @@
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
+//   SearchFiltersInputPublic - Strict public filters schema for search_messages (chat_ids forbidden).
 //   SearchMessagesInputPublic - Public search input schema that forbids filters.chat_ids.
 //   GetMessageContextInput - Input shape for get_message_context tool.
 //   GetRelatedMessagesInput - Input shape for get_related_messages tool.
@@ -25,7 +26,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Strengthened tool field descriptions and deterministic validation details while preserving four-tool public surface.
+//   LAST_CHANGE: v1.4.1 - Aligned list_sources JSON metadata with strict validator behavior and clarified search_messages validation contract wording.
+//   PREVIOUS: v1.4.0 - Rebased all public tool schemas to strict parameter contracts (wren-chat parity) with explicit fields/defaults and hard rejection of unknown keys/types.
 // END_CHANGE_SUMMARY
 
 import { z } from "zod";
@@ -42,10 +44,24 @@ export type ProxiedToolName = (typeof PROXIED_TOOL_NAMES)[number];
 
 const SEARCH_MESSAGES_FORBIDDEN_CHAT_IDS_ERROR =
   "search_messages input forbids filters.chat_ids at the public boundary.";
+const SEARCH_MESSAGES_QUERY_REQUIRED_ERROR =
+  "search_messages requires non-empty string field query.";
+const SEARCH_MESSAGES_TOP_K_MIN_ERROR =
+  "search_messages top_k must be an integer between 1 and 100.";
+const SEARCH_MESSAGES_TOP_K_MAX_ERROR =
+  "search_messages top_k must be an integer between 1 and 100.";
 const GET_MESSAGE_CONTEXT_MESSAGE_UID_REQUIRED_ERROR =
   "get_message_context requires non-empty string field message_uid.";
+const GET_MESSAGE_CONTEXT_BEFORE_RANGE_ERROR =
+  "get_message_context before must be an integer between 0 and 50.";
+const GET_MESSAGE_CONTEXT_AFTER_RANGE_ERROR =
+  "get_message_context after must be an integer between 0 and 50.";
 const GET_RELATED_MESSAGES_MESSAGE_UID_REQUIRED_ERROR =
   "get_related_messages requires non-empty string field message_uid.";
+const GET_RELATED_MESSAGES_TOP_K_MIN_ERROR =
+  "get_related_messages top_k must be an integer between 1 and 50.";
+const GET_RELATED_MESSAGES_TOP_K_MAX_ERROR =
+  "get_related_messages top_k must be an integer between 1 and 50.";
 const LIST_SOURCES_MESSAGE_UID_ENTRY_REQUIRED_ERROR =
   "list_sources requires each message_uids entry to be a non-empty string.";
 const LIST_SOURCES_MESSAGE_UIDS_MIN_ERROR =
@@ -67,17 +83,44 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
     type: "object",
     description:
       "Public input for search_messages. Caller may provide query and filters, but filters.chat_ids is forbidden and injected internally.",
-    additionalProperties: true,
+    required: ["query"],
+    additionalProperties: false,
     properties: {
       query: {
         type: "string",
         description: "Search query text sent to upstream semantic retrieval.",
       },
+      top_k: {
+        type: "integer",
+        minimum: 1,
+        maximum: 100,
+        description: "Maximum number of results to return (1-100, default 10).",
+      },
       filters: {
         type: "object",
-        additionalProperties: true,
+        additionalProperties: false,
         description:
-          "Optional search filter object. Any nested filters.chat_ids path is forbidden at public boundary.",
+          "Optional strict search filters. filters.chat_ids is explicitly forbidden at public boundary.",
+        properties: {
+          date_from: {
+            type: "string",
+            format: "date-time",
+          },
+          date_to: {
+            type: "string",
+            format: "date-time",
+          },
+          authors: {
+            type: "array",
+            items: {
+              type: "string",
+              minLength: 1,
+            },
+          },
+          has_media: {
+            type: "boolean",
+          },
+        },
       },
     },
     x_forbidden_paths: ["filters.chat_ids"],
@@ -87,12 +130,22 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
     description:
       "Input for get_message_context. Requires a non-empty message_uid identifying the anchor message.",
     required: ["message_uid"],
-    additionalProperties: true,
+    additionalProperties: false,
     properties: {
       message_uid: {
         type: "string",
         minLength: 1,
         description: "Unique message identifier used to fetch context window.",
+      },
+      before: {
+        type: "integer",
+        minimum: 0,
+        maximum: 50,
+      },
+      after: {
+        type: "integer",
+        minimum: 0,
+        maximum: 50,
       },
     },
   },
@@ -101,12 +154,17 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
     description:
       "Input for get_related_messages. Requires a non-empty message_uid used as relation anchor.",
     required: ["message_uid"],
-    additionalProperties: true,
+    additionalProperties: false,
     properties: {
       message_uid: {
         type: "string",
         minLength: 1,
         description: "Unique message identifier used to retrieve semantically related messages.",
+      },
+      top_k: {
+        type: "integer",
+        minimum: 1,
+        maximum: 50,
       },
     },
   },
@@ -114,7 +172,7 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
     type: "object",
     description:
       "Input for list_sources. Requires bounded message_uids array to resolve source provenance for each message.",
-    additionalProperties: true,
+    additionalProperties: false,
     properties: {
       message_uids: {
         type: "array",
@@ -143,68 +201,37 @@ export class SchemaValidationError extends Error {
   }
 }
 
-// START_CONTRACT: hasForbiddenChatIdsInFilters
-//   PURPOSE: Detect forbidden chat_ids keys anywhere inside the filters subtree.
-//   INPUTS: { filtersValue: unknown - filters subtree candidate }
-//   OUTPUTS: { boolean - True when chat_ids key exists under filters }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-TOOLS-CONTRACTS]
-// END_CONTRACT: hasForbiddenChatIdsInFilters
-function hasForbiddenChatIdsInFilters(filtersValue: unknown): boolean {
-  // START_BLOCK_TRAVERSE_FILTERS_SUBTREE_FOR_CHAT_IDS_M_TOOLS_CONTRACTS_001
-  const stack: unknown[] = [filtersValue];
-  const seen = new Set<unknown>();
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (current === undefined || current === null) {
-      continue;
-    }
-    if (typeof current !== "object") {
-      continue;
-    }
-    if (seen.has(current)) {
-      continue;
-    }
-    seen.add(current);
-
-    if (Array.isArray(current)) {
-      for (const item of current) {
-        stack.push(item);
-      }
-      continue;
-    }
-
-    const objectValue = current as Record<string, unknown>;
-    for (const key of Object.keys(objectValue)) {
-      if (key === "chat_ids") {
-        return true;
-      }
-      stack.push(objectValue[key]);
-    }
-  }
-
-  return false;
-  // END_BLOCK_TRAVERSE_FILTERS_SUBTREE_FOR_CHAT_IDS_M_TOOLS_CONTRACTS_001
-}
-
-export const SearchMessagesInputPublicSchema = z
+export const SearchFiltersInputPublicSchema = z
   .object({
-    filters: z.unknown().optional(),
+    date_from: z.string().datetime().optional(),
+    date_to: z.string().datetime().optional(),
+    authors: z.array(z.string().trim().min(1)).optional(),
+    has_media: z.boolean().optional(),
+    chat_ids: z.any().optional(),
   })
-  .passthrough()
+  .strict()
   .superRefine((value, ctx) => {
-    if (
-      Object.prototype.hasOwnProperty.call(value, "filters") &&
-      hasForbiddenChatIdsInFilters(value.filters)
-    ) {
+    if (Object.prototype.hasOwnProperty.call(value, "chat_ids")) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: SEARCH_MESSAGES_FORBIDDEN_CHAT_IDS_ERROR,
-        path: ["filters"],
+        path: ["chat_ids"],
       });
     }
   });
+
+export const SearchMessagesInputPublicSchema = z
+  .object({
+    query: z.string().trim().min(1, SEARCH_MESSAGES_QUERY_REQUIRED_ERROR),
+    top_k: z
+      .number()
+      .int()
+      .min(1, SEARCH_MESSAGES_TOP_K_MIN_ERROR)
+      .max(100, SEARCH_MESSAGES_TOP_K_MAX_ERROR)
+      .default(10),
+    filters: SearchFiltersInputPublicSchema.optional(),
+  })
+  .strict();
 
 export const GetMessageContextInputSchema = z
   .object({
@@ -212,8 +239,20 @@ export const GetMessageContextInputSchema = z
       .string()
       .trim()
       .min(1, GET_MESSAGE_CONTEXT_MESSAGE_UID_REQUIRED_ERROR),
+    before: z
+      .number()
+      .int()
+      .min(0, GET_MESSAGE_CONTEXT_BEFORE_RANGE_ERROR)
+      .max(50, GET_MESSAGE_CONTEXT_BEFORE_RANGE_ERROR)
+      .default(5),
+    after: z
+      .number()
+      .int()
+      .min(0, GET_MESSAGE_CONTEXT_AFTER_RANGE_ERROR)
+      .max(50, GET_MESSAGE_CONTEXT_AFTER_RANGE_ERROR)
+      .default(5),
   })
-  .passthrough();
+  .strict();
 
 export const GetRelatedMessagesInputSchema = z
   .object({
@@ -221,15 +260,23 @@ export const GetRelatedMessagesInputSchema = z
       .string()
       .trim()
       .min(1, GET_RELATED_MESSAGES_MESSAGE_UID_REQUIRED_ERROR),
+    top_k: z
+      .number()
+      .int()
+      .min(1, GET_RELATED_MESSAGES_TOP_K_MIN_ERROR)
+      .max(50, GET_RELATED_MESSAGES_TOP_K_MAX_ERROR)
+      .default(5),
   })
-  .passthrough();
+  .strict();
 
-export const ListSourcesInputSchema = z.object({
-  message_uids: z
-    .array(z.string().min(1, LIST_SOURCES_MESSAGE_UID_ENTRY_REQUIRED_ERROR))
-    .min(1, LIST_SOURCES_MESSAGE_UIDS_MIN_ERROR)
-    .max(100, LIST_SOURCES_MESSAGE_UIDS_MAX_ERROR),
-});
+export const ListSourcesInputSchema = z
+  .object({
+    message_uids: z
+      .array(z.string().trim().min(1, LIST_SOURCES_MESSAGE_UID_ENTRY_REQUIRED_ERROR))
+      .min(1, LIST_SOURCES_MESSAGE_UIDS_MIN_ERROR)
+      .max(100, LIST_SOURCES_MESSAGE_UIDS_MAX_ERROR),
+  })
+  .strict();
 
 export type SearchMessagesInputPublic = z.infer<typeof SearchMessagesInputPublicSchema>;
 export type GetMessageContextInput = z.infer<typeof GetMessageContextInputSchema>;
@@ -326,7 +373,7 @@ export function isProxiedToolName(value: string): value is ProxiedToolName {
 }
 
 // START_CONTRACT: validateSearchMessagesInputPublic
-//   PURPOSE: Validate public search_messages input and forbid filters.chat_ids at any depth.
+//   PURPOSE: Validate strict public search_messages input and forbid caller-provided filters.chat_ids.
 //   INPUTS: { rawArgs: unknown - Untrusted tool args, logger: Logger | undefined - Optional diagnostics logger }
 //   OUTPUTS: { SearchMessagesInputPublic - Validated public search_messages input }
 //   SIDE_EFFECTS: [Throws SchemaValidationError on validation failures]

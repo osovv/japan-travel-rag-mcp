@@ -1,5 +1,5 @@
 // FILE: src/runtime/fastmcp-runtime.smoke.test.ts
-// VERSION: 1.3.0
+// VERSION: 1.4.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Provide smoke verification for FastMCP runtime tool surface, schema rejection, and authorized proxy dispatch through the HTTP stream boundary.
 //   SCOPE: Start createFastMcpRuntime on /mcp using httpStream transport, assert tools/list exposure contract, verify invalid tool arguments return MCP protocol errors, and verify authorized tools/call is forwarded to ToolProxyService.
@@ -21,7 +21,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Updated protected-resource discovery assertion to use OAuth proxy issuer metadata instead of Logto tenant URL.
+//   LAST_CHANGE: v1.4.0 - Added search_messages invalid-params smoke coverage for non-object filters to verify strict FastMCP schema rejection.
 // END_CHANGE_SUMMARY
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -471,6 +471,34 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
         await harness.client.callTool({
           name: "get_message_context",
           arguments: {},
+        });
+      } catch (error: unknown) {
+        capturedError = error;
+      }
+
+      expect(capturedError).toBeDefined();
+      assertMcpInvalidParamsError(capturedError);
+      expect(harness.proxyCalls).toEqual([]);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("returns MCP error behavior for invalid search_messages filters arguments", async () => {
+    const harness = await createRuntimeHarnessOrSkipWhenBindRestricted("allow");
+    if (!harness) {
+      return;
+    }
+
+    try {
+      let capturedError: unknown;
+      try {
+        await harness.client.callTool({
+          name: "search_messages",
+          arguments: {
+            query: "tokyo coffee",
+            filters: 123,
+          },
         });
       } catch (error: unknown) {
         capturedError = error;

@@ -1,5 +1,5 @@
 // FILE: src/tools/proxy-service.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Verify deterministic orchestration and error mapping for M-TOOL-PROXY.
 //   SCOPE: Assert validate->policy->upstream->normalize flow, tool allowlist enforcement, internal search chat_ids injection, and deterministic proxy error codes.
@@ -15,7 +15,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Added focused Step 5/8 tests for M-TOOL-PROXY orchestration and deterministic errors.
+//   LAST_CHANGE: v1.1.0 - Updated search_messages fixtures for strict filters schema and direct chat_ids-forbidden validation path.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -122,11 +122,11 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
     const proxyService = createToolProxyService(config, logger, client);
     const rawArgs = {
       query: "tokyo ramen",
-      filters: {
-        source: "telegram",
-        tenant_id: "JP",
-      },
       top_k: 5,
+      filters: {
+        authors: ["alice", "bob"],
+        has_media: true,
+      },
     };
 
     const result = await proxyService.executeTool("search_messages", rawArgs);
@@ -135,12 +135,12 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
     expect(callLog[0]?.toolName).toBe("search_messages");
     expect(callLog[0]?.payload).toEqual({
       query: "tokyo ramen",
+      top_k: 5,
       filters: {
-        source: "telegram",
-        tenant_id: "JP",
+        authors: ["alice", "bob"],
+        has_media: true,
         chat_ids: ["chat-alpha", "chat-bravo"],
       },
-      top_k: 5,
     });
     expect(result).toEqual({
       content: [{ type: "text", text: JSON.stringify(upstreamResponse) }],
@@ -212,7 +212,7 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
         proxyService.executeTool("search_messages", {
           query: "kyoto",
           filters: {
-            nested: [{ deeper: { chat_ids: ["chat-override"] } }],
+            chat_ids: ["chat-override"],
           },
         }),
       "VALIDATION_ERROR",
