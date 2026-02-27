@@ -36,6 +36,7 @@ import type { McpTransportDependencies } from "../transport/mcp-transport";
 const PROTECTED_RESOURCE_METADATA_ROOT_PATH = "/.well-known/oauth-protected-resource";
 const PROTECTED_RESOURCE_METADATA_MCP_PATH = "/.well-known/oauth-protected-resource/mcp";
 const OAUTH_AUTHORIZATION_SERVER_METADATA_PATH = "/.well-known/oauth-authorization-server";
+const OPENID_CONFIGURATION_PATH = "/.well-known/openid-configuration";
 
 export class ServerStartError extends Error {
   public readonly code = "SERVER_START_ERROR" as const;
@@ -305,7 +306,10 @@ export async function main(): Promise<Bun.Server<unknown>> {
           return protectedResourceMetadataResponse;
         }
 
-        if (url.pathname === OAUTH_AUTHORIZATION_SERVER_METADATA_PATH) {
+        if (
+          url.pathname === OAUTH_AUTHORIZATION_SERVER_METADATA_PATH ||
+          url.pathname === OPENID_CONFIGURATION_PATH
+        ) {
           if (request.method !== "GET") {
             return new Response(
               JSON.stringify({
