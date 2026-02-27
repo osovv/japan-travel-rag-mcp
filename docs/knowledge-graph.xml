@@ -199,6 +199,15 @@
       </annotations>
     </M-TOOLS-CONTRACTS-TEST>
 
+    <M-TG-CHAT-RAG-CLIENT-TEST NAME="TgChatRagClientTests" TYPE="TEST" STATUS="active">
+      <purpose>Deterministic tests for tg-chat-rag methods-call URL construction, timeout behavior, HTTP error mapping, and success response parsing.</purpose>
+      <path>src/integrations/tg-chat-rag-client.test.ts</path>
+      <depends>M-TG-CHAT-RAG-CLIENT</depends>
+      <annotations>
+        <fn-TgChatRagClientTests description="Focused coverage for callMethod success and normalized upstream error branches." />
+      </annotations>
+    </M-TG-CHAT-RAG-CLIENT-TEST>
+
     <CrossLinks>
       <CrossLink FROM="M-CONFIG" TO="M-LOGGER" REL="configures" />
       <CrossLink FROM="M-LOGGER" TO="M-CONFIG" REL="depends_on" />
@@ -232,6 +241,9 @@
 
       <CrossLink FROM="M-SERVER" TO="M-ROOT-ENTRYPOINT" REL="invoked_by" />
       <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" REL="depends_on" />
+
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TG-CHAT-RAG-CLIENT-TEST" REL="validated_by" />
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT-TEST" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
 
       <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOLS-CONTRACTS-TEST" REL="validated_by" />
       <CrossLink FROM="M-TOOLS-CONTRACTS-TEST" TO="M-TOOLS-CONTRACTS" REL="depends_on" />

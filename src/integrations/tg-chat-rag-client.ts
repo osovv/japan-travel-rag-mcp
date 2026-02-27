@@ -1,5 +1,5 @@
 // FILE: src/integrations/tg-chat-rag-client.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Call tg-chat-rag methods API via POST /api/v1/methods/<tool_name> with Bearer auth.
 //   SCOPE: Build upstream method URLs, execute authenticated HTTP calls, apply timeout policy, normalize errors, and return parsed JSON objects.
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-TG-CHAT-RAG-CLIENT.
+//   LAST_CHANGE: v1.1.0 - Hardened URL construction and timeout normalization for deterministic upstream error mapping while preserving callMethod contract.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -118,13 +118,18 @@ function buildMethodUrl(baseUrl: string, toolName: string): string {
   const normalizedToolName = normalizeNonEmptyString(toolName, "toolName");
   try {
     const base = normalizedBaseUrl.replace(/\/+$/, "");
-    return `${base}/api/v1/methods/${encodeURIComponent(normalizedToolName)}`;
-  } catch {
+    const url = new URL(`${base}/api/v1/methods/${encodeURIComponent(normalizedToolName)}`);
+    return url.toString();
+  } catch (error: unknown) {
     throw new UpstreamCallError(
       "UPSTREAM_PROTOCOL_ERROR",
       "Failed to build upstream method URL.",
       undefined,
-      { toolName: normalizedToolName },
+      {
+        toolName: normalizedToolName,
+        baseUrl: normalizedBaseUrl,
+        cause: error instanceof Error ? error.message : String(error),
+      },
     );
   }
   // END_BLOCK_BUILD_UPSTREAM_METHOD_URL_M_TG_CHAT_RAG_CLIENT_003
@@ -254,12 +259,17 @@ function normalizeUnknownCallError(
     return error;
   }
 
-  if (timedOut) {
+  const errorName = error instanceof Error ? error.name : "";
+  if (timedOut || errorName === "TimeoutError") {
     return new UpstreamCallError(
       "UPSTREAM_TIMEOUT",
       "Upstream request timed out.",
       undefined,
-      { toolName, durationMs },
+      {
+        toolName,
+        durationMs,
+        cause: error instanceof Error ? error.message : String(error),
+      },
     );
   }
 
