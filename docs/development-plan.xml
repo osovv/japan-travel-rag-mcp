@@ -355,7 +355,7 @@
       <justification>Core behavior and admin guardrails are independent and testable in isolation.</justification>
     </Phase-3>
 
-    <Phase-4 name="RuntimeAndBoot" status="pending">
+    <Phase-4 name="RuntimeAndBoot" status="done">
       <step-1>Wire M-FASTMCP-RUNTIME with oauth proxy for /mcp and mount admin routes.</step-1>
       <step-2>Finalize M-SERVER/M-ROOT-ENTRYPOINT startup and shutdown lifecycle.</step-2>
       <justification>Entrypoints are assembled last to avoid hidden coupling and ease smoke validation.</justification>
