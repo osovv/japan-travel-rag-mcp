@@ -1,10 +1,10 @@
 // FILE: src/runtime/fastmcp-runtime.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface, health endpoint, and delegated /admin routes.
-//   SCOPE: Instantiate FastMCP, map McpAuthContext metadata into FastMCP oauth configuration, register four proxied tools with zod schemas, route tool execution to ToolProxyService, and mount /admin routes through FastMCP.getApp().
-//   DEPENDS: M-CONFIG, M-LOGGER, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI
-//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI
+//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService, and mount /admin routes through FastMCP.getApp().
+//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI
+//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -16,12 +16,12 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Implemented Phase-7 Step-2 FastMCP runtime module with oauth metadata mapping, fixed tool registration, deterministic proxy error mapping, and admin route mounting through getApp().
+//   LAST_CHANGE: v1.1.0 - Rewired FastMCP runtime to OAuthProxy-based authentication/metadata from M-AUTH-PROXY, added canAccess guards for all proxied tools, and kept deterministic tool error/admin route behavior.
 // END_CHANGE_SUMMARY
 
 import { FastMCP, type ServerOptions } from "fastmcp";
-import { authenticateFastMcpRequest, type McpAuthSession } from "../auth/mcp-auth-adapter";
-import type { McpAuthContext } from "../auth/mcp-auth-provider";
+import type { IncomingMessage } from "node:http";
+import type { OauthProxyContext } from "../auth/oauth-proxy";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import {
@@ -36,6 +36,16 @@ import { ProxyExecutionError, type ToolProxyService } from "../tools/proxy-servi
 const FASTMCP_SERVER_NAME = "japan-travel-rag-mcp";
 const FASTMCP_SERVER_VERSION: `${number}.${number}.${number}` = "0.4.0";
 const FASTMCP_HEALTH_PATH = "/healthz";
+
+type RuntimeOauthSession = {
+  authenticated: true;
+  accessToken: string;
+  scopes: string[];
+  expiresAt?: number;
+  idToken?: string;
+  refreshToken?: string;
+};
+type RuntimeSessionAuth = RuntimeOauthSession | undefined;
 
 type RuntimeToolName =
   | "search_messages"
@@ -78,9 +88,12 @@ const RUNTIME_TOOL_DESCRIPTORS: readonly RuntimeToolDescriptor[] = [
   },
 ];
 
-type FastMcpOauthConfig = NonNullable<ServerOptions<McpAuthSession>["oauth"]>;
+type FastMcpOauthConfig = NonNullable<ServerOptions<RuntimeSessionAuth>["oauth"]>;
 type FastMcpAuthorizationServerMetadata = NonNullable<FastMcpOauthConfig["authorizationServer"]>;
 type FastMcpProtectedResourceMetadata = NonNullable<FastMcpOauthConfig["protectedResource"]>;
+type OauthUpstreamTokenSet = NonNullable<
+  Awaited<ReturnType<OauthProxyContext["oauthProxy"]["loadUpstreamTokens"]>>
+>;
 
 type FastMcpRuntimeErrorDetails = {
   field?: string;
@@ -100,7 +113,7 @@ type MountAdminRoutesDependencies = {
 export type FastMcpRuntimeDependencies = {
   config: AppConfig;
   logger: Logger;
-  authContext: McpAuthContext;
+  oauthProxyContext: OauthProxyContext;
   proxyService: ToolProxyService;
   adminHandler: (request: Request) => Promise<Response>;
 };
@@ -204,6 +217,32 @@ function readRequiredStringField(
   }
   return normalized;
   // END_BLOCK_READ_REQUIRED_STRING_FIELD_M_FASTMCP_RUNTIME_005
+}
+
+// START_CONTRACT: readRequiredUrlField
+//   PURPOSE: Validate required URL-like values and return normalized absolute URL strings.
+//   INPUTS: { value: unknown - Candidate value, field: string - Diagnostic field path }
+//   OUTPUTS: { string - Normalized URL string }
+//   SIDE_EFFECTS: [Throws FastMcpRuntimeError when value is missing/invalid URL]
+//   LINKS: [M-FASTMCP-RUNTIME]
+// END_CONTRACT: readRequiredUrlField
+function readRequiredUrlField(value: unknown, field: string): string {
+  // START_BLOCK_VALIDATE_REQUIRED_URL_FIELD_M_FASTMCP_RUNTIME_021
+  const normalizedValue = normalizeOptionalText(value);
+  if (!normalizedValue) {
+    throw new FastMcpRuntimeError("Missing required URL field for FastMCP runtime configuration.", {
+      field,
+    });
+  }
+
+  try {
+    return new URL(normalizedValue).toString();
+  } catch {
+    throw new FastMcpRuntimeError("Invalid URL field for FastMCP runtime configuration.", {
+      field,
+    });
+  }
+  // END_BLOCK_VALIDATE_REQUIRED_URL_FIELD_M_FASTMCP_RUNTIME_021
 }
 
 // START_CONTRACT: readOptionalStringField
@@ -324,19 +363,19 @@ function applyOptionalField(target: Record<string, unknown>, key: string, value:
 }
 
 // START_CONTRACT: buildAuthorizationServerMetadata
-//   PURPOSE: Map authorization-server metadata from McpAuthContext payload into FastMCP oauth option shape.
-//   INPUTS: { authContext: McpAuthContext - Initialized auth context payload }
+//   PURPOSE: Map authorization-server metadata from OauthProxyContext payload into FastMCP oauth option shape.
+//   INPUTS: { oauthProxyContext: OauthProxyContext - Initialized OAuth proxy context payload }
 //   OUTPUTS: { FastMcpAuthorizationServerMetadata - FastMCP-compatible authorization server metadata }
 //   SIDE_EFFECTS: [Throws FastMcpRuntimeError on invalid metadata shape]
-//   LINKS: [M-FASTMCP-RUNTIME, M-MCP-AUTH-PROVIDER]
+//   LINKS: [M-FASTMCP-RUNTIME, M-AUTH-PROXY]
 // END_CONTRACT: buildAuthorizationServerMetadata
 function buildAuthorizationServerMetadata(
-  authContext: McpAuthContext,
+  oauthProxyContext: OauthProxyContext,
 ): FastMcpAuthorizationServerMetadata {
   // START_BLOCK_MAP_AUTHORIZATION_SERVER_METADATA_TO_FASTMCP_SHAPE_M_FASTMCP_RUNTIME_012
   const sourceRecord = asObjectRecord(
-    authContext.authorizationServerMetadata,
-    "authContext.authorizationServerMetadata",
+    oauthProxyContext.authorizationServerMetadata,
+    "oauthProxyContext.authorizationServerMetadata",
   );
   const metadata = toCamelCaseRecord(sourceRecord);
 
@@ -440,116 +479,187 @@ function buildAuthorizationServerMetadata(
 }
 
 // START_CONTRACT: buildProtectedResourceMetadata
-//   PURPOSE: Map protected-resource metadata from McpAuthContext payload into FastMCP oauth option shape.
-//   INPUTS: { authContext: McpAuthContext - Initialized auth context payload }
+//   PURPOSE: Build protected-resource metadata from runtime AppConfig for /mcp OAuth resource discovery.
+//   INPUTS: { config: AppConfig - Runtime config with PUBLIC_URL and Logto tenant issuer }
 //   OUTPUTS: { FastMcpProtectedResourceMetadata - FastMCP-compatible protected resource metadata }
-//   SIDE_EFFECTS: [Throws FastMcpRuntimeError on invalid metadata shape]
-//   LINKS: [M-FASTMCP-RUNTIME, M-MCP-AUTH-PROVIDER]
+//   SIDE_EFFECTS: [Throws FastMcpRuntimeError on invalid configuration values]
+//   LINKS: [M-FASTMCP-RUNTIME, M-CONFIG]
 // END_CONTRACT: buildProtectedResourceMetadata
-function buildProtectedResourceMetadata(
-  authContext: McpAuthContext,
-): FastMcpProtectedResourceMetadata {
+function buildProtectedResourceMetadata(config: AppConfig): FastMcpProtectedResourceMetadata {
   // START_BLOCK_MAP_PROTECTED_RESOURCE_METADATA_TO_FASTMCP_SHAPE_M_FASTMCP_RUNTIME_013
-  const sourceRecord = asObjectRecord(
-    authContext.protectedResourceMetadata,
-    "authContext.protectedResourceMetadata",
-  );
-  const metadata = toCamelCaseRecord(sourceRecord);
-
-  const protectedResource: FastMcpProtectedResourceMetadata = {
-    resource: readRequiredStringField(metadata, "resource", "protectedResourceMetadata"),
-    authorizationServers: readRequiredStringArrayField(
-      metadata,
-      "authorizationServers",
-      "protectedResourceMetadata",
-    ),
+  const publicUrl = readRequiredUrlField(config.publicUrl, "config.publicUrl");
+  const resourceUrl = new URL("/mcp", publicUrl).toString();
+  const logtoIssuer = readRequiredUrlField(config.logto?.tenantUrl, "config.logto.tenantUrl");
+  return {
+    resource: resourceUrl,
+    authorizationServers: [logtoIssuer],
+    bearerMethodsSupported: ["header"],
   };
-
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "authorizationDetailsTypesSupported",
-    readOptionalStringArrayField(metadata, "authorizationDetailsTypesSupported"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "bearerMethodsSupported",
-    readOptionalStringArrayField(metadata, "bearerMethodsSupported"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "dpopBoundAccessTokensRequired",
-    readOptionalBooleanField(metadata, "dpopBoundAccessTokensRequired"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "dpopSigningAlgValuesSupported",
-    readOptionalStringArrayField(metadata, "dpopSigningAlgValuesSupported"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "jwksUri",
-    readOptionalStringField(metadata, "jwksUri"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "resourceDocumentation",
-    readOptionalStringField(metadata, "resourceDocumentation"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "resourceName",
-    readOptionalStringField(metadata, "resourceName"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "resourcePolicyUri",
-    readOptionalStringField(metadata, "resourcePolicyUri"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "resourceSigningAlgValuesSupported",
-    readOptionalStringArrayField(metadata, "resourceSigningAlgValuesSupported"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "resourceTosUri",
-    readOptionalStringField(metadata, "resourceTosUri"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "scopesSupported",
-    readOptionalStringArrayField(metadata, "scopesSupported"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "serviceDocumentation",
-    readOptionalStringField(metadata, "serviceDocumentation"),
-  );
-  applyOptionalField(
-    protectedResource as Record<string, unknown>,
-    "tlsClientCertificateBoundAccessTokens",
-    readOptionalBooleanField(metadata, "tlsClientCertificateBoundAccessTokens"),
-  );
-
-  return protectedResource;
   // END_BLOCK_MAP_PROTECTED_RESOURCE_METADATA_TO_FASTMCP_SHAPE_M_FASTMCP_RUNTIME_013
 }
 
 // START_CONTRACT: buildOauthConfig
-//   PURPOSE: Build FastMCP oauth configuration object from McpAuthContext metadata.
-//   INPUTS: { authContext: McpAuthContext - Initialized auth context payload }
+//   PURPOSE: Build FastMCP oauth configuration object from runtime config and OauthProxyContext metadata.
+//   INPUTS: { config: AppConfig - Runtime app config, oauthProxyContext: OauthProxyContext - Initialized OAuth proxy context payload }
 //   OUTPUTS: { FastMcpOauthConfig - FastMCP oauth option configuration }
 //   SIDE_EFFECTS: [none]
-//   LINKS: [M-FASTMCP-RUNTIME, M-MCP-AUTH-PROVIDER]
+//   LINKS: [M-FASTMCP-RUNTIME, M-CONFIG, M-AUTH-PROXY]
 // END_CONTRACT: buildOauthConfig
-function buildOauthConfig(authContext: McpAuthContext): FastMcpOauthConfig {
+function buildOauthConfig(
+  config: AppConfig,
+  oauthProxyContext: OauthProxyContext,
+): FastMcpOauthConfig {
   // START_BLOCK_BUILD_FASTMCP_OAUTH_CONFIGURATION_M_FASTMCP_RUNTIME_014
   return {
     enabled: true,
-    authorizationServer: buildAuthorizationServerMetadata(authContext),
-    protectedResource: buildProtectedResourceMetadata(authContext),
+    proxy: oauthProxyContext.oauthProxy,
+    authorizationServer: buildAuthorizationServerMetadata(oauthProxyContext),
+    protectedResource: buildProtectedResourceMetadata(config),
   };
   // END_BLOCK_BUILD_FASTMCP_OAUTH_CONFIGURATION_M_FASTMCP_RUNTIME_014
+}
+
+// START_CONTRACT: extractBearerToken
+//   PURPOSE: Parse a strict Bearer token from IncomingMessage authorization headers.
+//   INPUTS: { request: IncomingMessage|undefined - FastMCP incoming request }
+//   OUTPUTS: { string|undefined - Bearer token when header is valid; otherwise undefined }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-FASTMCP-RUNTIME]
+// END_CONTRACT: extractBearerToken
+function extractBearerToken(request: IncomingMessage | undefined): string | undefined {
+  // START_BLOCK_EXTRACT_BEARER_TOKEN_FROM_INCOMING_REQUEST_M_FASTMCP_RUNTIME_022
+  if (!request || !request.headers) {
+    return undefined;
+  }
+
+  const authorizationHeaderRaw = request.headers.authorization;
+  const authorizationHeader = Array.isArray(authorizationHeaderRaw)
+    ? authorizationHeaderRaw[0]
+    : authorizationHeaderRaw;
+  const normalizedAuthorizationHeader = normalizeOptionalText(authorizationHeader);
+  if (!normalizedAuthorizationHeader) {
+    return undefined;
+  }
+
+  const matched = /^Bearer\s+(.+)$/i.exec(normalizedAuthorizationHeader);
+  if (!matched || matched.length < 2) {
+    return undefined;
+  }
+
+  return normalizeOptionalText(matched[1]);
+  // END_BLOCK_EXTRACT_BEARER_TOKEN_FROM_INCOMING_REQUEST_M_FASTMCP_RUNTIME_022
+}
+
+// START_CONTRACT: mapUpstreamTokensToRuntimeSession
+//   PURPOSE: Convert OAuthProxy upstream token payload into runtime authenticated session shape.
+//   INPUTS: { upstreamTokens: OauthUpstreamTokenSet - Upstream token payload from OAuthProxy }
+//   OUTPUTS: { RuntimeOauthSession - Authenticated runtime session for FastMCP tools canAccess checks }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-FASTMCP-RUNTIME, M-AUTH-PROXY]
+// END_CONTRACT: mapUpstreamTokensToRuntimeSession
+function mapUpstreamTokensToRuntimeSession(upstreamTokens: OauthUpstreamTokenSet): RuntimeOauthSession {
+  // START_BLOCK_MAP_UPSTREAM_TOKENS_TO_RUNTIME_OAUTH_SESSION_M_FASTMCP_RUNTIME_023
+  const normalizedScopes = readStringArrayField(upstreamTokens.scope) ?? [];
+  const accessToken = normalizeOptionalText(upstreamTokens.accessToken);
+
+  if (!accessToken) {
+    throw new FastMcpRuntimeError("OAuthProxy returned upstream tokens without access token.", {
+      field: "oauthProxyContext.oauthProxy.loadUpstreamTokens.accessToken",
+    });
+  }
+
+  const issuedAtMs =
+    upstreamTokens.issuedAt instanceof Date ? upstreamTokens.issuedAt.getTime() : Date.now();
+  const issuedAtSeconds = Math.floor(issuedAtMs / 1000);
+  const expiresAt =
+    Number.isFinite(upstreamTokens.expiresIn) && upstreamTokens.expiresIn > 0
+      ? issuedAtSeconds + upstreamTokens.expiresIn
+      : undefined;
+
+  return {
+    authenticated: true,
+    accessToken,
+    scopes: normalizedScopes,
+    expiresAt,
+    idToken: normalizeOptionalText(upstreamTokens.idToken),
+    refreshToken: normalizeOptionalText(upstreamTokens.refreshToken),
+  };
+  // END_BLOCK_MAP_UPSTREAM_TOKENS_TO_RUNTIME_OAUTH_SESSION_M_FASTMCP_RUNTIME_023
+}
+
+// START_CONTRACT: authenticateOauthProxyRequest
+//   PURPOSE: Authenticate /mcp requests by loading upstream tokens through OAuthProxy bearer token validation.
+//   INPUTS: { request: IncomingMessage|undefined - FastMCP incoming request, oauthProxyContext: OauthProxyContext - OAuth proxy dependencies, logger: Logger - Runtime logger }
+//   OUTPUTS: { Promise<RuntimeSessionAuth> - Authenticated session or undefined for unauthorized requests }
+//   SIDE_EFFECTS: [Emits structured logs]
+//   LINKS: [M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-LOGGER]
+// END_CONTRACT: authenticateOauthProxyRequest
+async function authenticateOauthProxyRequest(
+  request: IncomingMessage | undefined,
+  oauthProxyContext: OauthProxyContext,
+  logger: Logger,
+): Promise<RuntimeSessionAuth> {
+  // START_BLOCK_AUTHENTICATE_REQUEST_VIA_OAUTH_PROXY_TOKEN_LOADING_M_FASTMCP_RUNTIME_024
+  const bearerToken = extractBearerToken(request);
+  if (!bearerToken) {
+    logger.warn(
+      "Rejected unauthenticated /mcp request because Bearer token is missing or malformed.",
+      "authenticateOauthProxyRequest",
+      "AUTHENTICATE_REQUEST_VIA_OAUTH_PROXY_TOKEN_LOADING",
+    );
+    return undefined;
+  }
+
+  try {
+    const upstreamTokens = await oauthProxyContext.oauthProxy.loadUpstreamTokens(bearerToken);
+    if (!upstreamTokens) {
+      logger.warn(
+        "Rejected /mcp request because OAuthProxy token lookup returned no upstream token set.",
+        "authenticateOauthProxyRequest",
+        "AUTHENTICATE_REQUEST_VIA_OAUTH_PROXY_TOKEN_LOADING",
+      );
+      return undefined;
+    }
+
+    const session = mapUpstreamTokensToRuntimeSession(upstreamTokens);
+    logger.info(
+      "Authenticated /mcp request through OAuthProxy token loading.",
+      "authenticateOauthProxyRequest",
+      "AUTHENTICATE_REQUEST_VIA_OAUTH_PROXY_TOKEN_LOADING",
+      {
+        scopes: session.scopes,
+      },
+    );
+    return session;
+  } catch (error: unknown) {
+    logger.warn(
+      "Rejected /mcp request because OAuthProxy token loading failed.",
+      "authenticateOauthProxyRequest",
+      "AUTHENTICATE_REQUEST_VIA_OAUTH_PROXY_TOKEN_LOADING",
+      {
+        cause: error instanceof Error ? error.message : String(error),
+      },
+    );
+    return undefined;
+  }
+  // END_BLOCK_AUTHENTICATE_REQUEST_VIA_OAUTH_PROXY_TOKEN_LOADING_M_FASTMCP_RUNTIME_024
+}
+
+// START_CONTRACT: canAccessAuthenticatedProxyTools
+//   PURPOSE: Enforce that proxied tools are executable only for authenticated OAuth sessions.
+//   INPUTS: { auth: RuntimeSessionAuth - FastMCP session auth payload }
+//   OUTPUTS: { boolean - True only when session contains authenticated marker and access token }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-FASTMCP-RUNTIME]
+// END_CONTRACT: canAccessAuthenticatedProxyTools
+function canAccessAuthenticatedProxyTools(auth: RuntimeSessionAuth): boolean {
+  // START_BLOCK_ENFORCE_CAN_ACCESS_AUTHENTICATED_SESSION_M_FASTMCP_RUNTIME_025
+  return (
+    auth?.authenticated === true &&
+    typeof auth.accessToken === "string" &&
+    auth.accessToken !== ""
+  );
+  // END_BLOCK_ENFORCE_CAN_ACCESS_AUTHENTICATED_SESSION_M_FASTMCP_RUNTIME_025
 }
 
 // START_CONTRACT: toFastMcpRuntimeError
@@ -595,10 +705,34 @@ function assertRuntimeDependencies(deps: FastMcpRuntimeDependencies): void {
     });
   }
 
-  if (!deps.authContext || typeof deps.authContext !== "object") {
-    throw new FastMcpRuntimeError("McpAuthContext dependency is required for FastMCP runtime.", {
-      field: "deps.authContext",
+  if (!deps.oauthProxyContext || typeof deps.oauthProxyContext !== "object") {
+    throw new FastMcpRuntimeError("OauthProxyContext dependency is required for FastMCP runtime.", {
+      field: "deps.oauthProxyContext",
     });
+  }
+
+  if (
+    !deps.oauthProxyContext.oauthProxy ||
+    typeof deps.oauthProxyContext.oauthProxy.loadUpstreamTokens !== "function"
+  ) {
+    throw new FastMcpRuntimeError(
+      "OauthProxyContext.oauthProxy.loadUpstreamTokens dependency is required for FastMCP runtime.",
+      {
+        field: "deps.oauthProxyContext.oauthProxy.loadUpstreamTokens",
+      },
+    );
+  }
+
+  if (
+    !deps.oauthProxyContext.authorizationServerMetadata ||
+    typeof deps.oauthProxyContext.authorizationServerMetadata !== "object"
+  ) {
+    throw new FastMcpRuntimeError(
+      "OauthProxyContext.authorizationServerMetadata dependency is required for FastMCP runtime.",
+      {
+        field: "deps.oauthProxyContext.authorizationServerMetadata",
+      },
+    );
   }
 
   if (!deps.logger || typeof deps.logger !== "object") {
@@ -659,13 +793,13 @@ function createToolErrorResult(
 
 // START_CONTRACT: registerProxyTools
 //   PURPOSE: Register exactly four proxy tools on FastMCP with schemas from M-TOOLS-CONTRACTS and proxy dispatch handlers.
-//   INPUTS: { fastMcpServer: FastMCP<McpAuthSession> - Runtime instance, deps: RegisterProxyToolsDependencies - Tool registration dependencies }
+//   INPUTS: { fastMcpServer: FastMCP<RuntimeSessionAuth> - Runtime instance, deps: RegisterProxyToolsDependencies - Tool registration dependencies }
 //   OUTPUTS: { void - Tools are registered on FastMCP instance }
 //   SIDE_EFFECTS: [Mutates FastMCP tool registry and emits structured logs]
 //   LINKS: [M-FASTMCP-RUNTIME, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER]
 // END_CONTRACT: registerProxyTools
 export function registerProxyTools(
-  fastMcpServer: FastMCP<McpAuthSession>,
+  fastMcpServer: FastMCP<RuntimeSessionAuth>,
   deps: RegisterProxyToolsDependencies,
 ): void {
   // START_BLOCK_REGISTER_FIXED_PROXY_TOOL_SET_ON_FASTMCP_M_FASTMCP_RUNTIME_018
@@ -675,6 +809,7 @@ export function registerProxyTools(
       name: toolName,
       description: descriptor.description,
       parameters: descriptor.parameters,
+      canAccess: canAccessAuthenticatedProxyTools,
       execute: async (args) => {
         try {
           const result = await deps.proxyService.executeTool(toolName, args ?? {});
@@ -725,13 +860,13 @@ export function registerProxyTools(
 
 // START_CONTRACT: mountAdminRoutes
 //   PURPOSE: Mount /admin and /admin/* route handlers on FastMCP underlying Hono app via delegated adminHandler.
-//   INPUTS: { fastMcpServer: FastMCP<McpAuthSession> - Runtime instance, deps: MountAdminRoutesDependencies - Admin route dependencies }
+//   INPUTS: { fastMcpServer: FastMCP<RuntimeSessionAuth> - Runtime instance, deps: MountAdminRoutesDependencies - Admin route dependencies }
 //   OUTPUTS: { void - Admin routes are mounted on Hono app }
 //   SIDE_EFFECTS: [Mutates FastMCP Hono app route table and emits structured logs]
 //   LINKS: [M-FASTMCP-RUNTIME, M-ADMIN-UI, M-LOGGER]
 // END_CONTRACT: mountAdminRoutes
 export function mountAdminRoutes(
-  fastMcpServer: FastMCP<McpAuthSession>,
+  fastMcpServer: FastMCP<RuntimeSessionAuth>,
   deps: MountAdminRoutesDependencies,
 ): void {
   // START_BLOCK_MOUNT_ADMIN_ROUTES_VIA_FASTMCP_GET_APP_M_FASTMCP_RUNTIME_019
@@ -789,31 +924,29 @@ export function mountAdminRoutes(
 }
 
 // START_CONTRACT: createFastMcpRuntime
-//   PURPOSE: Build a fully configured FastMCP runtime with auth adapter, oauth metadata, health endpoint, proxy tools, and admin routes.
+//   PURPOSE: Build a fully configured FastMCP runtime with OAuthProxy auth, oauth metadata, health endpoint, proxy tools, and admin routes.
 //   INPUTS: { deps: FastMcpRuntimeDependencies - Runtime dependencies }
-//   OUTPUTS: { FastMCP<McpAuthSession> - Configured FastMCP runtime instance }
+//   OUTPUTS: { FastMCP<RuntimeSessionAuth> - Configured FastMCP runtime instance }
 //   SIDE_EFFECTS: [Registers tool handlers/routes on runtime and emits structured logs]
-//   LINKS: [M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-LOGGER]
+//   LINKS: [M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-LOGGER]
 // END_CONTRACT: createFastMcpRuntime
-export function createFastMcpRuntime(deps: FastMcpRuntimeDependencies): FastMCP<McpAuthSession> {
+export function createFastMcpRuntime(
+  deps: FastMcpRuntimeDependencies,
+): FastMCP<RuntimeSessionAuth> {
   // START_BLOCK_BUILD_CONFIGURED_FASTMCP_RUNTIME_INSTANCE_M_FASTMCP_RUNTIME_020
   assertRuntimeDependencies(deps);
 
-  const authLogger = deps.logger.child({ component: "mcpAuthAdapter" });
+  const authLogger = deps.logger.child({ component: "oauthProxyAuth" });
   const runtimeLogger = deps.logger.child({ component: "fastMcpRuntime" });
 
   try {
-    const oauth = buildOauthConfig(deps.authContext);
+    const oauth = buildOauthConfig(deps.config, deps.oauthProxyContext);
 
-    const fastMcpServer = new FastMCP<McpAuthSession>({
+    const fastMcpServer = new FastMCP<RuntimeSessionAuth>({
       name: FASTMCP_SERVER_NAME,
       version: FASTMCP_SERVER_VERSION,
       authenticate: async (request) => {
-        return authenticateFastMcpRequest(request, {
-          authContext: deps.authContext,
-          config: deps.config,
-          logger: authLogger,
-        });
+        return authenticateOauthProxyRequest(request, deps.oauthProxyContext, authLogger);
       },
       oauth,
       health: {
@@ -835,7 +968,7 @@ export function createFastMcpRuntime(deps: FastMcpRuntimeDependencies): FastMCP<
     });
 
     runtimeLogger.info(
-      "Created FastMCP runtime with auth, oauth metadata, health endpoint, tools, and admin routes.",
+      "Created FastMCP runtime with OAuthProxy auth, oauth metadata, health endpoint, tools, and admin routes.",
       "createFastMcpRuntime",
       "BUILD_CONFIGURED_FASTMCP_RUNTIME_INSTANCE",
       {

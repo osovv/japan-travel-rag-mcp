@@ -1,16 +1,16 @@
 // FILE: src/runtime/fastmcp-runtime.smoke.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Provide smoke verification for FastMCP runtime tool surface, schema rejection, and authorized proxy dispatch through the HTTP stream boundary.
 //   SCOPE: Start createFastMcpRuntime on /mcp using httpStream transport, assert tools/list exposure contract, verify invalid tool arguments return MCP protocol errors, and verify authorized tools/call is forwarded to ToolProxyService.
-//   DEPENDS: M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-CONFIG, M-LOGGER
-//   LINKS: M-FASTMCP-RUNTIME-SMOKE, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-CONFIG, M-LOGGER
+//   DEPENDS: M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-CONFIG, M-LOGGER
+//   LINKS: M-FASTMCP-RUNTIME-SMOKE, M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-CONFIG, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   createNoopLogger - Build deterministic no-op logger for runtime smoke tests.
-//   createMockAppConfig - Build stable AppConfig object for runtime/auth adapter expectations.
-//   createMockAuthContext - Build McpAuthContext with valid-token path and optional invalid-token behavior.
+//   createMockAppConfig - Build stable AppConfig object for runtime/OAuth proxy expectations.
+//   createMockOauthProxyContext - Build OauthProxyContext with valid-token path and optional invalid-token behavior.
 //   createMockProxyService - Build ToolProxyService mock that captures toolName/rawArgs.
 //   findAvailablePort - Reserve and return an available localhost TCP port for runtime startup.
 //   createRuntimeHarness - Start FastMCP runtime + MCP HTTP client and return deterministic teardown handle.
@@ -19,17 +19,15 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Implemented Phase-7 Step-5 FastMCP runtime smoke tests through /mcp httpStream boundary with deterministic dependency mocks and teardown safety.
+//   LAST_CHANGE: v1.1.0 - Migrated runtime smoke harness to OAuthProxyContext-based runtime wiring and verified /mcp tool behavior with mocked OAuthProxy token loading.
 // END_CHANGE_SUMMARY
 
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { describe, expect, it } from "bun:test";
-import { MCPAuthTokenVerificationError } from "mcp-auth";
 import { createServer } from "node:net";
-import type { McpAuthContext } from "../auth/mcp-auth-provider";
+import type { OauthProxyContext } from "../auth/oauth-proxy";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { createFastMcpRuntime } from "./fastmcp-runtime";
@@ -43,14 +41,16 @@ type ProxyCall = {
 };
 
 type RuntimeHarness = {
+  baseUrl: string;
   client: Client;
   proxyCalls: ProxyCall[];
-  verifyCalls: string[];
+  tokenLoadCalls: string[];
   stop: () => Promise<void>;
 };
 
-type MockAuthContextOptions = {
+type MockOauthProxyContextOptions = {
   mode?: MockAuthMode;
+  publicUrl?: string;
   validBearerToken?: string;
 };
 
@@ -76,11 +76,11 @@ function createNoopLogger(): Logger {
 }
 
 // START_CONTRACT: createMockAppConfig
-//   PURPOSE: Build deterministic AppConfig used by FastMCP runtime and auth adapter in smoke tests.
+//   PURPOSE: Build deterministic AppConfig used by FastMCP runtime and OAuth proxy wiring in smoke tests.
 //   INPUTS: { port: number - Runtime HTTP port }
 //   OUTPUTS: { AppConfig - Stable configuration object for runtime startup }
 //   SIDE_EFFECTS: [none]
-//   LINKS: [M-CONFIG, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER]
+//   LINKS: [M-CONFIG, M-FASTMCP-RUNTIME, M-AUTH-PROXY]
 // END_CONTRACT: createMockAppConfig
 function createMockAppConfig(port: number): AppConfig {
   // START_BLOCK_BUILD_STABLE_APP_CONFIG_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_002
@@ -88,85 +88,77 @@ function createMockAppConfig(port: number): AppConfig {
     port,
     publicUrl: `http://127.0.0.1:${port}`,
     rootAuthToken: "root-auth-token-smoke",
-    databaseUrl: "postgres://user:pass@localhost:5432/japan_travel_smoke",
-    oauth: {
-      issuer: "https://issuer.example.com/",
-      audience: "travel-mcp",
-      requiredScopes: ["mcp:access"],
-    },
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "tg-bearer-token-smoke",
       chatIds: ["jp-chat-001"],
       timeoutMs: 15000,
     },
+    logto: {
+      tenantUrl: "https://issuer.example.com/",
+      clientId: "logto-client-id-smoke",
+      clientSecret: "logto-client-secret-smoke",
+      oidcAuthEndpoint: "https://issuer.example.com/oidc/auth",
+      oidcTokenEndpoint: "https://issuer.example.com/oidc/token",
+    },
   };
   // END_BLOCK_BUILD_STABLE_APP_CONFIG_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_002
 }
 
-// START_CONTRACT: createMockAuthContext
-//   PURPOSE: Build deterministic McpAuthContext with valid token flow and optional invalid-token behavior for smoke checks.
-//   INPUTS: { options: MockAuthContextOptions - Auth behavior options for mocked token verification }
-//   OUTPUTS: { authContext: McpAuthContext - Mock auth context, verifyCalls: string[] - Captured verifyAccessToken token calls }
-//   SIDE_EFFECTS: [Captures verifyAccessToken calls in memory]
-//   LINKS: [M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-FASTMCP-RUNTIME-SMOKE]
-// END_CONTRACT: createMockAuthContext
-function createMockAuthContext(options: MockAuthContextOptions = {}): {
-  authContext: McpAuthContext;
-  verifyCalls: string[];
+// START_CONTRACT: createMockOauthProxyContext
+//   PURPOSE: Build deterministic OauthProxyContext with valid token flow and optional invalid-token behavior for smoke checks.
+//   INPUTS: { options: MockOauthProxyContextOptions - Auth behavior options for mocked OAuthProxy token loading }
+//   OUTPUTS: { oauthProxyContext: OauthProxyContext - Mock OAuth proxy context, tokenLoadCalls: string[] - Captured loadUpstreamTokens token calls }
+//   SIDE_EFFECTS: [Captures loadUpstreamTokens calls in memory]
+//   LINKS: [M-AUTH-PROXY, M-FASTMCP-RUNTIME-SMOKE]
+// END_CONTRACT: createMockOauthProxyContext
+function createMockOauthProxyContext(options: MockOauthProxyContextOptions = {}): {
+  oauthProxyContext: OauthProxyContext;
+  tokenLoadCalls: string[];
 } {
-  // START_BLOCK_BUILD_MOCK_AUTH_CONTEXT_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_003
-  const verifyCalls: string[] = [];
+  // START_BLOCK_BUILD_MOCK_OAUTH_PROXY_CONTEXT_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_003
+  const tokenLoadCalls: string[] = [];
   const mode = options.mode ?? "allow";
+  const publicUrl = options.publicUrl ?? "http://127.0.0.1:3000";
   const validBearerToken = options.validBearerToken ?? "valid.runtime.jwt";
 
-  const authContext: McpAuthContext = {
-    mcpAuth: {} as McpAuthContext["mcpAuth"],
-    verifyAccessToken: async (token: string): Promise<AuthInfo> => {
-      verifyCalls.push(token);
+  type MockUpstreamTokenSet = NonNullable<
+    Awaited<ReturnType<OauthProxyContext["oauthProxy"]["loadUpstreamTokens"]>>
+  >;
+
+  const oauthProxy = {
+    loadUpstreamTokens: async (token: string): Promise<MockUpstreamTokenSet | null> => {
+      tokenLoadCalls.push(token);
 
       if (mode === "invalid_token" || token !== validBearerToken) {
-        throw new MCPAuthTokenVerificationError("invalid_token");
+        return null;
       }
 
       return {
-        token,
-        issuer: "https://issuer.example.com/",
-        audience: "travel-mcp",
-        clientId: "runtime-smoke-client",
-        scopes: ["mcp:access"],
-        subject: "runtime-smoke-subject",
-        claims: {
-          scope: "mcp:access",
-        },
+        accessToken: "upstream-access-token-smoke",
+        expiresIn: 3600,
+        issuedAt: new Date("2026-01-01T00:00:00.000Z"),
+        scope: ["mcp:access"],
+        tokenType: "Bearer",
       };
     },
-    validateIssuer: (issuer: string): void => {
-      if (issuer !== "https://issuer.example.com/") {
-        throw new Error(`Unexpected issuer in smoke auth context: ${issuer}`);
-      }
-    },
-    resourceMetadataUrl: "https://travel.example.com/.well-known/oauth-protected-resource/mcp",
-    protectedResourceMetadata: {
-      resource: "https://travel.example.com/mcp",
-      authorization_servers: ["https://issuer.example.com/"],
-      scopes_supported: ["mcp:access"],
-      bearer_methods_supported: ["header"],
-    },
+  } as Pick<OauthProxyContext["oauthProxy"], "loadUpstreamTokens">;
+
+  const oauthProxyContext: OauthProxyContext = {
+    oauthProxy: oauthProxy as OauthProxyContext["oauthProxy"],
     authorizationServerMetadata: {
-      issuer: "https://issuer.example.com/",
-      authorization_endpoint: "https://issuer.example.com/authorize",
-      token_endpoint: "https://issuer.example.com/token",
-      response_types_supported: ["code"],
-      jwks_uri: "https://issuer.example.com/jwks",
+      issuer: `${publicUrl}/`,
+      authorizationEndpoint: `${publicUrl}/oauth/authorize`,
+      tokenEndpoint: `${publicUrl}/oauth/token`,
+      responseTypesSupported: ["code"],
     },
   };
 
   return {
-    authContext,
-    verifyCalls,
+    oauthProxyContext,
+    tokenLoadCalls,
   };
-  // END_BLOCK_BUILD_MOCK_AUTH_CONTEXT_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_003
+  // END_BLOCK_BUILD_MOCK_OAUTH_PROXY_CONTEXT_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_003
 }
 
 // START_CONTRACT: createMockProxyService
@@ -254,7 +246,7 @@ async function findAvailablePort(): Promise<number> {
 //   INPUTS: { mode: MockAuthMode|undefined - Optional mock auth mode override, bearerToken: string|undefined - Optional bearer token used by MCP client }
 //   OUTPUTS: { Promise<RuntimeHarness> - Connected runtime/client harness with captured call buffers }
 //   SIDE_EFFECTS: [Starts/stops FastMCP httpStream runtime and opens/closes MCP client transport]
-//   LINKS: [M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-TOOL-PROXY, M-FASTMCP-RUNTIME-SMOKE]
+//   LINKS: [M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-TOOL-PROXY, M-FASTMCP-RUNTIME-SMOKE]
 // END_CONTRACT: createRuntimeHarness
 async function createRuntimeHarness(
   mode: MockAuthMode = "allow",
@@ -262,10 +254,12 @@ async function createRuntimeHarness(
 ): Promise<RuntimeHarness> {
   // START_BLOCK_START_RUNTIME_AND_CONNECT_MCP_CLIENT_M_FASTMCP_RUNTIME_SMOKE_006
   const port = await findAvailablePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
   const config = createMockAppConfig(port);
   const logger = createNoopLogger();
-  const { authContext, verifyCalls } = createMockAuthContext({
+  const { oauthProxyContext, tokenLoadCalls } = createMockOauthProxyContext({
     mode,
+    publicUrl: baseUrl,
     validBearerToken: bearerToken,
   });
   const { proxyService, proxyCalls } = createMockProxyService();
@@ -281,7 +275,7 @@ async function createRuntimeHarness(
   const runtime = createFastMcpRuntime({
     config,
     logger,
-    authContext,
+    oauthProxyContext,
     proxyService,
     adminHandler,
   });
@@ -335,9 +329,10 @@ async function createRuntimeHarness(
   };
 
   return {
+    baseUrl,
     client,
     proxyCalls,
-    verifyCalls,
+    tokenLoadCalls,
     stop,
   };
   // END_BLOCK_START_RUNTIME_AND_CONNECT_MCP_CLIENT_M_FASTMCP_RUNTIME_SMOKE_006
@@ -429,7 +424,26 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
           },
         },
       ]);
-      expect(harness.verifyCalls.length).toBeGreaterThan(0);
+      expect(harness.tokenLoadCalls.length).toBeGreaterThan(0);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("serves protected resource metadata for /mcp with Logto issuer authority", async () => {
+    const harness = await createRuntimeHarness("allow");
+
+    try {
+      const response = await fetch(`${harness.baseUrl}/.well-known/oauth-protected-resource/mcp`);
+      expect(response.status).toBe(200);
+
+      const payload = (await response.json()) as {
+        authorization_servers?: string[];
+        resource?: string;
+      };
+
+      expect(payload.resource).toBe(`${harness.baseUrl}/mcp`);
+      expect(payload.authorization_servers).toEqual(["https://issuer.example.com/"]);
     } finally {
       await harness.stop();
     }
