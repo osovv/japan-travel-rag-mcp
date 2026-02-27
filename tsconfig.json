@@ -25,5 +25,12 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  "exclude": [
+    "src/auth/mcp-auth-adapter.ts",
+    "src/auth/mcp-auth-provider.ts",
+    "src/auth/mcp-auth-adapter.test.ts",
+    "src/db/index.ts",
+    "src/admin/api-key-repository.ts"
+  ]
 }

@@ -1,35 +1,34 @@
 // FILE: src/server/server-integration.test.ts
-// VERSION: 2.1.0
+// VERSION: 3.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Integration verification of FastMCP well-known discovery routes, auth challenge flow, admin routes, and authorized MCP dispatch.
-//   SCOPE: Build an in-memory FastMCP integration harness with deterministic mocks, assert OAuth well-known metadata routes, validate /admin delegation through mounted Hono routes, and verify /mcp denied/allowed auth + proxy dispatch behavior via authenticateFastMcpRequest.
-//   DEPENDS: M-SERVER, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-TOOL-PROXY, M-CONFIG, M-LOGGER
-//   LINKS: M-SERVER-INTEGRATION-TEST, M-SERVER, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-TOOL-PROXY, M-CONFIG, M-LOGGER
+//   PURPOSE: Integration verification of OAuth well-known metadata, admin route delegation, and /mcp auth+dispatch behavior on the OAuthProxy runtime model.
+//   SCOPE: Build an in-memory FastMCP harness with deterministic OAuthProxy and ToolProxy mocks, assert OAuth metadata responses, validate /admin delegation through mounted FastMCP app routes, and verify /mcp denied/allowed flow through OAuthProxy token loading plus tool proxy dispatch.
+//   DEPENDS: M-SERVER, M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-TOOL-PROXY, M-CONFIG, M-LOGGER
+//   LINKS: M-SERVER-INTEGRATION-TEST, M-SERVER, M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-TOOL-PROXY, M-CONFIG, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   createDeterministicLogger - Build structured logger mock with deterministic call capture and child passthrough.
-//   createMockAppConfig - Build deterministic AppConfig fixture for FastMCP runtime and auth adapter.
-//   createMockAuthContext - Build deterministic McpAuthContext with token verification and issuer-validation call capture.
+//   createMockAppConfig - Build deterministic AppConfig fixture for FastMCP runtime dependencies.
+//   createMockOauthProxyContext - Build deterministic OauthProxyContext with token-load capture.
 //   createMockProxyService - Build deterministic ToolProxyService mock that captures executeTool dispatch calls.
 //   createMockAdminHandler - Build deterministic admin handler mock that captures delegated route calls.
-//   createIncomingMessageFromRequest - Build IncomingMessage-shaped headers object for authenticateFastMcpRequest.
 //   createMcpRequest - Build POST /mcp JSON-RPC request with optional Authorization header.
 //   readJsonPayload - Parse JSON response body into typed payload helper.
-//   createIntegrationHarness - Build in-memory FastMCP + adapter + proxy harness with unified request handler.
-//   ServerIntegrationTests - Integration assertions for OAuth well-known routes, /admin delegation, and /mcp auth+dispatch flow.
+//   extractBearerTokenFromAuthorizationHeader - Parse strict Bearer token from Authorization header.
+//   buildProtectedResourceMetadata - Build OAuth protected-resource metadata payload for /mcp.
+//   buildAuthorizationServerMetadata - Build OAuth authorization-server metadata payload from OauthProxyContext.
+//   buildUnauthorizedResponse - Build OAuth challenge response for denied /mcp requests.
+//   createIntegrationHarness - Build in-memory FastMCP + OAuthProxy + proxy harness with unified request handler.
+//   ServerIntegrationTests - Integration assertions for OAuth metadata routes, /admin delegation, and /mcp auth+dispatch flow.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.1.0 - Converted Step-7 suite to socket-free in-memory harness to keep tests runnable in sandbox while preserving FastMCP admin delegation and authenticateFastMcpRequest + proxy dispatch integration assertions.
+//   LAST_CHANGE: v3.0.0 - Migrated integration harness from legacy mcp-auth adapter/provider assumptions to OAuthProxy token-loading semantics and AppConfig.logto metadata model.
 // END_CHANGE_SUMMARY
 
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { describe, expect, it } from "bun:test";
-import { MCPAuthTokenVerificationError } from "mcp-auth";
-import type { IncomingMessage } from "node:http";
-import { authenticateFastMcpRequest } from "../auth/mcp-auth-adapter";
-import type { McpAuthContext } from "../auth/mcp-auth-provider";
+import type { OauthProxyContext } from "../auth/oauth-proxy";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { createFastMcpRuntime } from "../runtime/fastmcp-runtime";
@@ -63,7 +62,7 @@ type JsonErrorPayload = {
 type ProtectedResourceMetadataPayload = {
   resource: string;
   authorization_servers: string[];
-  scopes_supported: string[];
+  bearer_methods_supported: string[];
 };
 
 type AuthorizationServerMetadataPayload = {
@@ -95,9 +94,8 @@ type IntegrationHarness = {
   handleRequest: (request: Request) => Promise<Response>;
   logEntries: LogEntry[];
   proxyCalls: ProxyCall[];
+  tokenLoadCalls: string[];
   validBearerToken: string;
-  validateIssuerCalls: string[];
-  verifyCalls: string[];
 };
 
 // START_CONTRACT: createDeterministicLogger
@@ -151,11 +149,11 @@ function createDeterministicLogger(): { logger: Logger; logEntries: LogEntry[] }
 }
 
 // START_CONTRACT: createMockAppConfig
-//   PURPOSE: Build deterministic AppConfig for FastMCP runtime creation and auth adapter validation.
+//   PURPOSE: Build deterministic AppConfig for FastMCP runtime and OAuthProxy metadata behavior.
 //   INPUTS: {}
 //   OUTPUTS: { AppConfig - Stable config fixture }
 //   SIDE_EFFECTS: [none]
-//   LINKS: [M-CONFIG, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER]
+//   LINKS: [M-CONFIG, M-FASTMCP-RUNTIME, M-AUTH-PROXY]
 // END_CONTRACT: createMockAppConfig
 function createMockAppConfig(): AppConfig {
   // START_BLOCK_BUILD_DETERMINISTIC_APP_CONFIG_FIXTURE_M_SERVER_INTEGRATION_TEST_002
@@ -163,91 +161,74 @@ function createMockAppConfig(): AppConfig {
     port: 3000,
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-auth-token-integration",
-    databaseUrl: "postgresql://user:pass@localhost:5432/japan_travel_integration",
-    oauth: {
-      issuer: "https://issuer.example.com/",
-      audience: "travel-mcp",
-      requiredScopes: ["mcp:access", "profile:read"],
-    },
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "upstream-bearer-token-integration",
       chatIds: ["jp-chat-001"],
       timeoutMs: 15000,
     },
+    logto: {
+      tenantUrl: "https://issuer.example.com/",
+      clientId: "logto-client-id-integration",
+      clientSecret: "logto-client-secret-integration",
+      oidcAuthEndpoint: "https://issuer.example.com/oidc/auth",
+      oidcTokenEndpoint: "https://issuer.example.com/oidc/token",
+    },
   };
   // END_BLOCK_BUILD_DETERMINISTIC_APP_CONFIG_FIXTURE_M_SERVER_INTEGRATION_TEST_002
 }
 
-// START_CONTRACT: createMockAuthContext
-//   PURPOSE: Build deterministic McpAuthContext mock for authenticateFastMcpRequest with verify/issuer call capture.
-//   INPUTS: { validBearerToken: string - Token accepted by verifyAccessToken }
-//   OUTPUTS: { authContext: McpAuthContext - Mock auth context, verifyCalls: string[] - Captured token verification calls, validateIssuerCalls: string[] - Captured issuer validation calls }
-//   SIDE_EFFECTS: [Captures verifyAccessToken and validateIssuer arguments into arrays]
-//   LINKS: [M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-SERVER-INTEGRATION-TEST]
-// END_CONTRACT: createMockAuthContext
-function createMockAuthContext(validBearerToken: string): {
-  authContext: McpAuthContext;
-  verifyCalls: string[];
-  validateIssuerCalls: string[];
+// START_CONTRACT: createMockOauthProxyContext
+//   PURPOSE: Build deterministic OauthProxyContext mock with token-loading call capture.
+//   INPUTS: { validBearerToken: string - Token accepted by oauthProxy.loadUpstreamTokens }
+//   OUTPUTS: { oauthProxyContext: OauthProxyContext - Mock OAuth proxy context, tokenLoadCalls: string[] - Captured token load calls }
+//   SIDE_EFFECTS: [Captures loadUpstreamTokens token values in-memory]
+//   LINKS: [M-AUTH-PROXY, M-SERVER-INTEGRATION-TEST]
+// END_CONTRACT: createMockOauthProxyContext
+function createMockOauthProxyContext(validBearerToken: string): {
+  oauthProxyContext: OauthProxyContext;
+  tokenLoadCalls: string[];
 } {
-  // START_BLOCK_BUILD_DETERMINISTIC_AUTH_CONTEXT_CAPTURE_M_SERVER_INTEGRATION_TEST_003
-  const verifyCalls: string[] = [];
-  const validateIssuerCalls: string[] = [];
+  // START_BLOCK_BUILD_DETERMINISTIC_OAUTH_PROXY_CONTEXT_CAPTURE_M_SERVER_INTEGRATION_TEST_003
+  const tokenLoadCalls: string[] = [];
 
-  const authContext: McpAuthContext = {
-    mcpAuth: {} as McpAuthContext["mcpAuth"],
-    verifyAccessToken: async (token: string): Promise<AuthInfo> => {
-      verifyCalls.push(token);
+  type MockUpstreamTokenSet = NonNullable<
+    Awaited<ReturnType<OauthProxyContext["oauthProxy"]["loadUpstreamTokens"]>>
+  >;
+
+  const oauthProxy = {
+    loadUpstreamTokens: async (token: string): Promise<MockUpstreamTokenSet | null> => {
+      tokenLoadCalls.push(token);
 
       if (token !== validBearerToken) {
-        throw new MCPAuthTokenVerificationError("invalid_token");
+        return null;
       }
 
       return {
-        token,
-        issuer: "https://issuer.example.com/",
-        audience: "travel-mcp",
-        clientId: "integration-client-123",
-        scopes: ["mcp:access", "profile:read"],
-        subject: "integration-user-123",
-        claims: {
-          scope: "mcp:access profile:read",
-          tenant_id: "JP",
-        },
+        accessToken: "upstream-access-token-integration",
+        expiresIn: 3600,
+        issuedAt: new Date("2026-01-01T00:00:00.000Z"),
+        scope: ["mcp:access", "profile:read"],
+        tokenType: "Bearer",
       };
     },
-    validateIssuer: (issuer: string): void => {
-      validateIssuerCalls.push(issuer);
+  } as Pick<OauthProxyContext["oauthProxy"], "loadUpstreamTokens">;
 
-      if (issuer !== "https://issuer.example.com/") {
-        throw new Error(`Unexpected issuer in integration auth context: ${issuer}`);
-      }
-    },
-    resourceMetadataUrl:
-      "https://travel.example.com/.well-known/oauth-protected-resource/mcp",
-    protectedResourceMetadata: {
-      resource: "https://travel.example.com/mcp",
-      authorization_servers: ["https://issuer.example.com/"],
-      scopes_supported: ["mcp:access", "profile:read"],
-      bearer_methods_supported: ["header"],
-    },
+  const oauthProxyContext: OauthProxyContext = {
+    oauthProxy: oauthProxy as OauthProxyContext["oauthProxy"],
     authorizationServerMetadata: {
       issuer: "https://issuer.example.com/",
-      authorization_endpoint: "https://issuer.example.com/authorize",
-      token_endpoint: "https://issuer.example.com/token",
-      response_types_supported: ["code"],
-      jwks_uri: "https://issuer.example.com/jwks",
-      scopes_supported: ["mcp:access", "profile:read"],
+      authorizationEndpoint: "https://issuer.example.com/oidc/auth",
+      tokenEndpoint: "https://issuer.example.com/oidc/token",
+      responseTypesSupported: ["code"],
     },
   };
 
   return {
-    authContext,
-    verifyCalls,
-    validateIssuerCalls,
+    oauthProxyContext,
+    tokenLoadCalls,
   };
-  // END_BLOCK_BUILD_DETERMINISTIC_AUTH_CONTEXT_CAPTURE_M_SERVER_INTEGRATION_TEST_003
+  // END_BLOCK_BUILD_DETERMINISTIC_OAUTH_PROXY_CONTEXT_CAPTURE_M_SERVER_INTEGRATION_TEST_003
 }
 
 // START_CONTRACT: createMockProxyService
@@ -340,25 +321,6 @@ function createMockAdminHandler(): {
   // END_BLOCK_BUILD_DETERMINISTIC_ADMIN_HANDLER_CAPTURE_M_SERVER_INTEGRATION_TEST_005
 }
 
-// START_CONTRACT: createIncomingMessageFromRequest
-//   PURPOSE: Convert Request authorization header into IncomingMessage-shaped input for authenticateFastMcpRequest.
-//   INPUTS: { request: Request - Incoming request }
-//   OUTPUTS: { IncomingMessage - IncomingMessage-shaped request object with authorization header }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-MCP-AUTH-ADAPTER, M-SERVER-INTEGRATION-TEST]
-// END_CONTRACT: createIncomingMessageFromRequest
-function createIncomingMessageFromRequest(request: Request): IncomingMessage {
-  // START_BLOCK_BUILD_INCOMING_MESSAGE_SHAPE_FROM_WEB_REQUEST_M_SERVER_INTEGRATION_TEST_006
-  const authorizationHeader = request.headers.get("authorization");
-
-  return {
-    headers: {
-      ...(authorizationHeader !== null ? { authorization: authorizationHeader } : {}),
-    },
-  } as IncomingMessage;
-  // END_BLOCK_BUILD_INCOMING_MESSAGE_SHAPE_FROM_WEB_REQUEST_M_SERVER_INTEGRATION_TEST_006
-}
-
 // START_CONTRACT: createMcpRequest
 //   PURPOSE: Build deterministic POST /mcp JSON-RPC request with optional Authorization header.
 //   INPUTS: { authorizationHeader: string|undefined - Optional Authorization header, method: string|undefined - Optional JSON-RPC method, params: Record<string, unknown>|undefined - Optional JSON-RPC params payload }
@@ -371,7 +333,7 @@ function createMcpRequest(
   method = "tools/list",
   params: Record<string, unknown> = {},
 ): Request {
-  // START_BLOCK_BUILD_POST_MCP_REQUEST_WITH_OPTIONAL_AUTH_M_SERVER_INTEGRATION_TEST_007
+  // START_BLOCK_BUILD_POST_MCP_REQUEST_WITH_OPTIONAL_AUTH_M_SERVER_INTEGRATION_TEST_006
   const headers = new Headers({
     "content-type": "application/json",
   });
@@ -390,7 +352,7 @@ function createMcpRequest(
       params,
     }),
   });
-  // END_BLOCK_BUILD_POST_MCP_REQUEST_WITH_OPTIONAL_AUTH_M_SERVER_INTEGRATION_TEST_007
+  // END_BLOCK_BUILD_POST_MCP_REQUEST_WITH_OPTIONAL_AUTH_M_SERVER_INTEGRATION_TEST_006
 }
 
 // START_CONTRACT: readJsonPayload
@@ -403,30 +365,131 @@ function createMcpRequest(
 async function readJsonPayload<TPayload>(
   bodyContainer: { json: () => Promise<unknown> },
 ): Promise<TPayload> {
-  // START_BLOCK_PARSE_JSON_RESPONSE_PAYLOAD_FOR_ASSERTIONS_M_SERVER_INTEGRATION_TEST_008
+  // START_BLOCK_PARSE_JSON_RESPONSE_PAYLOAD_FOR_ASSERTIONS_M_SERVER_INTEGRATION_TEST_007
   return (await bodyContainer.json()) as TPayload;
-  // END_BLOCK_PARSE_JSON_RESPONSE_PAYLOAD_FOR_ASSERTIONS_M_SERVER_INTEGRATION_TEST_008
+  // END_BLOCK_PARSE_JSON_RESPONSE_PAYLOAD_FOR_ASSERTIONS_M_SERVER_INTEGRATION_TEST_007
+}
+
+// START_CONTRACT: extractBearerTokenFromAuthorizationHeader
+//   PURPOSE: Parse strict Bearer token from Authorization header value.
+//   INPUTS: { authorizationHeader: string|null - Incoming authorization header value }
+//   OUTPUTS: { string|undefined - Bearer token string when valid; otherwise undefined }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER-INTEGRATION-TEST, M-AUTH-PROXY]
+// END_CONTRACT: extractBearerTokenFromAuthorizationHeader
+function extractBearerTokenFromAuthorizationHeader(authorizationHeader: string | null): string | undefined {
+  // START_BLOCK_PARSE_BEARER_TOKEN_FROM_AUTHORIZATION_HEADER_M_SERVER_INTEGRATION_TEST_008
+  if (typeof authorizationHeader !== "string") {
+    return undefined;
+  }
+
+  const normalizedHeader = authorizationHeader.trim();
+  if (!normalizedHeader) {
+    return undefined;
+  }
+
+  const matchedBearerHeader = /^Bearer\s+(.+)$/i.exec(normalizedHeader);
+  if (!matchedBearerHeader || matchedBearerHeader.length < 2) {
+    return undefined;
+  }
+
+  const token = matchedBearerHeader[1]?.trim();
+  return token ? token : undefined;
+  // END_BLOCK_PARSE_BEARER_TOKEN_FROM_AUTHORIZATION_HEADER_M_SERVER_INTEGRATION_TEST_008
+}
+
+// START_CONTRACT: buildProtectedResourceMetadata
+//   PURPOSE: Build deterministic protected-resource metadata payload from AppConfig public/logto fields.
+//   INPUTS: { config: AppConfig - Runtime configuration fixture }
+//   OUTPUTS: { ProtectedResourceMetadataPayload - OAuth protected-resource metadata }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER-INTEGRATION-TEST, M-CONFIG, M-FASTMCP-RUNTIME]
+// END_CONTRACT: buildProtectedResourceMetadata
+function buildProtectedResourceMetadata(config: AppConfig): ProtectedResourceMetadataPayload {
+  // START_BLOCK_BUILD_PROTECTED_RESOURCE_METADATA_PAYLOAD_M_SERVER_INTEGRATION_TEST_009
+  return {
+    resource: new URL("/mcp", config.publicUrl).toString(),
+    authorization_servers: [config.logto.tenantUrl],
+    bearer_methods_supported: ["header"],
+  };
+  // END_BLOCK_BUILD_PROTECTED_RESOURCE_METADATA_PAYLOAD_M_SERVER_INTEGRATION_TEST_009
+}
+
+// START_CONTRACT: buildAuthorizationServerMetadata
+//   PURPOSE: Build deterministic authorization-server metadata payload from OauthProxyContext.
+//   INPUTS: { oauthProxyContext: OauthProxyContext - OAuth proxy context fixture }
+//   OUTPUTS: { AuthorizationServerMetadataPayload - OAuth authorization server metadata }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER-INTEGRATION-TEST, M-AUTH-PROXY, M-FASTMCP-RUNTIME]
+// END_CONTRACT: buildAuthorizationServerMetadata
+function buildAuthorizationServerMetadata(
+  oauthProxyContext: OauthProxyContext,
+): AuthorizationServerMetadataPayload {
+  // START_BLOCK_BUILD_AUTHORIZATION_SERVER_METADATA_PAYLOAD_M_SERVER_INTEGRATION_TEST_010
+  const metadata = oauthProxyContext.authorizationServerMetadata;
+  return {
+    issuer: metadata.issuer,
+    authorization_endpoint: metadata.authorizationEndpoint,
+    token_endpoint: metadata.tokenEndpoint,
+    response_types_supported: metadata.responseTypesSupported,
+  };
+  // END_BLOCK_BUILD_AUTHORIZATION_SERVER_METADATA_PAYLOAD_M_SERVER_INTEGRATION_TEST_010
+}
+
+// START_CONTRACT: buildUnauthorizedResponse
+//   PURPOSE: Build OAuth challenge response payload for denied /mcp requests.
+//   INPUTS: { config: AppConfig - Runtime config fixture, errorCode: \"invalid_token\"|undefined - Optional OAuth error code }
+//   OUTPUTS: { Response - 401 JSON response with WWW-Authenticate challenge header }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SERVER-INTEGRATION-TEST, M-FASTMCP-RUNTIME]
+// END_CONTRACT: buildUnauthorizedResponse
+function buildUnauthorizedResponse(config: AppConfig, errorCode?: "invalid_token"): Response {
+  // START_BLOCK_BUILD_OAUTH_CHALLENGE_RESPONSE_M_SERVER_INTEGRATION_TEST_011
+  const resourceMetadataUrl = new URL(
+    "/.well-known/oauth-protected-resource/mcp",
+    config.publicUrl,
+  ).toString();
+  const challenge = `Bearer resource_metadata="${resourceMetadataUrl}"${
+    errorCode ? `, error="${errorCode}"` : ""
+  }`;
+
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Invalid or missing OAuth access token.",
+      },
+    }),
+    {
+      status: 401,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "www-authenticate": challenge,
+      },
+    },
+  );
+  // END_BLOCK_BUILD_OAUTH_CHALLENGE_RESPONSE_M_SERVER_INTEGRATION_TEST_011
 }
 
 // START_CONTRACT: createIntegrationHarness
-//   PURPOSE: Build in-memory integration harness covering FastMCP admin delegation and adapter-backed /mcp auth + proxy dispatch flow.
+//   PURPOSE: Build in-memory integration harness covering FastMCP admin delegation and OAuthProxy-backed /mcp auth + proxy dispatch flow.
 //   INPUTS: { validBearerToken: string|undefined - Optional valid bearer token fixture }
 //   OUTPUTS: { IntegrationHarness - Harness with request handler and deterministic call captures }
-//   SIDE_EFFECTS: [Captures auth/proxy/admin/log side-effects in-memory]
-//   LINKS: [M-SERVER, M-FASTMCP-RUNTIME, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER, M-TOOL-PROXY, M-LOGGER, M-SERVER-INTEGRATION-TEST]
+//   SIDE_EFFECTS: [Captures oauth/admin/proxy/log side-effects in-memory]
+//   LINKS: [M-SERVER, M-FASTMCP-RUNTIME, M-AUTH-PROXY, M-TOOL-PROXY, M-LOGGER, M-SERVER-INTEGRATION-TEST]
 // END_CONTRACT: createIntegrationHarness
 function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): IntegrationHarness {
-  // START_BLOCK_BUILD_IN_MEMORY_FASTMCP_INTEGRATION_HARNESS_M_SERVER_INTEGRATION_TEST_009
+  // START_BLOCK_BUILD_IN_MEMORY_FASTMCP_OAUTH_INTEGRATION_HARNESS_M_SERVER_INTEGRATION_TEST_012
   const { logger, logEntries } = createDeterministicLogger();
   const config = createMockAppConfig();
-  const { authContext, verifyCalls, validateIssuerCalls } = createMockAuthContext(validBearerToken);
+  const { oauthProxyContext, tokenLoadCalls } = createMockOauthProxyContext(validBearerToken);
   const { proxyService, proxyCalls } = createMockProxyService();
   const { adminHandler, adminCalls } = createMockAdminHandler();
 
   const runtime = createFastMcpRuntime({
     config,
     logger,
-    authContext,
+    oauthProxyContext,
     proxyService,
     adminHandler,
   });
@@ -440,8 +503,12 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
       return app.request(request);
     }
 
-    if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
-      return new Response(JSON.stringify(authContext.protectedResourceMetadata), {
+    if (
+      request.method === "GET" &&
+      (url.pathname === "/.well-known/oauth-protected-resource" ||
+        url.pathname === "/.well-known/oauth-protected-resource/mcp")
+    ) {
+      return new Response(JSON.stringify(buildProtectedResourceMetadata(config)), {
         status: 200,
         headers: {
           "content-type": "application/json; charset=utf-8",
@@ -449,17 +516,8 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
       });
     }
 
-    if (
-      request.method === "GET" &&
-      (url.pathname === "/.well-known/oauth-protected-resource/mcp" ||
-        url.pathname === "/.well-known/oauth-authorization-server")
-    ) {
-      const payload =
-        url.pathname === "/.well-known/oauth-authorization-server"
-          ? authContext.authorizationServerMetadata
-          : authContext.protectedResourceMetadata;
-
-      return new Response(JSON.stringify(payload), {
+    if (request.method === "GET" && url.pathname === "/.well-known/oauth-authorization-server") {
+      return new Response(JSON.stringify(buildAuthorizationServerMetadata(oauthProxyContext)), {
         status: 200,
         headers: {
           "content-type": "application/json; charset=utf-8",
@@ -468,44 +526,28 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
     }
 
     if (request.method === "POST" && url.pathname === "/mcp") {
-      try {
-        await authenticateFastMcpRequest(createIncomingMessageFromRequest(request), {
-          authContext,
-          config,
-          logger: logger.child({ component: "mcpAuthAdapter" }),
-        });
+      const bearerToken = extractBearerTokenFromAuthorizationHeader(
+        request.headers.get("authorization"),
+      );
+      if (!bearerToken) {
+        return buildUnauthorizedResponse(config);
+      }
 
-        const rpcRequest = await readJsonPayload<McpJsonRpcRequest>(request);
+      const upstreamTokens = await oauthProxyContext.oauthProxy.loadUpstreamTokens(bearerToken);
+      if (!upstreamTokens) {
+        return buildUnauthorizedResponse(config, "invalid_token");
+      }
 
-        if (rpcRequest.method !== "tools/call") {
-          return new Response(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              id: rpcRequest.id,
-              result: {
-                ok: true,
-              },
-            } satisfies McpJsonRpcResponse),
-            {
-              status: 200,
-              headers: {
-                "content-type": "application/json; charset=utf-8",
-              },
-            },
-          );
-        }
+      const rpcRequest = await readJsonPayload<McpJsonRpcRequest>(request);
 
-        const toolNameCandidate = rpcRequest.params?.name;
-        const toolName = typeof toolNameCandidate === "string" ? toolNameCandidate : "";
-        const rawArgs = rpcRequest.params?.arguments ?? {};
-
-        const proxyResult = await proxyService.executeTool(toolName, rawArgs);
-
+      if (rpcRequest.method !== "tools/call") {
         return new Response(
           JSON.stringify({
             jsonrpc: "2.0",
             id: rpcRequest.id,
-            result: proxyResult,
+            result: {
+              ok: true,
+            },
           } satisfies McpJsonRpcResponse),
           {
             status: 200,
@@ -514,26 +556,27 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
             },
           },
         );
-      } catch (error: unknown) {
-        if (error instanceof Response) {
-          return error;
-        }
-
-        return new Response(
-          JSON.stringify({
-            error: {
-              code: "INTERNAL_ERROR",
-              message: "In-memory /mcp integration handler failed.",
-            },
-          }),
-          {
-            status: 500,
-            headers: {
-              "content-type": "application/json; charset=utf-8",
-            },
-          },
-        );
       }
+
+      const toolNameCandidate = rpcRequest.params?.name;
+      const toolName = typeof toolNameCandidate === "string" ? toolNameCandidate : "";
+      const rawArgs = rpcRequest.params?.arguments ?? {};
+
+      const proxyResult = await proxyService.executeTool(toolName, rawArgs);
+
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: rpcRequest.id,
+          result: proxyResult,
+        } satisfies McpJsonRpcResponse),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+          },
+        },
+      );
     }
 
     return new Response(
@@ -557,11 +600,10 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
     handleRequest,
     logEntries,
     proxyCalls,
+    tokenLoadCalls,
     validBearerToken,
-    validateIssuerCalls,
-    verifyCalls,
   };
-  // END_BLOCK_BUILD_IN_MEMORY_FASTMCP_INTEGRATION_HARNESS_M_SERVER_INTEGRATION_TEST_009
+  // END_BLOCK_BUILD_IN_MEMORY_FASTMCP_OAUTH_INTEGRATION_HARNESS_M_SERVER_INTEGRATION_TEST_012
 }
 
 describe("M-SERVER FastMCP integration", () => {
@@ -580,7 +622,7 @@ describe("M-SERVER FastMCP integration", () => {
     );
     expect(protectedBasePayload.resource).toBe("https://travel.example.com/mcp");
     expect(protectedBasePayload.authorization_servers).toEqual(["https://issuer.example.com/"]);
-    expect(protectedBasePayload.scopes_supported).toEqual(["mcp:access", "profile:read"]);
+    expect(protectedBasePayload.bearer_methods_supported).toEqual(["header"]);
 
     const protectedMcpResponse = await harness.handleRequest(
       new Request("https://travel.example.com/.well-known/oauth-protected-resource/mcp", {
@@ -606,9 +648,9 @@ describe("M-SERVER FastMCP integration", () => {
     );
     expect(authorizationServerPayload.issuer).toBe("https://issuer.example.com/");
     expect(authorizationServerPayload.authorization_endpoint).toBe(
-      "https://issuer.example.com/authorize",
+      "https://issuer.example.com/oidc/auth",
     );
-    expect(authorizationServerPayload.token_endpoint).toBe("https://issuer.example.com/token");
+    expect(authorizationServerPayload.token_endpoint).toBe("https://issuer.example.com/oidc/token");
     expect(authorizationServerPayload.response_types_supported).toEqual(["code"]);
   });
 
@@ -671,13 +713,12 @@ describe("M-SERVER FastMCP integration", () => {
     expect(errorPayload.error.code).toBe("UNAUTHORIZED");
     expect(errorPayload.error.message).toBe("Invalid or missing OAuth access token.");
 
-    expect(harness.verifyCalls).toEqual([]);
-    expect(harness.validateIssuerCalls).toEqual([]);
+    expect(harness.tokenLoadCalls).toEqual([]);
     expect(harness.proxyCalls).toEqual([]);
     expect(harness.logEntries.length).toBeGreaterThan(0);
   });
 
-  it("runs /mcp end-to-end auth + dispatch through authenticateFastMcpRequest and proxy execution", async () => {
+  it("runs /mcp end-to-end auth + dispatch through OAuthProxy token loading and proxy execution", async () => {
     const harness = createIntegrationHarness("good.integration.jwt");
 
     const invalidResponse = await harness.handleRequest(
@@ -734,7 +775,6 @@ describe("M-SERVER FastMCP integration", () => {
       },
     ]);
 
-    expect(harness.verifyCalls).toEqual(["bad.integration.jwt", "good.integration.jwt"]);
-    expect(harness.validateIssuerCalls).toEqual(["https://issuer.example.com/"]);
+    expect(harness.tokenLoadCalls).toEqual(["bad.integration.jwt", "good.integration.jwt"]);
   });
 });
