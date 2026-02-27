@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 1.9.0
+// VERSION: 1.9.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server, and start MCP HTTP stream transport on /mcp.
 //   SCOPE: Load config/logger, initialize DB and upstream proxy dependencies, initialize MCP auth context, construct FastMCP runtime with admin handler binding, start FastMCP httpStream transport, and manage graceful shutdown.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-ADMIN-AUTH, M-ADMIN-UI, M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -15,7 +15,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.9.0 - Refactored M-SERVER bootstrap to FastMCP runtime start/stop lifecycle with DB initialization and idempotent graceful shutdown.
+//   LAST_CHANGE: v1.9.1 - Removed legacy transport/guard runtime path references and aligned module dependency contract with FastMCP adapter architecture.
 // END_CHANGE_SUMMARY
 
 import type { FastMCP } from "fastmcp";
