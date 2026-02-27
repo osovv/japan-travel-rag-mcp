@@ -1,10 +1,10 @@
 // FILE: src/config/index.test.ts
-// VERSION: 1.1.0
+// VERSION: 1.1.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate M-CONFIG runtime parsing for PUBLIC_URL and OAuth environment settings after Phase-7 removal of JWKS/clock-skew env controls.
 //   SCOPE: Assert defaults for required OAuth/public settings, CSV scope parsing behavior, strict CONFIG_VALIDATION_ERROR outcomes for invalid OAuth/public inputs, and ignore behavior for removed JWKS/clock-skew vars.
 //   DEPENDS: M-CONFIG
-//   LINKS: M-CONFIG, M-OAUTH-DISCOVERY, M-OAUTH-JWKS, M-OAUTH-TOKEN-VALIDATOR
+//   LINKS: M-CONFIG-TEST, M-CONFIG
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Removed JWKS/clock-skew assertions and added coverage that legacy JWKS/clock-skew env vars are ignored by loadConfig.
+//   LAST_CHANGE: v1.1.1 - Aligned module contract LINKS identity to M-CONFIG-TEST after knowledge-graph refresh.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";

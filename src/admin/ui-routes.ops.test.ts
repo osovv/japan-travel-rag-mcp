@@ -1,10 +1,10 @@
 // FILE: src/admin/ui-routes.ops.test.ts
-// VERSION: 1.3.0
+// VERSION: 1.3.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate admin UI route behavior after transitioning from API-key management to ops diagnostics surface.
 //   SCOPE: Assert admin login/session redirect stability, /admin/login POST success/failure behavior, /admin redirect target, /admin/ops diagnostics rendering for full and HTMX requests, and default not-found behavior for removed /admin/api-keys* routes.
 //   DEPENDS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
-//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
+//   LINKS: M-ADMIN-UI-OPS-TEST, M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Removed deprecated OAuth JWKS/clock-skew fixture fields after Phase-7 config simplification.
+//   LAST_CHANGE: v1.3.1 - Aligned module contract LINKS identity to M-ADMIN-UI-OPS-TEST for GRACE consistency.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";

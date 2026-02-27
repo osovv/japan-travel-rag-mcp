@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.2.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.2.1">
     <keywords>japan-travel, mcp, fastmcp, hono, proxy, tg-chat-rag, oauth, logto, mcp-auth, jose, admin-ui, postgres, drizzle, contract-first</keywords>
     <annotation>Target runtime architecture uses FastMCP HTTP stream for /mcp with mcp-auth-backed authenticate adapter and Hono-mounted /admin routes. OAuth discovery metadata is exposed through FastMCP oauth configuration.</annotation>
 
@@ -107,6 +107,16 @@
         <fn-renderOpsStatus description="Render OAuth runtime status fragment" />
       </annotations>
     </M-ADMIN-UI>
+
+    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER">
+      <purpose>Persist and query API key lifecycle records used for MCP Bearer authentication.</purpose>
+      <path>src/admin/api-key-repository.ts</path>
+      <depends>M-DB, M-LOGGER</depends>
+      <annotations>
+        <fn-createApiKeyRepository description="Build repository for API key create/list/revoke/resolve lifecycle operations" />
+        <type-ApiKeyRecord description="Public API key metadata shape for admin and auth layers" />
+      </annotations>
+    </M-API-KEY-REPOSITORY>
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT">
       <purpose>Create FastMCP runtime, register proxy tools, configure oauth metadata endpoints, and mount /admin routes on underlying Hono app.</purpose>
@@ -231,9 +241,6 @@
       <M-OAUTH-DISCOVERY NAME="OAuthDiscoveryRoutes (DELETED)" reason="Replaced by runtime-served oauth metadata endpoints">
         <previous-path>src/auth/oauth-discovery-routes.ts</previous-path>
       </M-OAUTH-DISCOVERY>
-      <M-API-KEY-REPOSITORY NAME="ApiKeyRepository (DELETED)" reason="Removed in OAuth-only architecture">
-        <previous-path>src/admin/api-key-repository.ts</previous-path>
-      </M-API-KEY-REPOSITORY>
     </DELETED-MODULES>
 
     <DataFlows>
@@ -297,6 +304,8 @@
     <CrossLink FROM="M-LOGGER" TO="M-CONFIG" relation="reads runtime config for log setup" />
     <CrossLink FROM="M-DB" TO="M-CONFIG" relation="uses DATABASE_URL to initialize Drizzle PostgreSQL client" />
     <CrossLink FROM="M-DB" TO="M-LOGGER" relation="emits db initialization and connectivity diagnostics" />
+    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-DB" relation="persists API key records through Drizzle database client" />
+    <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-LOGGER" relation="emits repository lifecycle and failure diagnostics" />
     <CrossLink FROM="M-ADMIN-AUTH" TO="M-CONFIG" relation="uses ROOT_AUTH_TOKEN for login validation" />
     <CrossLink FROM="M-ADMIN-AUTH" TO="M-LOGGER" relation="emits admin auth success and failure events" />
     <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-CONFIG" relation="reads OAUTH_ISSUER, OAUTH_AUDIENCE, OAUTH_REQUIRED_SCOPES, PUBLIC_URL for auth init" />
@@ -314,12 +323,15 @@
     <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" relation="validates tool inputs and enforces allowlist" />
     <CrossLink FROM="M-TOOL-PROXY" TO="M-TG-CHAT-RAG-CLIENT" relation="forwards validated tool calls to upstream methods API" />
     <CrossLink FROM="M-TOOL-PROXY" TO="M-LOGGER" relation="emits proxy decisions and error mapping logs" />
+    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-CONFIG" relation="uses runtime transport and OAuth settings during FastMCP bootstrap" />
     <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOLS-CONTRACTS" relation="registers FastMCP tools with validated schemas" />
     <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOL-PROXY" relation="routes FastMCP tool handlers to proxy execution" />
+    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-MCP-AUTH-PROVIDER" relation="maps provider metadata into FastMCP OAuth authorization/protected-resource config" />
     <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-MCP-AUTH-ADAPTER" relation="uses authenticate hook for /mcp authorization" />
-    <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-ADMIN-UI" relation="mounts /admin route handlers on Hono app" />
     <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-LOGGER" relation="emits runtime startup and dispatch diagnostics" />
     <CrossLink FROM="M-SERVER" TO="M-CONFIG" relation="reads server and auth settings" />
+    <CrossLink FROM="M-SERVER" TO="M-DB" relation="initializes database client before runtime startup" />
+    <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" relation="imports admin route handler for delegated /admin mounting" />
     <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-PROVIDER" relation="calls initMcpAuth() at startup" />
     <CrossLink FROM="M-SERVER" TO="M-MCP-AUTH-ADAPTER" relation="constructs authenticate dependency from provider context" />
     <CrossLink FROM="M-SERVER" TO="M-TG-CHAT-RAG-CLIENT" relation="creates upstream client for proxied MCP tool execution" />
@@ -327,12 +339,25 @@
     <CrossLink FROM="M-SERVER" TO="M-FASTMCP-RUNTIME" relation="starts and stops FastMCP runtime" />
     <CrossLink FROM="M-SERVER" TO="M-LOGGER" relation="emits boot and shutdown logs" />
     <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" relation="invokes server main bootstrap" />
+    <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-CONFIG" relation="imports AppConfig type for adapter test dependency fixtures" />
+    <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-LOGGER" relation="imports Logger type for adapter test dependency fixtures" />
     <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-MCP-AUTH-ADAPTER" relation="verifies authenticate decision mapping and challenge behavior" />
     <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-MCP-AUTH-PROVIDER" relation="mocks auth provider context for isolated adapter tests" />
-    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-SERVER" relation="verifies discovery metadata, challenge responses, and auth flow coherence" />
+    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-CONFIG" relation="imports AppConfig type for deterministic integration dependency fixtures" />
+    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-LOGGER" relation="imports Logger type for deterministic integration dependency fixtures" />
+    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-MCP-AUTH-ADAPTER" relation="uses authenticate adapter in integration harness request flow" />
+    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-MCP-AUTH-PROVIDER" relation="imports McpAuthContext type for auth dependency fixtures" />
+    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-FASTMCP-RUNTIME" relation="builds FastMCP runtime for end-to-end metadata/admin/mcp assertions" />
+    <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-TOOL-PROXY" relation="mocks ToolProxyService for authorized MCP dispatch assertions" />
     <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-FASTMCP-RUNTIME" relation="verifies FastMCP tool registration and routing smoke behavior" />
+    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-CONFIG" relation="imports AppConfig type for smoke runtime fixtures" />
+    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-LOGGER" relation="imports Logger type for smoke runtime fixtures" />
+    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-MCP-AUTH-PROVIDER" relation="imports McpAuthContext type for auth fixture wiring" />
+    <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-TOOL-PROXY" relation="uses ToolProxyService mock for authorized tools/call dispatch assertions" />
     <CrossLink FROM="M-CONFIG-TEST" TO="M-CONFIG" relation="verifies runtime config parsing and validation conditions" />
     <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-ADMIN-UI" relation="verifies admin route stability" />
+    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-CONFIG" relation="imports AppConfig fixture types for ops route rendering tests" />
+    <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-LOGGER" relation="imports Logger fixture types for route diagnostics tests" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-SERVER" relation="packages server runtime entrypoint into deployment image" />
     <CrossLink FROM="M-DOCKER-IMAGE" TO="M-CONFIG" relation="injects runtime environment consumed by config loader" />
     <CrossLink FROM="M-DOCKER-DEV" TO="M-SERVER" relation="runs MCP server process in development container profile" />

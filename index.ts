@@ -1,10 +1,10 @@
 // FILE: index.ts
-// VERSION: 1.1.0
+// VERSION: 1.1.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Root runtime entrypoint that boots MCP HTTP server.
 //   SCOPE: Invoke server main function and fail fast on startup errors.
 //   DEPENDS: M-SERVER
-//   LINKS: M-SERVER
+//   LINKS: M-ROOT-ENTRYPOINT, M-SERVER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -12,7 +12,7 @@
 // END_MODULE_MAP
 
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Added startup error details logging to expose wrapped ServerStartError causes in fatal bootstrap logs.
+//   LAST_CHANGE: v1.1.1 - Aligned module contract LINKS identity to M-ROOT-ENTRYPOINT for GRACE knowledge-graph consistency.
 // END_CHANGE_SUMMARY
 
 import { main } from "./src/server/index";
