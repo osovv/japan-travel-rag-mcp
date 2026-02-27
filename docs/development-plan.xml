@@ -343,7 +343,7 @@
       <justification>All runtime branches depend on validated config and stable tool schemas.</justification>
     </Phase-1>
 
-    <Phase-2 name="Integrations" status="pending">
+    <Phase-2 name="Integrations" status="done">
       <step-1>Implement M-AUTH-PROXY wrapper around FastMCP OAuthProxy.</step-1>
       <step-2>Keep M-TG-CHAT-RAG-CLIENT focused on one method call contract.</step-2>
       <justification>External boundaries should be explicit before wiring runtime entrypoints.</justification>
