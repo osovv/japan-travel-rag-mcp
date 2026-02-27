@@ -349,7 +349,7 @@
       <justification>External boundaries should be explicit before wiring runtime entrypoints.</justification>
     </Phase-2>
 
-    <Phase-3 name="CoreLogicAndAdmin" status="pending">
+    <Phase-3 name="CoreLogicAndAdmin" status="done">
       <step-1>Simplify M-TOOL-PROXY orchestration around validate -> policy -> upstream -> normalize.</step-1>
       <step-2>Keep M-ADMIN-AUTH and M-ADMIN-UI root-token-only with no MCP auth coupling.</step-2>
       <justification>Core behavior and admin guardrails are independent and testable in isolation.</justification>
