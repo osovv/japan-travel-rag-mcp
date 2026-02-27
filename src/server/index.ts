@@ -232,6 +232,7 @@ export async function main(): Promise<FastMCP<McpAuthSession>> {
     await fastMcpServer.start({
       transportType: "httpStream",
       httpStream: {
+        host: "0.0.0.0",
         port: config.port,
         endpoint: "/mcp",
       },
