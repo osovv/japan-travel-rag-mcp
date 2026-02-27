@@ -1,37 +1,38 @@
 // FILE: src/config/index.ts
-// VERSION: 1.4.0
+// VERSION: 1.5.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Load and validate runtime configuration for MCP proxy transport, admin auth, and OAuth resource server settings.
-//   SCOPE: Parse and validate runtime env values for server port, tg-chat-rag upstream settings, root auth, database URL, public resource URL, and OAuth issuer/audience/scopes.
+//   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, and admin root auth.
+//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, and Logto tenant/client credentials, with derived OIDC endpoints for OAuth proxy setup.
 //   DEPENDS: none
-//   LINKS: M-CONFIG, M-MCP-AUTH-PROVIDER
+//   LINKS: M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   AppConfig - Typed runtime configuration for MCP, tg-chat-rag, root auth, database, public URL, and OAuth settings.
+//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, and Logto OAuth proxy settings.
 //   ConfigValidationError - Typed validation error carrying CONFIG_VALIDATION_ERROR code.
 //   loadConfig - Validate process environment and return AppConfig.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.4.0 - Removed OAUTH_JWKS_CACHE_TTL_MS, OAUTH_JWKS_TIMEOUT_MS, OAUTH_CLOCK_SKEW_SEC from config — jose via mcp-auth handles JWKS caching internally.
+//   LAST_CHANGE: v1.5.0 - Rebased M-CONFIG on Phase-1 Step-1 runtime contract: removed legacy DATABASE_URL/OAUTH_ISSUER/OAUTH_AUDIENCE/OAUTH_REQUIRED_SCOPES requirements and introduced Logto tenant/client config with derived OIDC endpoints.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
   port: number;
   publicUrl: string;
   rootAuthToken: string;
-  databaseUrl: string;
-  oauth: {
-    issuer: string;
-    audience: string;
-    requiredScopes: string[];
-  };
   tgChatRag: {
     baseUrl: string;
     bearerToken: string;
     chatIds: string[];
     timeoutMs: number;
+  };
+  logto: {
+    tenantUrl: string;
+    clientId: string;
+    clientSecret: string;
+    oidcAuthEndpoint: string;
+    oidcTokenEndpoint: string;
   };
 };
 
@@ -49,9 +50,9 @@ export class ConfigValidationError extends Error {
 // START_CONTRACT: loadConfig
 //   PURPOSE: Validate runtime environment values and return typed AppConfig.
 //   INPUTS: { env: NodeJS.ProcessEnv | undefined - Source env map, defaults to process.env }
-//   OUTPUTS: { AppConfig - Typed config with validated MCP proxy, tg-chat-rag, root auth, database, and OAuth settings }
+//   OUTPUTS: { AppConfig - Typed config for tg-chat-rag integration, root auth, public URL, and Logto OAuth proxy credentials/endpoints }
 //   SIDE_EFFECTS: [Throws ConfigValidationError with code CONFIG_VALIDATION_ERROR when validation fails]
-//   LINKS: [M-CONFIG, M-MCP-AUTH-PROVIDER]
+//   LINKS: [M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH]
 // END_CONTRACT: loadConfig
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const errors: string[] = [];
@@ -63,11 +64,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const portRaw = (env.PORT ?? "").trim();
   const timeoutRaw = (env.TG_CHAT_RAG_TIMEOUT_MS ?? "").trim();
   const rootAuthToken = (env.ROOT_AUTH_TOKEN ?? "").trim();
-  const databaseUrlRaw = (env.DATABASE_URL ?? "").trim();
   const publicUrlRaw = (env.PUBLIC_URL ?? "").trim();
-  const oauthIssuerRaw = (env.OAUTH_ISSUER ?? "").trim();
-  const oauthAudienceRaw = (env.OAUTH_AUDIENCE ?? "").trim();
-  const oauthRequiredScopesRaw = (env.OAUTH_REQUIRED_SCOPES ?? "").trim();
+  const logtoTenantUrlRaw = (env.LOGTO_TENANT_URL ?? "").trim();
+  const logtoClientId = (env.LOGTO_CLIENT_ID ?? "").trim();
+  const logtoClientSecret = (env.LOGTO_CLIENT_SECRET ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -138,25 +138,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   // END_BLOCK_PARSE_TG_CHAT_RAG_TIMEOUT_MS_M_CONFIG_006
 
-  // START_BLOCK_VALIDATE_DATABASE_URL_M_CONFIG_010
-  let databaseUrl = "";
-  if (!databaseUrlRaw) {
-    errors.push("DATABASE_URL is required.");
-  } else {
-    try {
-      const parsedDatabaseUrl = new URL(databaseUrlRaw);
-      if (parsedDatabaseUrl.protocol !== "postgres:" && parsedDatabaseUrl.protocol !== "postgresql:") {
-        errors.push("DATABASE_URL must use postgres:// or postgresql:// scheme.");
-      } else {
-        databaseUrl = parsedDatabaseUrl.toString();
-      }
-    } catch {
-      errors.push("DATABASE_URL must be a valid URL.");
-    }
-  }
-  // END_BLOCK_VALIDATE_DATABASE_URL_M_CONFIG_010
-
-  // START_BLOCK_VALIDATE_PUBLIC_URL_M_CONFIG_011
+  // START_BLOCK_VALIDATE_PUBLIC_URL_M_CONFIG_010
   let publicUrl = "";
   if (!publicUrlRaw) {
     errors.push("PUBLIC_URL is required.");
@@ -167,46 +149,39 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       errors.push("PUBLIC_URL must be a valid URL.");
     }
   }
-  // END_BLOCK_VALIDATE_PUBLIC_URL_M_CONFIG_011
+  // END_BLOCK_VALIDATE_PUBLIC_URL_M_CONFIG_010
 
-  // START_BLOCK_VALIDATE_OAUTH_ISSUER_M_CONFIG_012
-  let oauthIssuer = "";
-  if (!oauthIssuerRaw) {
-    errors.push("OAUTH_ISSUER is required.");
+  // START_BLOCK_VALIDATE_LOGTO_TENANT_URL_M_CONFIG_011
+  let logtoTenantUrl = "";
+  if (!logtoTenantUrlRaw) {
+    errors.push("LOGTO_TENANT_URL is required.");
   } else {
     try {
-      oauthIssuer = new URL(oauthIssuerRaw).toString();
+      logtoTenantUrl = new URL(logtoTenantUrlRaw).toString();
     } catch {
-      errors.push("OAUTH_ISSUER must be a valid URL.");
+      errors.push("LOGTO_TENANT_URL must be a valid URL.");
     }
   }
-  // END_BLOCK_VALIDATE_OAUTH_ISSUER_M_CONFIG_012
+  // END_BLOCK_VALIDATE_LOGTO_TENANT_URL_M_CONFIG_011
 
-  // START_BLOCK_VALIDATE_OAUTH_AUDIENCE_M_CONFIG_013
-  let oauthAudience = "";
-  if (!oauthAudienceRaw) {
-    errors.push("OAUTH_AUDIENCE is required.");
-  } else {
-    oauthAudience = oauthAudienceRaw;
+  // START_BLOCK_VALIDATE_LOGTO_CLIENT_CREDENTIALS_M_CONFIG_012
+  if (!logtoClientId) {
+    errors.push("LOGTO_CLIENT_ID is required.");
   }
-  // END_BLOCK_VALIDATE_OAUTH_AUDIENCE_M_CONFIG_013
+  if (!logtoClientSecret) {
+    errors.push("LOGTO_CLIENT_SECRET is required.");
+  }
+  // END_BLOCK_VALIDATE_LOGTO_CLIENT_CREDENTIALS_M_CONFIG_012
 
-  // START_BLOCK_PARSE_OAUTH_REQUIRED_SCOPES_M_CONFIG_014
-  let oauthRequiredScopes: string[] = ["mcp:access"];
-  if (oauthRequiredScopesRaw) {
-    const uniqueScopes = new Set<string>();
-    for (const value of oauthRequiredScopesRaw.split(",")) {
-      const trimmedValue = value.trim();
-      if (trimmedValue) {
-        uniqueScopes.add(trimmedValue);
-      }
-    }
-    oauthRequiredScopes = [...uniqueScopes];
-    if (oauthRequiredScopes.length === 0) {
-      errors.push("OAUTH_REQUIRED_SCOPES must contain at least one non-empty value.");
-    }
+  // START_BLOCK_DERIVE_LOGTO_OIDC_ENDPOINTS_M_CONFIG_013
+  let oidcAuthEndpoint = "";
+  let oidcTokenEndpoint = "";
+  if (logtoTenantUrl) {
+    const tenantBaseUrl = logtoTenantUrl.replace(/\/+$/, "");
+    oidcAuthEndpoint = `${tenantBaseUrl}/oidc/auth`;
+    oidcTokenEndpoint = `${tenantBaseUrl}/oidc/token`;
   }
-  // END_BLOCK_PARSE_OAUTH_REQUIRED_SCOPES_M_CONFIG_014
+  // END_BLOCK_DERIVE_LOGTO_OIDC_ENDPOINTS_M_CONFIG_013
 
   // START_BLOCK_THROW_CONFIG_VALIDATION_ERROR_M_CONFIG_007
   if (errors.length > 0) {
@@ -219,17 +194,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port,
     publicUrl,
     rootAuthToken,
-    databaseUrl,
-    oauth: {
-      issuer: oauthIssuer,
-      audience: oauthAudience,
-      requiredScopes: oauthRequiredScopes,
-    },
     tgChatRag: {
       baseUrl: normalizedBaseUrl,
       bearerToken,
       chatIds,
       timeoutMs,
+    },
+    logto: {
+      tenantUrl: logtoTenantUrl,
+      clientId: logtoClientId,
+      clientSecret: logtoClientSecret,
+      oidcAuthEndpoint,
+      oidcTokenEndpoint,
     },
   };
   // END_BLOCK_BUILD_APP_CONFIG_RESULT_M_CONFIG_008

@@ -1,8 +1,8 @@
 // FILE: src/config/index.test.ts
-// VERSION: 1.1.1
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Validate M-CONFIG runtime parsing for PUBLIC_URL and OAuth environment settings after Phase-7 removal of JWKS/clock-skew env controls.
-//   SCOPE: Assert defaults for required OAuth/public settings, CSV scope parsing behavior, strict CONFIG_VALIDATION_ERROR outcomes for invalid OAuth/public inputs, and ignore behavior for removed JWKS/clock-skew vars.
+//   PURPOSE: Validate M-CONFIG runtime parsing for tg-chat-rag, admin root auth, public URL, and Logto OAuth proxy settings.
+//   SCOPE: Assert required env validation, normalized URL parsing, derived OIDC endpoint construction, chat-id CSV behavior, and legacy env ignore behavior.
 //   DEPENDS: M-CONFIG
 //   LINKS: M-CONFIG-TEST, M-CONFIG
 // END_MODULE_CONTRACT
@@ -10,11 +10,11 @@
 // START_MODULE_MAP
 //   createBaseEnv - Build a valid baseline env map for config tests with optional overrides.
 //   captureConfigValidationError - Execute loadConfig and return ConfigValidationError for assertions.
-//   ConfigParsingTests - Focused tests for OAuth and public URL parsing/validation behavior.
+//   ConfigParsingTests - Focused tests for Logto/public URL/tg-chat-rag parsing and validation behavior.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.1 - Aligned module contract LINKS identity to M-CONFIG-TEST after knowledge-graph refresh.
+//   LAST_CHANGE: v1.2.0 - Updated tests to Phase-1 Step-1 contract by removing legacy DATABASE_URL/OAUTH_* assertions and adding Logto/OIDC endpoint checks.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -38,10 +38,10 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     TG_CHAT_RAG_CHAT_IDS: "chat-1,chat-2",
     TG_CHAT_RAG_TIMEOUT_MS: "15000",
     ROOT_AUTH_TOKEN: "root-secret",
-    DATABASE_URL: "postgresql://user:pass@localhost:5432/japan_travel",
     PUBLIC_URL: "https://travel.example.com",
-    OAUTH_ISSUER: "https://issuer.example.com",
-    OAUTH_AUDIENCE: "travel-mcp",
+    LOGTO_TENANT_URL: "https://tenant.logto.app",
+    LOGTO_CLIENT_ID: "logto-client-id",
+    LOGTO_CLIENT_SECRET: "logto-client-secret",
     ...overrides,
   };
   // END_BLOCK_BUILD_BASE_ENV_FOR_CONFIG_TESTS_M_CONFIG_TEST_001
@@ -69,55 +69,86 @@ function captureConfigValidationError(env: NodeJS.ProcessEnv): ConfigValidationE
   // END_BLOCK_CAPTURE_TYPED_CONFIG_VALIDATION_ERROR_M_CONFIG_TEST_002
 }
 
-describe("M-CONFIG OAuth/public settings", () => {
-  it("applies defaults for optional OAuth settings", () => {
+describe("M-CONFIG runtime settings", () => {
+  it("loads required env and derives OIDC endpoints", () => {
     const config = loadConfig(createBaseEnv());
 
     expect(config.publicUrl).toBe("https://travel.example.com/");
-    expect(config.oauth.issuer).toBe("https://issuer.example.com/");
-    expect(config.oauth.audience).toBe("travel-mcp");
-    expect(config.oauth.requiredScopes).toEqual(["mcp:access"]);
+    expect(config.rootAuthToken).toBe("root-secret");
     expect(config.tgChatRag.chatIds).toEqual(["chat-1", "chat-2"]);
+    expect(config.logto.tenantUrl).toBe("https://tenant.logto.app/");
+    expect(config.logto.clientId).toBe("logto-client-id");
+    expect(config.logto.clientSecret).toBe("logto-client-secret");
+    expect(config.logto.oidcAuthEndpoint).toBe("https://tenant.logto.app/oidc/auth");
+    expect(config.logto.oidcTokenEndpoint).toBe("https://tenant.logto.app/oidc/token");
   });
 
-  it("parses custom OAuth scope CSV", () => {
+  it("parses custom port/timeout and deduplicates chat IDs", () => {
     const config = loadConfig(
       createBaseEnv({
-        OAUTH_REQUIRED_SCOPES: "mcp:access, profile:read, mcp:access",
+        PORT: "8088",
+        TG_CHAT_RAG_TIMEOUT_MS: "31000",
+        TG_CHAT_RAG_CHAT_IDS: "chat-1, chat-2, chat-1, chat-3",
       }),
     );
 
-    expect(config.oauth.requiredScopes).toEqual(["mcp:access", "profile:read"]);
+    expect(config.port).toBe(8088);
+    expect(config.tgChatRag.timeoutMs).toBe(31000);
+    expect(config.tgChatRag.chatIds).toEqual(["chat-1", "chat-2", "chat-3"]);
   });
 
-  it("ignores removed OAuth JWKS/clock-skew env vars", () => {
+  it("ignores legacy DATABASE_URL and OAUTH_* env vars", () => {
     const config = loadConfig(
       createBaseEnv({
-        OAUTH_JWKS_CACHE_TTL_MS: "1",
-        OAUTH_JWKS_TIMEOUT_MS: "0",
-        OAUTH_CLOCK_SKEW_SEC: "-999",
-      }),
-    );
-
-    expect(config.oauth.requiredScopes).toEqual(["mcp:access"]);
-    expect(config.oauth.issuer).toBe("https://issuer.example.com/");
-    expect(config.oauth.audience).toBe("travel-mcp");
-  });
-
-  it("throws CONFIG_VALIDATION_ERROR for invalid public URL and OAuth values", () => {
-    const error = captureConfigValidationError(
-      createBaseEnv({
-        PUBLIC_URL: "not-a-url",
+        DATABASE_URL: "not-a-postgres-url",
         OAUTH_ISSUER: "issuer-without-scheme",
-        OAUTH_AUDIENCE: "   ",
+        OAUTH_AUDIENCE: "",
         OAUTH_REQUIRED_SCOPES: " , , ",
       }),
     );
 
+    expect(config.logto.tenantUrl).toBe("https://tenant.logto.app/");
+    expect((config as Record<string, unknown>).oauth).toBeUndefined();
+    expect((config as Record<string, unknown>).databaseUrl).toBeUndefined();
+  });
+
+  it("throws CONFIG_VALIDATION_ERROR for missing required env vars", () => {
+    const error = captureConfigValidationError(
+      createBaseEnv({
+        TG_CHAT_RAG_BASE_URL: " ",
+        TG_CHAT_RAG_BEARER_TOKEN: " ",
+        TG_CHAT_RAG_CHAT_IDS: " ",
+        ROOT_AUTH_TOKEN: " ",
+        PUBLIC_URL: " ",
+        LOGTO_TENANT_URL: " ",
+        LOGTO_CLIENT_ID: " ",
+        LOGTO_CLIENT_SECRET: " ",
+      }),
+    );
+
     expect(error.code).toBe("CONFIG_VALIDATION_ERROR");
+    expect(error.details).toContain("TG_CHAT_RAG_BASE_URL is required.");
+    expect(error.details).toContain("TG_CHAT_RAG_BEARER_TOKEN is required.");
+    expect(error.details).toContain("TG_CHAT_RAG_CHAT_IDS is required.");
+    expect(error.details).toContain("ROOT_AUTH_TOKEN is required.");
+    expect(error.details).toContain("PUBLIC_URL is required.");
+    expect(error.details).toContain("LOGTO_TENANT_URL is required.");
+    expect(error.details).toContain("LOGTO_CLIENT_ID is required.");
+    expect(error.details).toContain("LOGTO_CLIENT_SECRET is required.");
+  });
+
+  it("throws CONFIG_VALIDATION_ERROR for invalid URL values", () => {
+    const error = captureConfigValidationError(
+      createBaseEnv({
+        TG_CHAT_RAG_BASE_URL: "invalid-url",
+        PUBLIC_URL: "also-invalid",
+        LOGTO_TENANT_URL: "still-invalid",
+      }),
+    );
+
+    expect(error.code).toBe("CONFIG_VALIDATION_ERROR");
+    expect(error.details).toContain("TG_CHAT_RAG_BASE_URL must be a valid URL.");
     expect(error.details).toContain("PUBLIC_URL must be a valid URL.");
-    expect(error.details).toContain("OAUTH_ISSUER must be a valid URL.");
-    expect(error.details).toContain("OAUTH_AUDIENCE is required.");
-    expect(error.details).toContain("OAUTH_REQUIRED_SCOPES must contain at least one non-empty value.");
+    expect(error.details).toContain("LOGTO_TENANT_URL must be a valid URL.");
   });
 });
