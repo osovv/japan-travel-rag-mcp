@@ -1,5 +1,5 @@
 // FILE: src/runtime/fastmcp-runtime.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface, health endpoint, and delegated /admin routes.
 //   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService, and mount /admin routes through FastMCP.getApp().
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Rewired FastMCP runtime to OAuthProxy-based authentication/metadata from M-AUTH-PROXY, added canAccess guards for all proxied tools, and kept deterministic tool error/admin route behavior.
+//   LAST_CHANGE: v1.2.0 - Switched protected-resource authorization_servers source to OAuth proxy authorization-server issuer metadata instead of Logto tenant URL.
 // END_CHANGE_SUMMARY
 
 import { FastMCP, type ServerOptions } from "fastmcp";
@@ -479,20 +479,26 @@ function buildAuthorizationServerMetadata(
 }
 
 // START_CONTRACT: buildProtectedResourceMetadata
-//   PURPOSE: Build protected-resource metadata from runtime AppConfig for /mcp OAuth resource discovery.
-//   INPUTS: { config: AppConfig - Runtime config with PUBLIC_URL and Logto tenant issuer }
+//   PURPOSE: Build protected-resource metadata from runtime AppConfig and OAuth proxy authorization-server issuer for /mcp OAuth resource discovery.
+//   INPUTS: { config: AppConfig - Runtime config with PUBLIC_URL, authorizationServerMetadata: FastMcpAuthorizationServerMetadata - OAuth proxy authorization-server metadata }
 //   OUTPUTS: { FastMcpProtectedResourceMetadata - FastMCP-compatible protected resource metadata }
 //   SIDE_EFFECTS: [Throws FastMcpRuntimeError on invalid configuration values]
-//   LINKS: [M-FASTMCP-RUNTIME, M-CONFIG]
+//   LINKS: [M-FASTMCP-RUNTIME, M-CONFIG, M-AUTH-PROXY]
 // END_CONTRACT: buildProtectedResourceMetadata
-function buildProtectedResourceMetadata(config: AppConfig): FastMcpProtectedResourceMetadata {
+function buildProtectedResourceMetadata(
+  config: AppConfig,
+  authorizationServerMetadata: FastMcpAuthorizationServerMetadata,
+): FastMcpProtectedResourceMetadata {
   // START_BLOCK_MAP_PROTECTED_RESOURCE_METADATA_TO_FASTMCP_SHAPE_M_FASTMCP_RUNTIME_013
   const publicUrl = readRequiredUrlField(config.publicUrl, "config.publicUrl");
   const resourceUrl = new URL("/mcp", publicUrl).toString();
-  const logtoIssuer = readRequiredUrlField(config.logto?.tenantUrl, "config.logto.tenantUrl");
+  const authorizationServerIssuer = readRequiredUrlField(
+    authorizationServerMetadata.issuer,
+    "oauthProxyContext.authorizationServerMetadata.issuer",
+  );
   return {
     resource: resourceUrl,
-    authorizationServers: [logtoIssuer],
+    authorizationServers: [authorizationServerIssuer],
     bearerMethodsSupported: ["header"],
   };
   // END_BLOCK_MAP_PROTECTED_RESOURCE_METADATA_TO_FASTMCP_SHAPE_M_FASTMCP_RUNTIME_013
@@ -510,11 +516,12 @@ function buildOauthConfig(
   oauthProxyContext: OauthProxyContext,
 ): FastMcpOauthConfig {
   // START_BLOCK_BUILD_FASTMCP_OAUTH_CONFIGURATION_M_FASTMCP_RUNTIME_014
+  const authorizationServer = buildAuthorizationServerMetadata(oauthProxyContext);
   return {
     enabled: true,
     proxy: oauthProxyContext.oauthProxy,
-    authorizationServer: buildAuthorizationServerMetadata(oauthProxyContext),
-    protectedResource: buildProtectedResourceMetadata(config),
+    authorizationServer,
+    protectedResource: buildProtectedResourceMetadata(config, authorizationServer),
   };
   // END_BLOCK_BUILD_FASTMCP_OAUTH_CONFIGURATION_M_FASTMCP_RUNTIME_014
 }

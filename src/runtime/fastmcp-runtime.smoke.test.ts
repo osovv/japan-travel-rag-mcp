@@ -1,5 +1,5 @@
 // FILE: src/runtime/fastmcp-runtime.smoke.test.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Provide smoke verification for FastMCP runtime tool surface, schema rejection, and authorized proxy dispatch through the HTTP stream boundary.
 //   SCOPE: Start createFastMcpRuntime on /mcp using httpStream transport, assert tools/list exposure contract, verify invalid tool arguments return MCP protocol errors, and verify authorized tools/call is forwarded to ToolProxyService.
@@ -21,7 +21,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Added localhost-bind restriction detection and runtime short-circuit helper so smoke tests skip harness-dependent assertions when 127.0.0.1 listen is blocked.
+//   LAST_CHANGE: v1.3.0 - Updated protected-resource discovery assertion to use OAuth proxy issuer metadata instead of Logto tenant URL.
 // END_CHANGE_SUMMARY
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -519,7 +519,7 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
     }
   });
 
-  it("serves protected resource metadata for /mcp with Logto issuer authority", async () => {
+  it("serves protected resource metadata for /mcp with OAuth proxy issuer authority", async () => {
     const harness = await createRuntimeHarnessOrSkipWhenBindRestricted("allow");
     if (!harness) {
       return;
@@ -535,7 +535,7 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
       };
 
       expect(payload.resource).toBe(`${harness.baseUrl}/mcp`);
-      expect(payload.authorization_servers).toEqual(["https://issuer.example.com/"]);
+      expect(payload.authorization_servers).toEqual([`${harness.baseUrl}/`]);
     } finally {
       await harness.stop();
     }

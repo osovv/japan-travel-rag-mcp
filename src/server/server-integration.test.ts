@@ -1,5 +1,5 @@
 // FILE: src/server/server-integration.test.ts
-// VERSION: 3.0.0
+// VERSION: 3.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Integration verification of OAuth well-known metadata, admin route delegation, and /mcp auth+dispatch behavior on the OAuthProxy runtime model.
 //   SCOPE: Build an in-memory FastMCP harness with deterministic OAuthProxy and ToolProxy mocks, assert OAuth metadata responses, validate /admin delegation through mounted FastMCP app routes, and verify /mcp denied/allowed flow through OAuthProxy token loading plus tool proxy dispatch.
@@ -24,7 +24,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.0.0 - Migrated integration harness from legacy mcp-auth adapter/provider assumptions to OAuthProxy token-loading semantics and AppConfig.logto metadata model.
+//   LAST_CHANGE: v3.1.0 - Updated protected-resource discovery assertions to use OAuth proxy issuer metadata even when Logto tenant URL differs.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -168,11 +168,11 @@ function createMockAppConfig(): AppConfig {
       timeoutMs: 15000,
     },
     logto: {
-      tenantUrl: "https://issuer.example.com/",
+      tenantUrl: "https://upstream-logto.example.com/",
       clientId: "logto-client-id-integration",
       clientSecret: "logto-client-secret-integration",
-      oidcAuthEndpoint: "https://issuer.example.com/oidc/auth",
-      oidcTokenEndpoint: "https://issuer.example.com/oidc/token",
+      oidcAuthEndpoint: "https://upstream-logto.example.com/oidc/auth",
+      oidcTokenEndpoint: "https://upstream-logto.example.com/oidc/token",
     },
   };
   // END_BLOCK_BUILD_DETERMINISTIC_APP_CONFIG_FIXTURE_M_SERVER_INTEGRATION_TEST_002
@@ -217,9 +217,9 @@ function createMockOauthProxyContext(validBearerToken: string): {
   const oauthProxyContext: OauthProxyContext = {
     oauthProxy: oauthProxy as OauthProxyContext["oauthProxy"],
     authorizationServerMetadata: {
-      issuer: "https://issuer.example.com/",
-      authorizationEndpoint: "https://issuer.example.com/oidc/auth",
-      tokenEndpoint: "https://issuer.example.com/oidc/token",
+      issuer: "https://oauth-proxy.example.com/",
+      authorizationEndpoint: "https://oauth-proxy.example.com/oauth/authorize",
+      tokenEndpoint: "https://oauth-proxy.example.com/oauth/token",
       responseTypesSupported: ["code"],
     },
   };
@@ -399,17 +399,20 @@ function extractBearerTokenFromAuthorizationHeader(authorizationHeader: string |
 }
 
 // START_CONTRACT: buildProtectedResourceMetadata
-//   PURPOSE: Build deterministic protected-resource metadata payload from AppConfig public/logto fields.
-//   INPUTS: { config: AppConfig - Runtime configuration fixture }
+//   PURPOSE: Build deterministic protected-resource metadata payload from AppConfig public URL and OAuth proxy issuer metadata.
+//   INPUTS: { config: AppConfig - Runtime configuration fixture, oauthProxyContext: OauthProxyContext - OAuth proxy metadata fixture }
 //   OUTPUTS: { ProtectedResourceMetadataPayload - OAuth protected-resource metadata }
 //   SIDE_EFFECTS: [none]
-//   LINKS: [M-SERVER-INTEGRATION-TEST, M-CONFIG, M-FASTMCP-RUNTIME]
+//   LINKS: [M-SERVER-INTEGRATION-TEST, M-CONFIG, M-FASTMCP-RUNTIME, M-AUTH-PROXY]
 // END_CONTRACT: buildProtectedResourceMetadata
-function buildProtectedResourceMetadata(config: AppConfig): ProtectedResourceMetadataPayload {
+function buildProtectedResourceMetadata(
+  config: AppConfig,
+  oauthProxyContext: OauthProxyContext,
+): ProtectedResourceMetadataPayload {
   // START_BLOCK_BUILD_PROTECTED_RESOURCE_METADATA_PAYLOAD_M_SERVER_INTEGRATION_TEST_009
   return {
     resource: new URL("/mcp", config.publicUrl).toString(),
-    authorization_servers: [config.logto.tenantUrl],
+    authorization_servers: [oauthProxyContext.authorizationServerMetadata.issuer],
     bearer_methods_supported: ["header"],
   };
   // END_BLOCK_BUILD_PROTECTED_RESOURCE_METADATA_PAYLOAD_M_SERVER_INTEGRATION_TEST_009
@@ -508,7 +511,7 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
       (url.pathname === "/.well-known/oauth-protected-resource" ||
         url.pathname === "/.well-known/oauth-protected-resource/mcp")
     ) {
-      return new Response(JSON.stringify(buildProtectedResourceMetadata(config)), {
+      return new Response(JSON.stringify(buildProtectedResourceMetadata(config, oauthProxyContext)), {
         status: 200,
         headers: {
           "content-type": "application/json; charset=utf-8",
@@ -621,7 +624,10 @@ describe("M-SERVER FastMCP integration", () => {
       protectedBaseResponse,
     );
     expect(protectedBasePayload.resource).toBe("https://travel.example.com/mcp");
-    expect(protectedBasePayload.authorization_servers).toEqual(["https://issuer.example.com/"]);
+    expect(protectedBasePayload.authorization_servers).toEqual(["https://oauth-proxy.example.com/"]);
+    expect(protectedBasePayload.authorization_servers).not.toEqual([
+      "https://upstream-logto.example.com/",
+    ]);
     expect(protectedBasePayload.bearer_methods_supported).toEqual(["header"]);
 
     const protectedMcpResponse = await harness.handleRequest(
@@ -646,11 +652,13 @@ describe("M-SERVER FastMCP integration", () => {
     const authorizationServerPayload = await readJsonPayload<AuthorizationServerMetadataPayload>(
       authorizationServerResponse,
     );
-    expect(authorizationServerPayload.issuer).toBe("https://issuer.example.com/");
+    expect(authorizationServerPayload.issuer).toBe("https://oauth-proxy.example.com/");
     expect(authorizationServerPayload.authorization_endpoint).toBe(
-      "https://issuer.example.com/oidc/auth",
+      "https://oauth-proxy.example.com/oauth/authorize",
     );
-    expect(authorizationServerPayload.token_endpoint).toBe("https://issuer.example.com/oidc/token");
+    expect(authorizationServerPayload.token_endpoint).toBe(
+      "https://oauth-proxy.example.com/oauth/token",
+    );
     expect(authorizationServerPayload.response_types_supported).toEqual(["code"]);
   });
 

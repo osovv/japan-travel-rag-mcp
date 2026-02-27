@@ -1,5 +1,5 @@
 // FILE: src/auth/oauth-proxy.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for /mcp authentication.
 //   SCOPE: Validate runtime config/logger dependencies, build deterministic OAuthProxy configuration from AppConfig Logto/public URL fields, instantiate OAuthProxy, expose authorization server metadata, and map init failures to OAUTH_PROXY_INIT_ERROR.
@@ -15,7 +15,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Implemented M-AUTH-PROXY with defensive AppConfig validation, FastMCP OAuthProxy wiring to Logto OIDC endpoints, and typed OAUTH_PROXY_INIT_ERROR mapping.
+//   LAST_CHANGE: v1.1.0 - Normalized OAuthProxy baseUrl from PUBLIC_URL by removing trailing slash to prevent double-slash oauth metadata endpoints.
 // END_CHANGE_SUMMARY
 
 import { OAuthProxy, type OAuthProxyConfig } from "fastmcp/auth";
@@ -152,6 +152,19 @@ function normalizeRequiredUrl(value: unknown, field: string): string {
   // END_BLOCK_VALIDATE_REQUIRED_URL_FIELD_M_AUTH_PROXY_004
 }
 
+// START_CONTRACT: normalizeBaseUrlWithoutTrailingSlash
+//   PURPOSE: Normalize OAuth proxy base URL by removing trailing slash characters to prevent double-slash endpoint joins.
+//   INPUTS: { value: string - Valid absolute URL string }
+//   OUTPUTS: { string - URL string without trailing slash }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-AUTH-PROXY]
+// END_CONTRACT: normalizeBaseUrlWithoutTrailingSlash
+function normalizeBaseUrlWithoutTrailingSlash(value: string): string {
+  // START_BLOCK_NORMALIZE_BASE_URL_WITHOUT_TRAILING_SLASH_M_AUTH_PROXY_010
+  return value.replace(/\/+$/, "");
+  // END_BLOCK_NORMALIZE_BASE_URL_WITHOUT_TRAILING_SLASH_M_AUTH_PROXY_010
+}
+
 // START_CONTRACT: validateLoggerDependency
 //   PURPOSE: Validate logger dependency shape to ensure structured log emission is safe at runtime.
 //   INPUTS: { logger: Logger|undefined - Logger dependency from caller }
@@ -200,7 +213,9 @@ function resolveOauthProxyConfig(config: AppConfig): ResolvedOauthProxyConfig {
     });
   }
 
-  const baseUrl = normalizeRequiredUrl(config.publicUrl, "config.publicUrl");
+  const baseUrl = normalizeBaseUrlWithoutTrailingSlash(
+    normalizeRequiredUrl(config.publicUrl, "config.publicUrl"),
+  );
   const upstreamAuthorizationEndpoint = normalizeRequiredUrl(
     config.logto?.oidcAuthEndpoint,
     "config.logto.oidcAuthEndpoint",
