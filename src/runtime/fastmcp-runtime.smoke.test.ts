@@ -1,5 +1,5 @@
 // FILE: src/runtime/fastmcp-runtime.smoke.test.ts
-// VERSION: 1.4.0
+// VERSION: 1.4.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Provide smoke verification for FastMCP runtime tool surface, schema rejection, and authorized proxy dispatch through the HTTP stream boundary.
 //   SCOPE: Start createFastMcpRuntime on /mcp using httpStream transport, assert tools/list exposure contract, verify invalid tool arguments return MCP protocol errors, and verify authorized tools/call is forwarded to ToolProxyService.
@@ -21,7 +21,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.4.0 - Added search_messages invalid-params smoke coverage for non-object filters to verify strict FastMCP schema rejection.
+//   LAST_CHANGE: v1.4.1 - Updated mock proxy tool outputs and assertions to content-only result shape (no structuredContent) for FastMCP output schema compatibility.
+//   PREVIOUS: v1.4.0 - Added search_messages invalid-params smoke coverage for non-object filters to verify strict FastMCP schema rejection.
 // END_CHANGE_SUMMARY
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -190,10 +191,6 @@ function createMockProxyService(): {
             }),
           },
         ],
-        structuredContent: {
-          toolName,
-          rawArgs,
-        },
       };
     },
   };
@@ -527,12 +524,17 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
       });
 
       expect(response.isError).not.toBe(true);
-      expect(response.structuredContent).toEqual({
-        toolName: "get_message_context",
-        rawArgs: {
-          message_uid: "message-uid-123",
+      expect(response.content).toEqual([
+        {
+          type: "text",
+          text: JSON.stringify({
+            toolName: "get_message_context",
+            rawArgs: {
+              message_uid: "message-uid-123",
+            },
+          }),
         },
-      });
+      ]);
       expect(harness.proxyCalls).toEqual([
         {
           toolName: "get_message_context",

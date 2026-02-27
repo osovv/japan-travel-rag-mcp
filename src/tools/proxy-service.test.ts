@@ -1,5 +1,5 @@
 // FILE: src/tools/proxy-service.test.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Verify deterministic orchestration and error mapping for M-TOOL-PROXY.
 //   SCOPE: Assert validate->policy->upstream->normalize flow, tool allowlist enforcement, internal search chat_ids injection, and deterministic proxy error codes.
@@ -15,7 +15,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Updated search_messages fixtures for strict filters schema and direct chat_ids-forbidden validation path.
+//   LAST_CHANGE: v1.2.0 - Updated expectations to content-only MCP tool results without structuredContent to match FastMCP strict output schema.
+//   PREVIOUS: v1.1.0 - Updated search_messages fixtures for strict filters schema and direct chat_ids-forbidden validation path.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -144,7 +145,6 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
     });
     expect(result).toEqual({
       content: [{ type: "text", text: JSON.stringify(upstreamResponse) }],
-      structuredContent: upstreamResponse,
     });
   });
 

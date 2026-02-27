@@ -1,5 +1,5 @@
 // FILE: src/tools/proxy-service.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Apply policy-safe normalization and proxy supported MCP tool calls to tg-chat-rag.
 //   SCOPE: Enforce tool allowlist, validate inputs, inject internal search chat scope policy, call upstream methods API, and map results/errors to MCP proxy outputs.
@@ -17,7 +17,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Simplified executeTool orchestration to explicit validate -> policy -> upstream -> normalize flow while keeping deterministic error mapping and chat_ids policy enforcement.
+//   LAST_CHANGE: v1.2.0 - Removed structuredContent from successful tool results to match FastMCP ContentResult strict output schema.
+//   PREVIOUS: v1.1.0 - Simplified executeTool orchestration to explicit validate -> policy -> upstream -> normalize flow while keeping deterministic error mapping and chat_ids policy enforcement.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -39,7 +40,6 @@ export type McpToolResult = {
     type: "text";
     text: string;
   }>;
-  structuredContent: Record<string, unknown>;
 };
 
 export type ProxyErrorCode = "VALIDATION_ERROR" | "UNSUPPORTED_TOOL" | "UPSTREAM_ERROR";
@@ -223,7 +223,7 @@ function buildUpstreamPayloadWithPolicy(
 // START_CONTRACT: buildMcpToolResult
 //   PURPOSE: Normalize upstream object response to MCP tool result envelope.
 //   INPUTS: { upstreamResponse: Record<string, unknown> - Raw object response from upstream }
-//   OUTPUTS: { McpToolResult - MCP-style result with text and structured content }
+//   OUTPUTS: { McpToolResult - MCP-style result with text content only }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-TOOL-PROXY]
 // END_CONTRACT: buildMcpToolResult
@@ -236,7 +236,6 @@ function buildMcpToolResult(upstreamResponse: Record<string, unknown>): McpToolR
         text: JSON.stringify(upstreamResponse),
       },
     ],
-    structuredContent: upstreamResponse,
   };
   // END_BLOCK_MAP_UPSTREAM_RESPONSE_TO_MCP_RESULT_M_TOOL_PROXY_006
 }

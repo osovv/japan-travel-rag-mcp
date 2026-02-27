@@ -1,5 +1,5 @@
 // FILE: src/server/server-integration.test.ts
-// VERSION: 3.2.0
+// VERSION: 3.2.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Integration verification of OAuth well-known metadata, admin route delegation, and /mcp auth+dispatch behavior on the OAuthProxy runtime model.
 //   SCOPE: Build an in-memory FastMCP harness with deterministic OAuthProxy and ToolProxy mocks, assert OAuth metadata responses, validate /admin delegation through mounted FastMCP app routes, and verify /mcp denied/allowed flow through OAuthProxy token loading plus tool proxy dispatch.
@@ -24,7 +24,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.2.0 - Added FastMCP OAuth diagnostics route assertions for sanitized authorize/callback logging with no raw code/state leakage.
+//   LAST_CHANGE: v3.2.1 - Updated proxy result mocks/assertions to content-only MCP tool result shape without structuredContent.
+//   PREVIOUS: v3.2.0 - Added FastMCP OAuth diagnostics route assertions for sanitized authorize/callback logging with no raw code/state leakage.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -262,10 +263,6 @@ function createMockProxyService(): {
             }),
           },
         ],
-        structuredContent: {
-          toolName,
-          rawArgs,
-        },
       };
     },
   };
@@ -766,12 +763,6 @@ describe("M-SERVER FastMCP integration", () => {
           }),
         },
       ],
-      structuredContent: {
-        toolName: "get_message_context",
-        rawArgs: {
-          message_uid: "message-uid-123",
-        },
-      },
     });
 
     expect(harness.proxyCalls).toEqual([
