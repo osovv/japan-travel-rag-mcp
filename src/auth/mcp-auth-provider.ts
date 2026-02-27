@@ -49,6 +49,7 @@ export type McpAuthContext = {
   validateIssuer: ValidateIssuerFunction;
   resourceMetadataUrl: string;
   protectedResourceMetadata: ProtectedResourceMetadata;
+  authorizationServerMetadata: Record<string, unknown>;
 };
 
 export class McpAuthInitError extends Error {
@@ -60,6 +61,22 @@ export class McpAuthInitError extends Error {
     this.name = "McpAuthInitError";
     this.details = details;
   }
+}
+
+// START_CONTRACT: toSnakeCaseKeys
+//   PURPOSE: Convert camelCase object keys to snake_case for OAuth metadata serialization.
+//   INPUTS: { obj: Record<string, unknown> - Object with camelCase keys }
+//   OUTPUTS: { Record<string, unknown> - Object with snake_case keys }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-MCP-AUTH-PROVIDER]
+// END_CONTRACT: toSnakeCaseKeys
+function toSnakeCaseKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const snakeKey = key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+    result[snakeKey] = value;
+  }
+  return result;
 }
 
 // START_CONTRACT: redactSensitiveDiagnostics
@@ -310,12 +327,17 @@ export async function initMcpAuth(
       },
     );
 
+    const authorizationServerMetadata = toSnakeCaseKeys(
+      oidcServerConfig.metadata as unknown as Record<string, unknown>,
+    );
+
     return {
       mcpAuth,
       verifyAccessToken,
       validateIssuer,
       resourceMetadataUrl,
       protectedResourceMetadata,
+      authorizationServerMetadata,
     };
   } catch (error: unknown) {
     const typedError = toMcpAuthInitError(

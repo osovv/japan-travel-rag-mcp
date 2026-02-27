@@ -35,6 +35,7 @@ import type { McpTransportDependencies } from "../transport/mcp-transport";
 
 const PROTECTED_RESOURCE_METADATA_ROOT_PATH = "/.well-known/oauth-protected-resource";
 const PROTECTED_RESOURCE_METADATA_MCP_PATH = "/.well-known/oauth-protected-resource/mcp";
+const OAUTH_AUTHORIZATION_SERVER_METADATA_PATH = "/.well-known/oauth-authorization-server";
 
 export class ServerStartError extends Error {
   public readonly code = "SERVER_START_ERROR" as const;
@@ -302,6 +303,35 @@ export async function main(): Promise<Bun.Server<unknown>> {
         );
         if (protectedResourceMetadataResponse !== null) {
           return protectedResourceMetadataResponse;
+        }
+
+        if (url.pathname === OAUTH_AUTHORIZATION_SERVER_METADATA_PATH) {
+          if (request.method !== "GET") {
+            return new Response(
+              JSON.stringify({
+                error: {
+                  code: "METHOD_NOT_ALLOWED",
+                  message: "OAuth authorization server metadata endpoint supports GET only.",
+                },
+              }),
+              {
+                status: 405,
+                headers: {
+                  "content-type": "application/json; charset=utf-8",
+                  Allow: "GET",
+                },
+              },
+            );
+          }
+
+          oauthDiscoveryLogger.info(
+            "Serving delegated OAuth authorization server metadata.",
+            "main",
+            "SERVE_DELEGATED_AUTH_SERVER_METADATA",
+            { pathname: url.pathname },
+          );
+
+          return createJsonResponse(200, mcpAuthContext.authorizationServerMetadata);
         }
 
         if (isAdminRoutePath(url.pathname)) {

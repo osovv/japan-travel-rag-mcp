@@ -167,6 +167,12 @@ function createMockAuthGuardDependencies(options: MockAuthGuardTokenOptions): {
       scopes_supported: ["mcp:access"],
       bearer_methods_supported: ["header"],
     },
+    authorizationServerMetadata: {
+      issuer: "https://issuer.example.com/",
+      authorization_endpoint: "https://issuer.example.com/authorize",
+      token_endpoint: "https://issuer.example.com/token",
+      jwks_uri: "https://issuer.example.com/jwks",
+    },
   };
 
   return {
