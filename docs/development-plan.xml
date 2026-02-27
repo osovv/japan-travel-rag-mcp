@@ -1,4 +1,4 @@
-<DevelopmentPlan VERSION="0.8.0">
+<DevelopmentPlan VERSION="0.8.1">
   <Context>
     <purpose>Ship v1 as a thin MCP proxy over tg-chat-rag with FastMCP runtime, OAuth-only authorization for /mcp, and an internal admin surface for operator login and diagnostics.</purpose>
     <scope>Expose search_messages, get_message_context, get_related_messages, and list_sources on /mcp via FastMCP; provide /admin/login and /admin/ops via FastMCP's underlying Hono app; keep API key lifecycle out of product surface.</scope>
@@ -467,7 +467,7 @@
       <step-3 module="M-SERVER">Defined server bootstrap contract around FastMCP start/stop lifecycle.</step-3>
     </Phase-6>
 
-    <Phase-7 name="FastMCP Migration Execution" status="planned">
+    <Phase-7 name="FastMCP Migration Execution" status="done">
       <step-1 module="M-MCP-AUTH-ADAPTER">Create src/auth/mcp-auth-adapter.ts and implement authenticateFastMcpRequest() over McpAuthContext with deterministic 401/403 mapping.</step-1>
       <step-2 module="M-FASTMCP-RUNTIME">Create src/runtime/fastmcp-runtime.ts: instantiate FastMCP, register four tools with schemas, bind authenticate hook, configure oauth metadata, health endpoint, and admin routes via getApp().</step-2>
       <step-3 module="M-SERVER">Refactor src/server/index.ts to bootstrap dependencies and call fastmcp.start({ transportType: 'httpStream', httpStream: { endpoint: '/mcp' } }).</step-3>

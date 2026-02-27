@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.1.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.2.0">
     <keywords>japan-travel, mcp, fastmcp, hono, proxy, tg-chat-rag, oauth, logto, mcp-auth, jose, admin-ui, postgres, drizzle, contract-first</keywords>
     <annotation>Target runtime architecture uses FastMCP HTTP stream for /mcp with mcp-auth-backed authenticate adapter and Hono-mounted /admin routes. OAuth discovery metadata is exposed through FastMCP oauth configuration.</annotation>
 
@@ -210,16 +210,16 @@
     </M-DOCKER-IMAGE>
 
     <DELETED-MODULES>
-      <M-MCP-AUTH-GUARD NAME="McpAuthGuard (PLANNED DELETE)" reason="Replaced by M-MCP-AUTH-ADAPTER for FastMCP authenticate flow">
+      <M-MCP-AUTH-GUARD NAME="McpAuthGuard (DELETED)" reason="Replaced by M-MCP-AUTH-ADAPTER for FastMCP authenticate flow">
         <previous-path>src/auth/mcp-auth-guard.ts</previous-path>
       </M-MCP-AUTH-GUARD>
-      <M-TRANSPORT NAME="McpTransport (PLANNED DELETE)" reason="Replaced by M-FASTMCP-RUNTIME FastMCP registration/dispatch layer">
+      <M-TRANSPORT NAME="McpTransport (DELETED)" reason="Replaced by M-FASTMCP-RUNTIME FastMCP registration/dispatch layer">
         <previous-path>src/transport/mcp-transport.ts</previous-path>
       </M-TRANSPORT>
-      <M-MCP-AUTH-GUARD-TEST NAME="McpAuthGuardTests (PLANNED DELETE)" reason="Replaced by adapter-focused tests">
+      <M-MCP-AUTH-GUARD-TEST NAME="McpAuthGuardTests (DELETED)" reason="Replaced by adapter-focused tests">
         <previous-path>src/auth/mcp-auth-guard.test.ts</previous-path>
       </M-MCP-AUTH-GUARD-TEST>
-      <M-TRANSPORT-SMOKE NAME="TransportSmokeTests (PLANNED DELETE)" reason="Replaced by FastMCP runtime smoke tests">
+      <M-TRANSPORT-SMOKE NAME="TransportSmokeTests (DELETED)" reason="Replaced by FastMCP runtime smoke tests">
         <previous-path>src/transport/mcp-transport.smoke.test.ts</previous-path>
       </M-TRANSPORT-SMOKE>
       <M-OAUTH-JWKS NAME="OAuthJwksClient (DELETED)" reason="Replaced by jose via mcp-auth TokenVerifier">
