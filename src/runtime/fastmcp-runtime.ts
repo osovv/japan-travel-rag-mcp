@@ -1,10 +1,10 @@
 // FILE: src/runtime/fastmcp-runtime.ts
-// VERSION: 1.5.0
+// VERSION: 1.6.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface, health endpoint, delegated /admin routes, and portal/landing routes.
-//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService, mount OAuth diagnostics notFound routes, mount /admin routes, and mount / and /portal/* routes through FastMCP.getApp().
-//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI
-//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI
+//   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface with per-user usage tracking, health endpoint, delegated /admin routes, and portal/landing routes.
+//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService with fire-and-forget usage tracking, mount OAuth diagnostics notFound routes, mount /admin routes, and mount / and /portal/* routes through FastMCP.getApp().
+//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER
+//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -22,8 +22,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.5.0 - Added extractUserIdFromSession helper to extract user sub claim from MCP OAuth session JWT tokens for usage tracking.
-//   PREVIOUS: v1.4.0 - Added portal landing and /portal/* route mounting through FastMCP getApp() alongside existing admin routes.
+//   LAST_CHANGE: v1.6.0 - Added per-user usage tracking to tool execute handlers via fire-and-forget recordToolCall after successful tool execution with JWT sub extraction.
+//   PREVIOUS: v1.5.0 - Added extractUserIdFromSession helper to extract user sub claim from MCP OAuth session JWT tokens for usage tracking.
 // END_CHANGE_SUMMARY
 
 import { FastMCP, type ServerOptions } from "fastmcp";
@@ -39,6 +39,7 @@ import {
   TOOL_INPUT_JSON_SCHEMAS,
 } from "../tools/contracts";
 import { ProxyExecutionError, type ToolProxyService } from "../tools/proxy-service";
+import type { UsageTracker } from "../usage/tracker";
 
 const FASTMCP_SERVER_NAME = "japan-travel-rag-mcp";
 const FASTMCP_SERVER_VERSION: `${number}.${number}.${number}` = "0.4.0";
@@ -164,6 +165,7 @@ type FastMcpRuntimeErrorDetails = {
 type RegisterProxyToolsDependencies = {
   logger: Logger;
   proxyService: ToolProxyService;
+  usageTracker: UsageTracker;
 };
 
 type MountAdminRoutesDependencies = {
@@ -189,6 +191,7 @@ export type FastMcpRuntimeDependencies = {
   adminHandler: (request: Request) => Promise<Response>;
   portalLandingHandler: (request: Request) => Promise<Response>;
   portalHandler: (request: Request) => Promise<Response>;
+  usageTracker: UsageTracker;
 };
 
 export class FastMcpRuntimeError extends Error {
@@ -978,6 +981,12 @@ function assertRuntimeDependencies(deps: FastMcpRuntimeDependencies): void {
       field: "deps.portalHandler",
     });
   }
+
+  if (!deps.usageTracker || typeof deps.usageTracker.recordToolCall !== "function") {
+    throw new FastMcpRuntimeError("UsageTracker dependency is required for FastMCP runtime.", {
+      field: "deps.usageTracker.recordToolCall",
+    });
+  }
   // END_BLOCK_VALIDATE_FASTMCP_RUNTIME_DEPENDENCIES_M_FASTMCP_RUNTIME_016
 }
 
@@ -1018,11 +1027,15 @@ function createToolErrorResult(
 }
 
 // START_CONTRACT: registerProxyTools
-//   PURPOSE: Register exactly four proxy tools on FastMCP with schemas from M-TOOLS-CONTRACTS and proxy dispatch handlers.
-//   INPUTS: { fastMcpServer: FastMCP<RuntimeSessionAuth> - Runtime instance, deps: RegisterProxyToolsDependencies - Tool registration dependencies }
+//   PURPOSE: Register exactly four proxy tools on FastMCP with schemas from M-TOOLS-CONTRACTS, proxy dispatch handlers, and fire-and-forget per-user usage tracking.
+//   INPUTS: { fastMcpServer: FastMCP<RuntimeSessionAuth> - Runtime instance, deps: RegisterProxyToolsDependencies - Tool registration dependencies including usageTracker }
 //   OUTPUTS: { void - Tools are registered on FastMCP instance }
-//   SIDE_EFFECTS: [Mutates FastMCP tool registry and emits structured logs]
-//   LINKS: [M-FASTMCP-RUNTIME, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER]
+//   SIDE_EFFECTS: [Mutates FastMCP tool registry, emits structured logs, fires usage tracking after successful execution]
+//   INVARIANTS:
+//     - Usage tracking failure MUST NEVER affect tool result
+//     - recordToolCall is fire-and-forget (never throws, returns void)
+//     - userId extracted from session JWT sub claim via extractUserIdFromSession
+//   LINKS: [M-FASTMCP-RUNTIME, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-LOGGER, M-USAGE-TRACKER]
 // END_CONTRACT: registerProxyTools
 export function registerProxyTools(
   fastMcpServer: FastMCP<RuntimeSessionAuth>,
@@ -1036,7 +1049,7 @@ export function registerProxyTools(
       description: descriptor.description,
       parameters: descriptor.parameters,
       canAccess: canAccessAuthenticatedProxyTools,
-      execute: async (args) => {
+      execute: async (args, context) => {
         try {
           const result = await deps.proxyService.executeTool(toolName, args ?? {});
           deps.logger.info(
@@ -1045,6 +1058,20 @@ export function registerProxyTools(
             "REGISTER_FIXED_PROXY_TOOL_SET_ON_FASTMCP",
             { toolName },
           );
+
+          // Fire-and-forget usage tracking after successful execution
+          const userId = extractUserIdFromSession(context.session);
+          if (userId !== null) {
+            deps.usageTracker.recordToolCall(userId, toolName);
+          } else {
+            deps.logger.warn(
+              "Could not extract user ID from session for usage tracking.",
+              "registerProxyTools",
+              "TRACK_TOOL_USAGE",
+              { toolName },
+            );
+          }
+
           return result;
         } catch (error: unknown) {
           if (error instanceof ProxyExecutionError) {
@@ -1264,6 +1291,7 @@ export function createFastMcpRuntime(
     registerProxyTools(fastMcpServer, {
       logger: runtimeLogger.child({ component: "proxyTools" }),
       proxyService: deps.proxyService,
+      usageTracker: deps.usageTracker,
     });
 
     mountAdminRoutes(fastMcpServer, {
