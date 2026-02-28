@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.6.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.7.0">
     <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources</keywords>
     <annotation>Portal-first architecture with five MCP tools (4 proxied + 1 local registry), shareable landing + self-serve user portal onboarding, and per-user MCP tool call usage tracking in PostgreSQL with portal display.</annotation>
 

@@ -653,7 +653,7 @@
       <justification>Usage tracking requires database persistence (M-DB reactivation), a new data-layer module (M-USAGE-TRACKER), JWT identity extraction in tool execution (M-FASTMCP-RUNTIME), and portal display integration (M-PORTAL-UI). Steps are ordered by dependency: config first, then DB, then tracker, then runtime integration, then UI.</justification>
     </Phase-5>
 
-    <Phase-7 name="LocalSiteSourcesTool" status="pending">
+    <Phase-7 name="LocalSiteSourcesTool" status="done">
       <step-1>Create M-SITE-SOURCES: `src/tools/site-sources.ts` with types, frozen seed data, and empty Zod input schema.</step-1>
       <step-2>Create `src/tools/site-sources.test.ts` with output shape validation and seed data integrity tests.</step-2>
       <step-3>Update M-FASTMCP-RUNTIME: add registerLocalTools to register get_site_sources with canAccess guard, local execute handler, and usage tracking.</step-3>
