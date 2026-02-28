@@ -454,7 +454,7 @@
       <justification>Self-serve onboarding depends on identity integration and deterministic provisioning core logic.</justification>
     </Phase-2>
 
-    <Phase-3 name="PortalAndLandingUI" status="planned">
+    <Phase-3 name="PortalAndLandingUI" status="done">
       <step-1>Implement simple landing with redirect CTA to `/portal`.</step-1>
       <step-2>Implement per-page portal routes (`/portal/register`, `/portal/login`, `/portal/auth/start`, `/portal/auth/callback`, `/portal/home`, `/portal/integrations/agent-setup`, `/portal/logout`).</step-2>
       <step-3>Implement Bun JSX SSR templates/components and compile Tailwind shared stylesheet asset.</step-3>
