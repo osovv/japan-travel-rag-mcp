@@ -1,7 +1,7 @@
 <KnowledgeGraph>
   <Project NAME="japan-travel-rag-mcp" VERSION="1.6.0">
-    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql</keywords>
-    <annotation>Portal-first architecture keeps current four MCP proxy tools, adds shareable landing + self-serve user portal onboarding, and tracks per-user MCP tool call usage in PostgreSQL with portal display.</annotation>
+    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources</keywords>
+    <annotation>Portal-first architecture with five MCP tools (4 proxied + 1 local registry), shareable landing + self-serve user portal onboarding, and per-user MCP tool call usage tracking in PostgreSQL with portal display.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
       <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
@@ -35,6 +35,20 @@
         <const-TOOL_INPUT_JSON_SCHEMAS description="Tool descriptions and parameter contracts consumed by runtime registration." />
       </annotations>
     </M-TOOLS-CONTRACTS>
+
+    <M-SITE-SOURCES NAME="SiteSources" TYPE="DATA_LAYER" STATUS="active">
+      <purpose>Serve curated source registry as frozen seed data for get_site_sources local MCP tool.</purpose>
+      <path>src/tools/site-sources.ts</path>
+      <depends>none</depends>
+      <annotations>
+        <const-SITE_SOURCES_RESPONSE description="Frozen seed data: description_and_tiers + 12 source entries." />
+        <schema-GetSiteSourcesInputSchema description="Empty z.object({}) schema for FastMCP tool registration." />
+        <type-SiteSourcesResponse description="Typed output: description_and_tiers + sources array." />
+        <type-SiteSource description="Source entry: source_id, name, domain, tier, language, focus, status." />
+        <type-TierDescription description="Tier metadata: tier, name, focus." />
+        <type-DescriptionAndTiers description="Description string + tiers array." />
+      </annotations>
+    </M-SITE-SOURCES>
 
     <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION" STATUS="active">
       <purpose>HTTP methods adapter for tg-chat-rag upstream API.</purpose>
@@ -165,12 +179,13 @@
     </M-PORTAL-UI>
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" STATUS="active">
-      <purpose>Construct FastMCP runtime, register current tool surface with per-user usage tracking, configure OAuth Proxy on /mcp, and mount admin + portal routes.</purpose>
+      <purpose>Construct FastMCP runtime, register fixed tool surface (4 proxied + 1 local) with per-user usage tracking, configure OAuth Proxy on /mcp, and mount admin + portal routes.</purpose>
       <path>src/runtime/fastmcp-runtime.ts</path>
-      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER</depends>
+      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
       <annotations>
         <fn-createFastMcpRuntime description="Build FastMCP instance with oauth proxy and route extension." />
-        <fn-registerProxyTools description="Register current four tool handlers with Zod schemas and per-user usage tracking via context.session JWT sub extraction." />
+        <fn-registerProxyTools description="Register four proxied tool handlers with Zod schemas and per-user usage tracking via context.session JWT sub extraction." />
+        <fn-registerLocalTools description="Register local tools (get_site_sources) with canAccess guard, local execute handler, and usage tracking." />
         <fn-extractUserIdFromSession description="Decode JWT sub claim from RuntimeOauthSession idToken or accessToken for usage tracking." />
         <fn-mountAdminRoutes description="Mount /admin routes through Hono app returned by getApp()." />
         <fn-mountPortalRoutes description="Mount /, /portal, and /portal/* routes through Hono app returned by getApp()." />
@@ -178,9 +193,9 @@
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active">
-      <purpose>Bootstrap config, database, and dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, and usage tracking.</purpose>
+      <purpose>Bootstrap config, database, and dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, usage tracking, and local tools.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
       <annotations>
         <fn-main description="Initialize runtime dependencies, mount route handlers, and start server lifecycle." />
       </annotations>
@@ -257,6 +272,7 @@
       <CrossLink FROM="M-DB" TO="M-USAGE-TRACKER" REL="persists_for" />
       <CrossLink FROM="M-USAGE-TRACKER" TO="M-FASTMCP-RUNTIME" REL="tracks_usage_for" />
       <CrossLink FROM="M-USAGE-TRACKER" TO="M-PORTAL-UI" REL="provides_stats_for" />
+      <CrossLink FROM="M-SITE-SOURCES" TO="M-FASTMCP-RUNTIME" REL="provides_local_tool_for" />
       <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-PORTAL-PROVISIONING" REL="outside_scope_of" />
     </CrossLinks>
 
@@ -307,6 +323,13 @@
         <step-2>M-PORTAL-UI calls M-USAGE-TRACKER.getUserStats(session.sub).</step-2>
         <step-3>Portal home renders per-tool call counts and total in usage section.</step-3>
       </DF-PORTAL-USAGE-DISPLAY>
+
+      <DF-SITE-SOURCES NAME="get_site_sources local tool flow">
+        <step-1>Authenticated MCP client calls get_site_sources with no parameters.</step-1>
+        <step-2>canAccess guard validates OAuth session.</step-2>
+        <step-3>Local execute handler returns frozen SITE_SOURCES_RESPONSE (no upstream call).</step-3>
+        <step-4>Usage tracking fires with userId + "get_site_sources".</step-4>
+      </DF-SITE-SOURCES>
 
       <DF-ADMIN-ROOT-AUTH NAME="admin root auth flow">
         <step-1>Operator posts token to `/admin/login`.</step-1>

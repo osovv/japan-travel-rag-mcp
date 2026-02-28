@@ -39,7 +39,7 @@
       <Actor>System</Actor>
       <Action>Exposes only fixed allowlist of MCP tools</Action>
       <Goal>Prevent accidental tool-surface drift and uncontrolled method passthrough</Goal>
-      <AcceptanceCriteria>Only `search_messages`, `get_message_context`, `get_related_messages`, `list_sources` are registerable in runtime</AcceptanceCriteria>
+      <AcceptanceCriteria>Only `search_messages`, `get_message_context`, `get_related_messages`, `list_sources`, `get_site_sources` are registerable in runtime</AcceptanceCriteria>
     </UC-006>
 
     <UC-007>
@@ -118,6 +118,13 @@
       <Goal>Provide visibility into individual user MCP usage for portal display and future analytics</Goal>
       <AcceptanceCriteria>Each successful MCP tool call increments a per-user per-tool counter in PostgreSQL; user identity is extracted from OAuth session JWT `sub` claim; portal home page displays per-tool call counts and total for the authenticated user; tracking failures never block tool execution</AcceptanceCriteria>
     </UC-017>
+
+    <UC-018>
+      <Actor>External MCP Client</Actor>
+      <Action>Calls MCP tool `get_site_sources` with no parameters</Action>
+      <Goal>Retrieve curated source registry metadata for agent search orchestration without fetching page content</Goal>
+      <AcceptanceCriteria>`get_site_sources` returns `description_and_tiers` (description + 3 tiers) and `sources` (12 seed entries with source_id, name, domain, tier, language, focus, status); tool is metadata-only and never returns page content; tool requires OAuth authentication</AcceptanceCriteria>
+    </UC-018>
   </UseCases>
 
   <DeferredUseCases>

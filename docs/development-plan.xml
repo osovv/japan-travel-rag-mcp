@@ -3,7 +3,7 @@
     <purpose>Deliver a shareable end-to-end onboarding flow for external testers using current MCP tool surface: landing redirect, user portal registration/login, automatic access provisioning, first successful MCP usage, and per-user tool call usage tracking visible in the portal.</purpose>
     <scope>Keep existing public tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), preserve tg-chat-rag proxy behavior, keep `/admin/*` root-token protected, add portal-first onboarding surface on `/` and `/portal/*`, and track per-user MCP tool call counts in PostgreSQL with portal home display.</scope>
     <constraints>
-      <constraint-1>Public MCP surface remains exactly four tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources`.</constraint-1>
+      <constraint-1>Public MCP surface remains exactly five tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources` (proxied to upstream), and `get_site_sources` (local registry).</constraint-1>
       <constraint-2>`search_context`, `validate_google_map_link`, and `verify_tabelog` are removed from active and deferred implementation plans.</constraint-2>
       <constraint-3>Landing remains intentionally simple and redirects users into user portal; invite link is not required in this phase.</constraint-3>
       <constraint-4>User portal must support self-serve onboarding through Logto social OAuth only (no email/password auth forms) and avoid manual operator permission grants.</constraint-4>
@@ -314,6 +314,35 @@
       </notes>
     </M-USAGE-TRACKER>
 
+    <M-SITE-SOURCES NAME="SiteSources" TYPE="DATA_LAYER" LAYER="1" ORDER="3">
+      <contract>
+        <purpose>Serve curated source registry as a static MCP tool response with typed output contract and frozen seed data.</purpose>
+        <inputs>
+          <param-1 name="none" type="void" />
+        </inputs>
+        <outputs>
+          <param-1 name="SiteSourcesResponse" type="{ description_and_tiers: DescriptionAndTiers; sources: SiteSource[] }" />
+        </outputs>
+        <errors>
+          <error-NONE code="none" />
+        </errors>
+      </contract>
+      <interface>
+        <export-SITE_SOURCES_RESPONSE PURPOSE="Frozen seed data constant containing curated source registry." />
+        <export-GetSiteSourcesInputSchema PURPOSE="Empty z.object({}) schema for FastMCP tool registration." />
+        <type-SiteSourcesResponse PURPOSE="Typed output: description_and_tiers + sources array." />
+        <type-SiteSource PURPOSE="Individual source entry: source_id, name, domain, tier, language, focus, status." />
+        <type-TierDescription PURPOSE="Tier metadata: tier number, name, focus description." />
+        <type-DescriptionAndTiers PURPOSE="Description text + tiers array." />
+      </interface>
+      <depends>none</depends>
+      <notes>
+        <note-1>Data is hardcoded seed from product guide; no database or upstream dependency.</note-1>
+        <note-2>Tool takes no input parameters; returns full registry including paused sources.</note-2>
+        <note-3>This is a local tool — not proxied through M-TOOL-PROXY or M-TG-CHAT-RAG-CLIENT.</note-3>
+      </notes>
+    </M-SITE-SOURCES>
+
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="1">
       <contract>
         <purpose>Render admin login and ops pages with simple root-token auth workflow.</purpose>
@@ -372,7 +401,7 @@
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set with per-user usage tracking, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
+        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set (4 proxied + 1 local) with per-user usage tracking, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
           <param-2 name="logger" type="Logger" />
@@ -392,12 +421,13 @@
       </contract>
       <interface>
         <export-createFastMcpRuntime PURPOSE="Build FastMCP with oauth.enabled=true and mount non-MCP HTTP routes via getApp()." />
-        <export-registerProxyTools PURPOSE="Register the four active tools with described schemas, canAccess guards, and per-user usage tracking via context.session JWT sub extraction." />
+        <export-registerProxyTools PURPOSE="Register the four proxied tools with described schemas, canAccess guards, and per-user usage tracking via context.session JWT sub extraction." />
+        <export-registerLocalTools PURPOSE="Register local tools (get_site_sources) with canAccess guards and per-user usage tracking." />
         <export-extractUserIdFromSession PURPOSE="Decode JWT sub claim from RuntimeOauthSession idToken or accessToken for usage tracking." />
         <export-mountAdminRoutes PURPOSE="Mount `/admin` and `/admin/*` handlers via getApp()." />
         <export-mountPortalRoutes PURPOSE="Mount `/`, `/portal`, and `/portal/*` handlers via getApp()." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
@@ -416,7 +446,7 @@
       <interface>
         <export-main PURPOSE="Load config, create dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
     </M-SERVER>
 
     <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT" LAYER="7" ORDER="1">
@@ -500,6 +530,14 @@
       <step-4>If stats query fails, portal home renders gracefully without usage section or with error placeholder.</step-4>
     </DF-PORTAL-USAGE-DISPLAY>
 
+    <DF-SITE-SOURCES NAME="get_site_sources local tool flow">
+      <step-1>Authenticated MCP client calls get_site_sources with no parameters.</step-1>
+      <step-2>canAccess guard validates OAuth session (same as proxied tools).</step-2>
+      <step-3>Execute handler returns frozen SITE_SOURCES_RESPONSE directly (no upstream call).</step-3>
+      <step-4>Usage tracking fires with userId + "get_site_sources" (fire-and-forget).</step-4>
+      <step-5>Client receives description_and_tiers + sources registry.</step-5>
+    </DF-SITE-SOURCES>
+
     <DF-ADMIN-ROOT-AUTH NAME="admin root token flow">
       <step-1>Operator submits token on `/admin/login`.</step-1>
       <step-2>M-ADMIN-AUTH verifies against `ROOT_AUTH_TOKEN` and issues session cookie.</step-2>
@@ -526,7 +564,7 @@
     <MT-3 NAME="dropped tools surface test">
       <step-1>Enumerate MCP tools via runtime metadata.</step-1>
       <step-2>Verify `search_context`, `validate_google_map_link`, and `verify_tabelog` are absent.</step-2>
-      <step-3>Verify only four active tools remain callable.</step-3>
+      <step-3>Verify only five active tools remain callable (4 proxied + 1 local).</step-3>
       <result>Pass when dropped tools do not appear in runtime contracts, plan, or knowledge graph.</result>
     </MT-3>
 
@@ -553,6 +591,26 @@
       <step-4>Portal home getUserStats also fails gracefully; page renders without stats or with fallback message.</step-4>
       <result>Pass when database failures are isolated from both tool execution and portal rendering.</result>
     </MT-6>
+    <MT-7 NAME="get_site_sources happy path test">
+      <step-1>Authenticated MCP client calls get_site_sources with empty args.</step-1>
+      <step-2>canAccess passes; execute handler returns frozen SITE_SOURCES_RESPONSE.</step-2>
+      <step-3>Response contains 3 tiers and 12 source entries matching seed data.</step-3>
+      <step-4>Usage counter increments for userId + "get_site_sources".</step-4>
+      <result>Pass when response matches seed data exactly and usage tracking fires.</result>
+    </MT-7>
+
+    <MT-8 NAME="get_site_sources unauthenticated test">
+      <step-1>Unauthenticated MCP client calls get_site_sources.</step-1>
+      <step-2>canAccess guard rejects — same behavior as proxied tools.</step-2>
+      <result>Pass when access denied without reaching execute handler.</result>
+    </MT-8>
+
+    <MT-9 NAME="five-tool surface completeness test">
+      <step-1>Enumerate MCP tools via runtime metadata.</step-1>
+      <step-2>Verify all five tools present: search_messages, get_message_context, get_related_messages, list_sources, get_site_sources.</step-2>
+      <step-3>Verify first four proxy to upstream, last one returns local data.</step-3>
+      <result>Pass when tool surface is exactly five tools with correct execution paths.</result>
+    </MT-9>
   </MentalTests>
 
   <ImplementationOrder>
@@ -594,6 +652,14 @@
       <step-7>Wire M-DB and M-USAGE-TRACKER into M-SERVER dependency bootstrap and pass usageTracker to runtime and portal handler deps.</step-7>
       <justification>Usage tracking requires database persistence (M-DB reactivation), a new data-layer module (M-USAGE-TRACKER), JWT identity extraction in tool execution (M-FASTMCP-RUNTIME), and portal display integration (M-PORTAL-UI). Steps are ordered by dependency: config first, then DB, then tracker, then runtime integration, then UI.</justification>
     </Phase-5>
+
+    <Phase-7 name="LocalSiteSourcesTool" status="pending">
+      <step-1>Create M-SITE-SOURCES: `src/tools/site-sources.ts` with types, frozen seed data, and empty Zod input schema.</step-1>
+      <step-2>Create `src/tools/site-sources.test.ts` with output shape validation and seed data integrity tests.</step-2>
+      <step-3>Update M-FASTMCP-RUNTIME: add registerLocalTools to register get_site_sources with canAccess guard, local execute handler, and usage tracking.</step-3>
+      <step-4>Update M-FASTMCP-RUNTIME tests to cover get_site_sources registration and execution.</step-4>
+      <justification>get_site_sources is a local registry tool that does not proxy to upstream; it requires a new data module and a separate registration path in the runtime.</justification>
+    </Phase-7>
 
     <Phase-6 name="PostE2EDeferredTrack" status="deferred">
       <step-1>Plan curated-source ingestion/indexing/backfill architecture.</step-1>
