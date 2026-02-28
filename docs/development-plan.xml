@@ -441,7 +441,7 @@
   </MentalTests>
 
   <ImplementationOrder>
-    <Phase-1 name="ScopeAndContractsAlignment" status="planned">
+    <Phase-1 name="ScopeAndContractsAlignment" status="done">
       <step-1>Synchronize requirements/technology/development-plan/knowledge-graph with portal-first scope and dropped tools list.</step-1>
       <step-2>Extend config contract with portal session requirements.</step-2>
       <justification>Architecture and contracts must reflect new product direction before module generation.</justification>
