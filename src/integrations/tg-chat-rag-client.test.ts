@@ -87,6 +87,12 @@ function createTestConfig(tgOverrides?: Partial<AppConfig["tgChatRag"]>): AppCon
       oidcAuthEndpoint: "https://tenant.logto.app/oidc/auth",
       oidcTokenEndpoint: "https://tenant.logto.app/oidc/token",
     },
+    portal: {
+      sessionSecret: "test-portal-session-secret",
+      logtoAppId: "test-portal-app-id",
+      logtoAppSecret: "test-portal-app-secret",
+      sessionTtlSeconds: 604800,
+    },
   };
   // END_BLOCK_BUILD_APP_CONFIG_FIXTURE_FOR_TG_CLIENT_TESTS_M_TG_CHAT_RAG_CLIENT_TEST_002
 }

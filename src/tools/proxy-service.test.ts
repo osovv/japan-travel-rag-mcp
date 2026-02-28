@@ -51,6 +51,12 @@ function buildTestConfig(): AppConfig {
       oidcAuthEndpoint: "https://tenant.example.com/oidc/auth",
       oidcTokenEndpoint: "https://tenant.example.com/oidc/token",
     },
+    portal: {
+      sessionSecret: "test-portal-session-secret",
+      logtoAppId: "test-portal-app-id",
+      logtoAppSecret: "test-portal-app-secret",
+      sessionTtlSeconds: 604800,
+    },
   };
   // END_BLOCK_BUILD_STATIC_APP_CONFIG_FIXTURE_M_TOOL_PROXY_TEST_001
 }

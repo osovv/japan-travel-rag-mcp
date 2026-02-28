@@ -1,20 +1,20 @@
 // FILE: src/config/index.ts
-// VERSION: 1.5.0
+// VERSION: 1.6.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, and admin root auth.
-//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, and Logto tenant/client credentials, with derived OIDC endpoints for OAuth proxy setup.
+//   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, admin root auth, and portal session/identity settings.
+//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, and portal session/identity config for self-serve onboarding.
 //   DEPENDS: none
-//   LINKS: M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH
+//   LINKS: M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, and Logto OAuth proxy settings.
+//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy, and portal session/identity settings.
 //   ConfigValidationError - Typed validation error carrying CONFIG_VALIDATION_ERROR code.
 //   loadConfig - Validate process environment and return AppConfig.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.5.0 - Rebased M-CONFIG on Phase-1 Step-1 runtime contract: removed legacy DATABASE_URL/OAUTH_ISSUER/OAUTH_AUDIENCE/OAUTH_REQUIRED_SCOPES requirements and introduced Logto tenant/client config with derived OIDC endpoints.
+//   LAST_CHANGE: v1.6.0 - Extended AppConfig with portal session/identity config: PORTAL_SESSION_SECRET, LOGTO_PORTAL_APP_ID, LOGTO_PORTAL_APP_SECRET, and optional PORTAL_SESSION_TTL_SECONDS.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
@@ -34,6 +34,12 @@ export type AppConfig = {
     oidcAuthEndpoint: string;
     oidcTokenEndpoint: string;
   };
+  portal: {
+    sessionSecret: string;
+    logtoAppId: string;
+    logtoAppSecret: string;
+    sessionTtlSeconds: number;
+  };
 };
 
 export class ConfigValidationError extends Error {
@@ -50,9 +56,9 @@ export class ConfigValidationError extends Error {
 // START_CONTRACT: loadConfig
 //   PURPOSE: Validate runtime environment values and return typed AppConfig.
 //   INPUTS: { env: NodeJS.ProcessEnv | undefined - Source env map, defaults to process.env }
-//   OUTPUTS: { AppConfig - Typed config for tg-chat-rag integration, root auth, public URL, and Logto OAuth proxy credentials/endpoints }
+//   OUTPUTS: { AppConfig - Typed config for tg-chat-rag integration, root auth, public URL, Logto OAuth proxy credentials/endpoints, and portal session/identity settings }
 //   SIDE_EFFECTS: [Throws ConfigValidationError with code CONFIG_VALIDATION_ERROR when validation fails]
-//   LINKS: [M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH]
+//   LINKS: [M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY]
 // END_CONTRACT: loadConfig
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const errors: string[] = [];
@@ -68,6 +74,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const logtoTenantUrlRaw = (env.LOGTO_TENANT_URL ?? "").trim();
   const logtoClientId = (env.LOGTO_CLIENT_ID ?? "").trim();
   const logtoClientSecret = (env.LOGTO_CLIENT_SECRET ?? "").trim();
+  const portalSessionSecret = (env.PORTAL_SESSION_SECRET ?? "").trim();
+  const portalLogtoAppId = (env.LOGTO_PORTAL_APP_ID ?? "").trim();
+  const portalLogtoAppSecret = (env.LOGTO_PORTAL_APP_SECRET ?? "").trim();
+  const portalSessionTtlRaw = (env.PORTAL_SESSION_TTL_SECONDS ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -183,6 +193,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   // END_BLOCK_DERIVE_LOGTO_OIDC_ENDPOINTS_M_CONFIG_013
 
+  // START_BLOCK_VALIDATE_PORTAL_SESSION_SECRET_M_CONFIG_014
+  if (!portalSessionSecret) {
+    errors.push("PORTAL_SESSION_SECRET is required.");
+  }
+  // END_BLOCK_VALIDATE_PORTAL_SESSION_SECRET_M_CONFIG_014
+
+  // START_BLOCK_VALIDATE_PORTAL_LOGTO_APP_CREDENTIALS_M_CONFIG_015
+  if (!portalLogtoAppId) {
+    errors.push("LOGTO_PORTAL_APP_ID is required.");
+  }
+  if (!portalLogtoAppSecret) {
+    errors.push("LOGTO_PORTAL_APP_SECRET is required.");
+  }
+  // END_BLOCK_VALIDATE_PORTAL_LOGTO_APP_CREDENTIALS_M_CONFIG_015
+
+  // START_BLOCK_PARSE_PORTAL_SESSION_TTL_M_CONFIG_016
+  let portalSessionTtlSeconds = 604800; // 7 days default
+  if (portalSessionTtlRaw) {
+    const parsedTtl = Number.parseInt(portalSessionTtlRaw, 10);
+    if (!Number.isInteger(parsedTtl) || parsedTtl < 300 || parsedTtl > 2592000) {
+      errors.push("PORTAL_SESSION_TTL_SECONDS must be an integer between 300 and 2592000.");
+    } else {
+      portalSessionTtlSeconds = parsedTtl;
+    }
+  }
+  // END_BLOCK_PARSE_PORTAL_SESSION_TTL_M_CONFIG_016
+
   // START_BLOCK_THROW_CONFIG_VALIDATION_ERROR_M_CONFIG_007
   if (errors.length > 0) {
     throw new ConfigValidationError(errors);
@@ -206,6 +243,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       clientSecret: logtoClientSecret,
       oidcAuthEndpoint,
       oidcTokenEndpoint,
+    },
+    portal: {
+      sessionSecret: portalSessionSecret,
+      logtoAppId: portalLogtoAppId,
+      logtoAppSecret: portalLogtoAppSecret,
+      sessionTtlSeconds: portalSessionTtlSeconds,
     },
   };
   // END_BLOCK_BUILD_APP_CONFIG_RESULT_M_CONFIG_008

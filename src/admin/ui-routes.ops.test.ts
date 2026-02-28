@@ -78,6 +78,12 @@ function createTestConfig(): AppConfig {
       chatIds: ["chat-1"],
       timeoutMs: 15000,
     },
+    portal: {
+      sessionSecret: "test-portal-session-secret",
+      logtoAppId: "test-portal-app-id",
+      logtoAppSecret: "test-portal-app-secret",
+      sessionTtlSeconds: 604800,
+    },
   };
   // END_BLOCK_BUILD_APP_CONFIG_FIXTURE_FOR_ADMIN_UI_TESTS_M_ADMIN_UI_TEST_002
 }

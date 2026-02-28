@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Updated tests to Phase-1 Step-1 contract by removing legacy DATABASE_URL/OAUTH_* assertions and adding Logto/OIDC endpoint checks.
+//   LAST_CHANGE: v1.3.0 - Extended tests for portal session/identity config: PORTAL_SESSION_SECRET, LOGTO_PORTAL_APP_ID, LOGTO_PORTAL_APP_SECRET, PORTAL_SESSION_TTL_SECONDS.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -42,6 +42,9 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     LOGTO_TENANT_URL: "https://tenant.logto.app",
     LOGTO_CLIENT_ID: "logto-client-id",
     LOGTO_CLIENT_SECRET: "logto-client-secret",
+    PORTAL_SESSION_SECRET: "portal-session-secret-value",
+    LOGTO_PORTAL_APP_ID: "portal-app-id",
+    LOGTO_PORTAL_APP_SECRET: "portal-app-secret",
     ...overrides,
   };
   // END_BLOCK_BUILD_BASE_ENV_FOR_CONFIG_TESTS_M_CONFIG_TEST_001
@@ -81,6 +84,10 @@ describe("M-CONFIG runtime settings", () => {
     expect(config.logto.clientSecret).toBe("logto-client-secret");
     expect(config.logto.oidcAuthEndpoint).toBe("https://tenant.logto.app/oidc/auth");
     expect(config.logto.oidcTokenEndpoint).toBe("https://tenant.logto.app/oidc/token");
+    expect(config.portal.sessionSecret).toBe("portal-session-secret-value");
+    expect(config.portal.logtoAppId).toBe("portal-app-id");
+    expect(config.portal.logtoAppSecret).toBe("portal-app-secret");
+    expect(config.portal.sessionTtlSeconds).toBe(604800);
   });
 
   it("parses custom port/timeout and deduplicates chat IDs", () => {
@@ -123,6 +130,9 @@ describe("M-CONFIG runtime settings", () => {
         LOGTO_TENANT_URL: " ",
         LOGTO_CLIENT_ID: " ",
         LOGTO_CLIENT_SECRET: " ",
+        PORTAL_SESSION_SECRET: " ",
+        LOGTO_PORTAL_APP_ID: " ",
+        LOGTO_PORTAL_APP_SECRET: " ",
       }),
     );
 
@@ -135,6 +145,9 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.details).toContain("LOGTO_TENANT_URL is required.");
     expect(error.details).toContain("LOGTO_CLIENT_ID is required.");
     expect(error.details).toContain("LOGTO_CLIENT_SECRET is required.");
+    expect(error.details).toContain("PORTAL_SESSION_SECRET is required.");
+    expect(error.details).toContain("LOGTO_PORTAL_APP_ID is required.");
+    expect(error.details).toContain("LOGTO_PORTAL_APP_SECRET is required.");
   });
 
   it("throws CONFIG_VALIDATION_ERROR for invalid URL values", () => {

@@ -104,6 +104,12 @@ function createMockAppConfig(port: number): AppConfig {
       oidcAuthEndpoint: "https://issuer.example.com/oidc/auth",
       oidcTokenEndpoint: "https://issuer.example.com/oidc/token",
     },
+    portal: {
+      sessionSecret: "test-portal-session-secret",
+      logtoAppId: "test-portal-app-id",
+      logtoAppSecret: "test-portal-app-secret",
+      sessionTtlSeconds: 604800,
+    },
   };
   // END_BLOCK_BUILD_STABLE_APP_CONFIG_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_002
 }

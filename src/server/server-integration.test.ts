@@ -175,6 +175,12 @@ function createMockAppConfig(): AppConfig {
       oidcAuthEndpoint: "https://upstream-logto.example.com/oidc/auth",
       oidcTokenEndpoint: "https://upstream-logto.example.com/oidc/token",
     },
+    portal: {
+      sessionSecret: "test-portal-session-secret",
+      logtoAppId: "test-portal-app-id",
+      logtoAppSecret: "test-portal-app-secret",
+      sessionTtlSeconds: 604800,
+    },
   };
   // END_BLOCK_BUILD_DETERMINISTIC_APP_CONFIG_FIXTURE_M_SERVER_INTEGRATION_TEST_002
 }

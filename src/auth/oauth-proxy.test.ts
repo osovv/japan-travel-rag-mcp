@@ -72,6 +72,12 @@ function createMockAppConfig(): AppConfig {
       oidcAuthEndpoint: "https://issuer.example.com/oidc/auth",
       oidcTokenEndpoint: "https://issuer.example.com/oidc/token",
     },
+    portal: {
+      sessionSecret: "test-portal-session-secret",
+      logtoAppId: "test-portal-app-id",
+      logtoAppSecret: "test-portal-app-secret",
+      sessionTtlSeconds: 604800,
+    },
   };
   // END_BLOCK_BUILD_MOCK_APP_CONFIG_M_AUTH_OAUTH_PROXY_TEST_002
 }
