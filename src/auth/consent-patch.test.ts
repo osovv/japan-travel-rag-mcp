@@ -115,9 +115,9 @@ describe("generatePortalConsentScreen", () => {
     expect(html).toContain("Japan Travel RAG");
   });
 
-  it("contains the consent explanation text", () => {
+  it("contains the consent explanation text with clientName", () => {
     const html = generatePortalConsentScreen(baseData);
-    expect(html).toContain("requesting access to your account");
+    expect(html).toContain("<strong>Test Client</strong> is requesting access to your account");
   });
 
   it("contains consent-actions container and btn classes", () => {
@@ -165,6 +165,18 @@ describe("XSS escaping", () => {
     expect(html).toContain("&lt;img");
   });
 
+  it("escapes clientName containing HTML special chars", () => {
+    const data = {
+      clientName: '<b>Evil"App</b>',
+      provider: "logto",
+      scope: ["mcp:access"],
+      transactionId: "txn-safe",
+    };
+    const html = generatePortalConsentScreen(data);
+    expect(html).not.toContain("<b>Evil");
+    expect(html).toContain("&lt;b&gt;Evil&quot;App&lt;/b&gt;");
+  });
+
   it("escapes ampersands and quotes", () => {
     const data = {
       clientName: "Test",
@@ -182,6 +194,20 @@ describe("XSS escaping", () => {
 // ---------------------------------------------------------------------------
 
 describe("patchOAuthProxyConsent", () => {
+  it("throws when consentManager is missing", () => {
+    const mockProxy = {} as any;
+    expect(() => patchOAuthProxyConsent(mockProxy)).toThrow(
+      "patchOAuthProxyConsent: OAuthProxy.consentManager.generateConsentScreen not found.",
+    );
+  });
+
+  it("throws when generateConsentScreen is missing", () => {
+    const mockProxy = { consentManager: {} } as any;
+    expect(() => patchOAuthProxyConsent(mockProxy)).toThrow(
+      "patchOAuthProxyConsent: OAuthProxy.consentManager.generateConsentScreen not found.",
+    );
+  });
+
   it("replaces generateConsentScreen on consentManager", () => {
     // Create a mock OAuthProxy-like object with consentManager
     const originalFn = () => "<p>original</p>";

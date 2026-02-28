@@ -232,7 +232,7 @@ export function generatePortalConsentScreen(data: ConsentScreenData): string {
     <div class="portal-card">
       <div class="portal-header">
         <h1>Japan Travel RAG</h1>
-        <p>An application is requesting access to your account</p>
+        <p><strong>${escapeHtml(data.clientName)}</strong> is requesting access to your account</p>
       </div>
       <div class="permissions">
         <h3>Requested permissions:</h3>
@@ -258,9 +258,22 @@ ${scopeItems}
 // ---------------------------------------------------------------------------
 
 export function patchOAuthProxyConsent(oauthProxy: OAuthProxy): void {
+  // OAuthProxy.consentManager is a private member; we access it via an unsafe
+  // cast so we can replace the default consent screen with portal-styled HTML.
+  // The runtime guard below ensures we fail loudly if FastMCP internals change.
   const proxy = oauthProxy as unknown as {
-    consentManager: { generateConsentScreen: (data: any) => string };
+    consentManager?: { generateConsentScreen?: (data: any) => string };
   };
+
+  if (
+    !proxy.consentManager ||
+    typeof proxy.consentManager.generateConsentScreen !== "function"
+  ) {
+    throw new Error(
+      "patchOAuthProxyConsent: OAuthProxy.consentManager.generateConsentScreen not found. " +
+        "FastMCP internals may have changed.",
+    );
+  }
 
   proxy.consentManager.generateConsentScreen = (data: any) =>
     generatePortalConsentScreen({
