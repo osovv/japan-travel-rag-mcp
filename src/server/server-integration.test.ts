@@ -34,6 +34,7 @@ import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { createFastMcpRuntime } from "../runtime/fastmcp-runtime";
 import type { ToolProxyService } from "../tools/proxy-service";
+import type { UsageTracker } from "../usage/tracker";
 
 type LogEntry = {
   level: "debug" | "info" | "warn" | "error";
@@ -496,6 +497,10 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
   const { oauthProxyContext, tokenLoadCalls } = createMockOauthProxyContext(validBearerToken);
   const { proxyService, proxyCalls } = createMockProxyService();
   const { adminHandler, adminCalls } = createMockAdminHandler();
+  const mockUsageTracker: UsageTracker = {
+    recordToolCall: () => {},
+    getUserStats: async () => ({ tools: [], total: 0 }),
+  };
 
   const portalLandingHandler = async (): Promise<Response> => {
     return new Response("landing", { status: 200 });
@@ -512,6 +517,7 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
     adminHandler,
     portalLandingHandler,
     portalHandler,
+    usageTracker: mockUsageTracker,
   });
 
   const app = runtime.getApp();
@@ -803,6 +809,10 @@ describe("M-SERVER FastMCP integration", () => {
     const { oauthProxyContext } = createMockOauthProxyContext("valid.oauth.diagnostics.jwt");
     const { proxyService } = createMockProxyService();
     const { adminHandler } = createMockAdminHandler();
+    const mockUsageTracker: UsageTracker = {
+      recordToolCall: () => {},
+      getUserStats: async () => ({ tools: [], total: 0 }),
+    };
     const portalLandingHandler = async (): Promise<Response> => {
       return new Response("landing", { status: 200 });
     };
@@ -818,6 +828,7 @@ describe("M-SERVER FastMCP integration", () => {
       adminHandler,
       portalLandingHandler,
       portalHandler,
+      usageTracker: mockUsageTracker,
     });
 
     const app = runtime.getApp();

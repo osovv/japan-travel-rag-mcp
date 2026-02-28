@@ -35,6 +35,7 @@ import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { createFastMcpRuntime } from "./fastmcp-runtime";
 import type { ToolProxyService } from "../tools/proxy-service";
+import type { UsageTracker } from "../usage/tracker";
 
 type MockAuthMode = "allow" | "invalid_token";
 
@@ -268,6 +269,10 @@ async function createRuntimeHarness(
     validBearerToken: bearerToken,
   });
   const { proxyService, proxyCalls } = createMockProxyService();
+  const mockUsageTracker: UsageTracker = {
+    recordToolCall: () => {},
+    getUserStats: async () => ({ tools: [], total: 0 }),
+  };
   const adminHandler = async (): Promise<Response> => {
     return new Response("admin", {
       status: 200,
@@ -292,6 +297,7 @@ async function createRuntimeHarness(
     adminHandler,
     portalLandingHandler,
     portalHandler,
+    usageTracker: mockUsageTracker,
   });
 
   await runtime.start({
