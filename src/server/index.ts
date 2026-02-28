@@ -330,6 +330,8 @@ export async function main(): Promise<FastMCP> {
     if (logger !== null) {
       await stopRuntime(shutdownTarget, logger, "STARTUP_FAILURE");
     } else {
+      // logger is null only if loadConfig() or createLogger() threw.
+      // createDb is called after logger, so dbPool is always null here.
       if (shutdownTarget.fastMcpServer !== null) {
         try {
           await shutdownTarget.fastMcpServer.stop();

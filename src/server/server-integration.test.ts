@@ -162,6 +162,7 @@ function createMockAppConfig(): AppConfig {
     port: 3000,
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-auth-token-integration",
+    databaseUrl: "postgresql://localhost:5432/test",
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "upstream-bearer-token-integration",
@@ -179,6 +180,10 @@ function createMockAppConfig(): AppConfig {
       sessionSecret: "test-portal-session-secret",
       logtoAppId: "test-portal-app-id",
       logtoAppSecret: "test-portal-app-secret",
+      logtoM2mAppId: "test-m2m-app-id",
+      logtoM2mAppSecret: "test-m2m-app-secret",
+      logtoManagementApiResource: "https://management.example.com/",
+      mcpUserRoleId: "test-mcp-user-role-id",
       sessionTtlSeconds: 604800,
     },
   };
