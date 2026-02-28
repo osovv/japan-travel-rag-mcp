@@ -3,7 +3,7 @@
     <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql</keywords>
     <annotation>Portal-first architecture keeps current four MCP proxy tools, adds shareable landing + self-serve user portal onboarding, and tracks per-user MCP tool call usage in PostgreSQL with portal display.</annotation>
 
-    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active-target">
+    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
       <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
@@ -120,7 +120,7 @@
       </annotations>
     </M-PORTAL-PROVISIONING>
 
-    <M-USAGE-TRACKER NAME="UsageTracker" TYPE="DATA_LAYER" STATUS="active-target">
+    <M-USAGE-TRACKER NAME="UsageTracker" TYPE="DATA_LAYER" STATUS="active">
       <purpose>Track per-user MCP tool call counts in PostgreSQL via Drizzle UPSERT and expose query interface for portal display.</purpose>
       <path>src/usage/tracker.ts</path>
       <depends>M-DB, M-LOGGER</depends>
@@ -145,7 +145,7 @@
       </annotations>
     </M-ADMIN-UI>
 
-    <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="active-target">
+    <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
       <purpose>Server-rendered landing + portal per-page routes for external tester onboarding with progressive enhancement and per-user usage statistics display.</purpose>
       <path>src/portal/ui-routes.tsx</path>
       <depends>M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-CONFIG, M-LOGGER, M-USAGE-TRACKER</depends>
@@ -164,7 +164,7 @@
       </annotations>
     </M-PORTAL-UI>
 
-    <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" STATUS="active-target">
+    <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" STATUS="active">
       <purpose>Construct FastMCP runtime, register current tool surface with per-user usage tracking, configure OAuth Proxy on /mcp, and mount admin + portal routes.</purpose>
       <path>src/runtime/fastmcp-runtime.ts</path>
       <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER</depends>
@@ -177,7 +177,7 @@
       </annotations>
     </M-FASTMCP-RUNTIME>
 
-    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active-target">
+    <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active">
       <purpose>Bootstrap config, database, and dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, and usage tracking.</purpose>
       <path>src/server/index.ts</path>
       <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER</depends>

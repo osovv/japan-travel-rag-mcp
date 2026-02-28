@@ -584,7 +584,7 @@
       <justification>Runtime composition and tests validate real product objective: shareable tester onboarding to first MCP success.</justification>
     </Phase-4>
 
-    <Phase-5 name="UsageTrackingAndPortalDisplay" status="pending">
+    <Phase-5 name="UsageTrackingAndPortalDisplay" status="done">
       <step-1>Add `DATABASE_URL` to M-CONFIG AppConfig type and loadConfig validation.</step-1>
       <step-2>Reactivate M-DB: wire createDb into M-SERVER bootstrap with fail-fast connectivity probe.</step-2>
       <step-3>Implement M-USAGE-TRACKER: Drizzle schema (usage_counters table), createUsageTracker factory, recordToolCall UPSERT, getUserStats query.</step-3>
