@@ -447,7 +447,7 @@
       <justification>Architecture and contracts must reflect new product direction before module generation.</justification>
     </Phase-1>
 
-    <Phase-2 name="PortalIdentityAndAuthCore" status="planned">
+    <Phase-2 name="PortalIdentityAndAuthCore" status="done">
       <step-1>Implement M-PORTAL-IDENTITY integration for social OAuth start/callback/provisioning endpoints.</step-1>
       <step-2>Implement M-PORTAL-AUTH session model for tester portal routes.</step-2>
       <step-3>Implement M-PORTAL-PROVISIONING automatic access grants.</step-3>
