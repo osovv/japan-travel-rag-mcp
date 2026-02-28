@@ -197,8 +197,8 @@ function installGracefulShutdownHandlers(shutdownTarget: ShutdownTarget, logger:
 //   PURPOSE: Bootstrap all runtime dependencies, construct FastMCP runtime, and start MCP httpStream transport.
 //   INPUTS: {}
 //   OUTPUTS: { Promise<FastMCP> - Started FastMCP runtime instance }
-//   SIDE_EFFECTS: [Reads env config, initializes database client and oauth proxy metadata and upstream dependencies, opens network listeners, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-ADMIN-UI]
+//   SIDE_EFFECTS: [Reads env config, initializes database client and oauth proxy metadata and upstream dependencies, bootstraps usage_counters schema via M-USAGE-TRACKER, opens network listeners, registers process signal handlers, emits logs]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER]
 // END_CONTRACT: main
 export async function main(): Promise<FastMCP> {
   const shutdownTarget: ShutdownTarget = {
