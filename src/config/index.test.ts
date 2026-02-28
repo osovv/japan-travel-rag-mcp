@@ -49,6 +49,7 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     LOGTO_M2M_APP_SECRET: "m2m-app-secret",
     LOGTO_MANAGEMENT_API_RESOURCE: "https://default.logto.app/api",
     LOGTO_MCP_USER_ROLE_ID: "role-uuid-1234",
+    DATABASE_URL: "postgresql://user:pass@localhost:5432/japan_travel",
     ...overrides,
   };
   // END_BLOCK_BUILD_BASE_ENV_FOR_CONFIG_TESTS_M_CONFIG_TEST_001
@@ -96,6 +97,7 @@ describe("M-CONFIG runtime settings", () => {
     expect(config.portal.logtoManagementApiResource).toBe("https://default.logto.app/api");
     expect(config.portal.mcpUserRoleId).toBe("role-uuid-1234");
     expect(config.portal.sessionTtlSeconds).toBe(604800);
+    expect(config.databaseUrl).toBe("postgresql://user:pass@localhost:5432/japan_travel");
   });
 
   it("parses custom port/timeout and deduplicates chat IDs", () => {
@@ -112,10 +114,9 @@ describe("M-CONFIG runtime settings", () => {
     expect(config.tgChatRag.chatIds).toEqual(["chat-1", "chat-2", "chat-3"]);
   });
 
-  it("ignores legacy DATABASE_URL and OAUTH_* env vars", () => {
+  it("ignores legacy OAUTH_* env vars", () => {
     const config = loadConfig(
       createBaseEnv({
-        DATABASE_URL: "not-a-postgres-url",
         OAUTH_ISSUER: "issuer-without-scheme",
         OAUTH_AUDIENCE: "",
         OAUTH_REQUIRED_SCOPES: " , , ",
@@ -124,7 +125,6 @@ describe("M-CONFIG runtime settings", () => {
 
     expect(config.logto.tenantUrl).toBe("https://tenant.logto.app/");
     expect((config as Record<string, unknown>).oauth).toBeUndefined();
-    expect((config as Record<string, unknown>).databaseUrl).toBeUndefined();
   });
 
   it("throws CONFIG_VALIDATION_ERROR for missing required env vars", () => {
@@ -145,6 +145,7 @@ describe("M-CONFIG runtime settings", () => {
         LOGTO_M2M_APP_SECRET: " ",
         LOGTO_MANAGEMENT_API_RESOURCE: " ",
         LOGTO_MCP_USER_ROLE_ID: " ",
+        DATABASE_URL: " ",
       }),
     );
 
@@ -164,6 +165,7 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.details).toContain("LOGTO_M2M_APP_SECRET is required.");
     expect(error.details).toContain("LOGTO_MANAGEMENT_API_RESOURCE is required.");
     expect(error.details).toContain("LOGTO_MCP_USER_ROLE_ID is required.");
+    expect(error.details).toContain("DATABASE_URL is required.");
   });
 
   it("throws CONFIG_VALIDATION_ERROR for invalid URL values", () => {
