@@ -1,15 +1,15 @@
 // FILE: src/portal/ui-routes.tsx
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, and render MCP setup instructions for testers.
 //   SCOPE: Route /portal/* requests, render landing, login/register social-only auth pages, handle OAuth start/callback flow, render authenticated portal home and agent setup guide, and manage portal session lifecycle.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY
-//   LINKS: M-PORTAL-UI, M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY
+//   DEPENDS: M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER
+//   LINKS: M-PORTAL-UI, M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   PortalUiError - Typed portal UI error wrapper with PORTAL_UI_ERROR code.
-//   PortalUiDependencies - Dependency contract for identity client, config, and logger.
+//   PortalUiDependencies - Dependency contract for identity client, config, logger, and usage tracker.
 //   handleLandingRequest - Serve / landing with primary redirect action to /portal.
 //   handlePortalRootRoute - Handle GET /portal and route to login/home by session state.
 //   handlePortalRegisterRoute - Handle GET /portal/register social-provider page (no password).
@@ -24,11 +24,13 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-PORTAL-UI with social-only OAuth pages, landing, portal home, agent setup guide, and session lifecycle handlers.
+//   LAST_CHANGE: v1.1.0 - Add per-user usage statistics display to portal home with graceful degradation on stats query failure.
+//   v1.0.0 - Initial generation from development plan for M-PORTAL-UI with social-only OAuth pages, landing, portal home, agent setup guide, and session lifecycle handlers.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
+import type { UsageTracker, UserUsageStats } from "../usage/tracker";
 import type { PortalIdentityClient } from "./identity-client";
 import { authenticatePortalUser, requirePortalSession, clearPortalSession } from "./auth";
 import type { RequirePortalSessionResult } from "./auth";
@@ -48,6 +50,7 @@ export type PortalUiDependencies = {
   config: AppConfig;
   logger: Logger;
   identityClient: PortalIdentityClient;
+  usageTracker: UsageTracker;
 };
 
 export class PortalUiError extends Error {
@@ -760,11 +763,11 @@ export async function handlePortalOauthCallbackRoute(
 }
 
 // START_CONTRACT: handlePortalHomeRoute
-//   PURPOSE: Handle GET /portal/home authenticated page.
+//   PURPOSE: Handle GET /portal/home authenticated page with per-user usage statistics.
 //   INPUTS: { request: Request - Incoming HTTP request, deps: PortalUiDependencies - Runtime dependencies }
 //   OUTPUTS: { Promise<Response> - HTML portal home page or redirect to login }
-//   SIDE_EFFECTS: [Checks portal session, writes structured log]
-//   LINKS: [M-PORTAL-UI, M-PORTAL-AUTH]
+//   SIDE_EFFECTS: [Checks portal session, queries usage stats with graceful degradation, writes structured log]
+//   LINKS: [M-PORTAL-UI, M-PORTAL-AUTH, M-USAGE-TRACKER]
 // END_CONTRACT: handlePortalHomeRoute
 export async function handlePortalHomeRoute(
   request: Request,
@@ -790,12 +793,65 @@ export async function handlePortalHomeRoute(
   const mcpEndpointUrl = deriveMcpEndpointUrl(deps.config.publicUrl);
   const escapedMcpUrl = escapeHtml(mcpEndpointUrl);
 
+  // Query per-user usage statistics with graceful degradation on failure
+  let stats: UserUsageStats | null = null;
+  let statsError = false;
+  try {
+    stats = await deps.usageTracker.getUserStats(session.sub);
+  } catch (error: unknown) {
+    statsError = true;
+    const cause = error instanceof Error ? error.message : String(error);
+    logger.warn(
+      "Failed to fetch usage stats; rendering page without stats.",
+      "handlePortalHomeRoute",
+      "RENDER_PORTAL_HOME_PAGE",
+      { userId: session.sub, cause },
+    );
+  }
+
   logger.info(
     "Serving portal home page.",
     "handlePortalHomeRoute",
     "RENDER_PORTAL_HOME_PAGE",
     { userId: session.sub },
   );
+
+  // Build usage statistics section HTML
+  let usageHtml = "";
+  if (statsError) {
+    usageHtml = [
+      `<div class="section-card" style="margin-bottom: 1rem;">`,
+      `<h3>Usage Statistics</h3>`,
+      `<p style="color: #b45309;">Unable to load usage statistics at this time. Please try again later.</p>`,
+      `</div>`,
+    ].join("");
+  } else if (stats && stats.tools.length > 0) {
+    const toolRows = stats.tools
+      .map(
+        (tool) =>
+          `<tr><td>${escapeHtml(tool.toolName)}</td><td style="text-align: right;">${tool.callCount}</td></tr>`,
+      )
+      .join("");
+    usageHtml = [
+      `<div class="section-card" style="margin-bottom: 1rem;">`,
+      `<h3>Usage Statistics</h3>`,
+      `<table style="width: 100%; border-collapse: collapse; margin-bottom: 0.75rem;">`,
+      `<thead><tr><th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Tool</th>`,
+      `<th style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Calls</th></tr></thead>`,
+      `<tbody>${toolRows}</tbody>`,
+      `<tfoot><tr><td style="padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">Total</td>`,
+      `<td style="text-align: right; padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">${stats.total}</td></tr></tfoot>`,
+      `</table>`,
+      `</div>`,
+    ].join("");
+  } else if (stats) {
+    usageHtml = [
+      `<div class="section-card" style="margin-bottom: 1rem;">`,
+      `<h3>Usage Statistics</h3>`,
+      `<p>No usage yet. Connect your AI agent using the endpoint above to get started.</p>`,
+      `</div>`,
+    ].join("");
+  }
 
   const body = [
     `<div class="portal-wrapper">`,
@@ -822,6 +878,9 @@ export async function handlePortalHomeRoute(
     `<div class="endpoint-box">${escapedMcpUrl}</div>`,
     `<p>Auth type: <strong>OAuth 2.0</strong></p>`,
     `</div>`,
+
+    // Usage Statistics
+    usageHtml,
 
     // Agent Setup card
     `<div class="section-card">`,
