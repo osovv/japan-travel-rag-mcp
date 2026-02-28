@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.3.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.3.1">
     <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, tg-chat-rag, root-auth, admin-ui, zod, contract-first</keywords>
     <annotation>Simplified target architecture keeps existing four proxy tools and uses FastMCP OAuth Proxy only on /mcp while preserving ROOT_AUTH_TOKEN-protected /admin surface.</annotation>
 
@@ -92,7 +92,7 @@
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" STATUS="active-target">
       <purpose>Construct FastMCP runtime, register current tool surface, configure OAuth Proxy on /mcp, and mount admin routes.</purpose>
       <path>src/runtime/fastmcp-runtime.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI</depends>
+      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS</depends>
       <annotations>
         <fn-createFastMcpRuntime description="Build FastMCP instance with oauth proxy and route extension." />
         <fn-registerProxyTools description="Register current four tool handlers with Zod schemas." />
@@ -157,16 +157,34 @@
     <M-MCP-AUTH-ADAPTER-TEST NAME="McpAuthAdapterTests" TYPE="TEST" STATUS="legacy">
       <purpose>Legacy auth adapter tests to be replaced by OAuth Proxy integration tests.</purpose>
       <path>src/auth/mcp-auth-adapter.test.ts</path>
-      <depends>M-MCP-AUTH-ADAPTER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-MCP-AUTH-ADAPTER, M-MCP-AUTH-PROVIDER</depends>
       <annotations>
         <fn-McpAuthAdapterTests description="Legacy auth adapter coverage." />
       </annotations>
     </M-MCP-AUTH-ADAPTER-TEST>
 
+    <M-AUTH-PROXY-TEST NAME="OauthProxyTests" TYPE="TEST" STATUS="active">
+      <purpose>Focused tests for OAuth proxy authorization metadata scope policy.</purpose>
+      <path>src/auth/oauth-proxy.test.ts</path>
+      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-OauthProxyTests description="Exact scopesSupported contract coverage for OAuth proxy metadata." />
+      </annotations>
+    </M-AUTH-PROXY-TEST>
+
+    <M-CONFIG-TEST NAME="ConfigParsingTests" TYPE="TEST" STATUS="active">
+      <purpose>Contract tests for runtime config validation and Logto/OIDC endpoint derivation.</purpose>
+      <path>src/config/index.test.ts</path>
+      <depends>M-CONFIG</depends>
+      <annotations>
+        <fn-ConfigParsingTests description="Validation coverage for required env, parsing behavior, and legacy env ignore rules." />
+      </annotations>
+    </M-CONFIG-TEST>
+
     <M-FASTMCP-RUNTIME-SMOKE NAME="FastMcpRuntimeSmokeTests" TYPE="TEST" STATUS="active-target">
       <purpose>Runtime smoke tests for tool registration and dispatch behavior.</purpose>
       <path>src/runtime/fastmcp-runtime.smoke.test.ts</path>
-      <depends>M-FASTMCP-RUNTIME, M-TOOL-PROXY</depends>
+      <depends>M-AUTH-PROXY, M-CONFIG, M-FASTMCP-RUNTIME, M-LOGGER, M-TOOL-PROXY</depends>
       <annotations>
         <fn-FastMcpRuntimeSmokeTests description="Tool exposure and dispatch smoke coverage." />
       </annotations>
@@ -175,7 +193,7 @@
     <M-SERVER-INTEGRATION-TEST NAME="ServerIntegrationTests" TYPE="TEST" STATUS="active-target">
       <purpose>End-to-end checks for /mcp auth flow boundaries and /admin behavior.</purpose>
       <path>src/server/server-integration.test.ts</path>
-      <depends>M-SERVER, M-FASTMCP-RUNTIME</depends>
+      <depends>M-AUTH-PROXY, M-CONFIG, M-FASTMCP-RUNTIME, M-LOGGER, M-TOOL-PROXY</depends>
       <annotations>
         <fn-ServerIntegrationTests description="Integration coverage for transport/auth route isolation." />
       </annotations>
@@ -184,7 +202,7 @@
     <M-ADMIN-UI-OPS-TEST NAME="AdminUiOpsRouteTests" TYPE="TEST" STATUS="active">
       <purpose>Regression checks for root-token admin login/session and ops rendering.</purpose>
       <path>src/admin/ui-routes.ops.test.ts</path>
-      <depends>M-ADMIN-UI, M-ADMIN-AUTH</depends>
+      <depends>M-ADMIN-UI, M-CONFIG, M-LOGGER</depends>
       <annotations>
         <fn-AdminUiOpsRouteTests description="Admin auth and ops route behavior coverage." />
       </annotations>
@@ -202,7 +220,7 @@
     <M-TG-CHAT-RAG-CLIENT-TEST NAME="TgChatRagClientTests" TYPE="TEST" STATUS="active">
       <purpose>Deterministic tests for tg-chat-rag methods-call URL construction, timeout behavior, HTTP error mapping, and success response parsing.</purpose>
       <path>src/integrations/tg-chat-rag-client.test.ts</path>
-      <depends>M-TG-CHAT-RAG-CLIENT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-TG-CHAT-RAG-CLIENT</depends>
       <annotations>
         <fn-TgChatRagClientTests description="Focused coverage for callMethod success and normalized upstream error branches." />
       </annotations>
@@ -211,7 +229,7 @@
     <M-TOOL-PROXY-TEST NAME="ToolProxyServiceTests" TYPE="TEST" STATUS="active">
       <purpose>Deterministic tests for proxy orchestration, allowlist enforcement, search policy injection, and upstream error mapping.</purpose>
       <path>src/tools/proxy-service.test.ts</path>
-      <depends>M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY</depends>
       <annotations>
         <fn-ToolProxyServiceTests description="Focused coverage for validate-policy-upstream-normalize flow and proxy error codes." />
       </annotations>
@@ -219,45 +237,86 @@
 
     <CrossLinks>
       <CrossLink FROM="M-CONFIG" TO="M-LOGGER" REL="configures" />
-      <CrossLink FROM="M-LOGGER" TO="M-CONFIG" REL="depends_on" />
-
       <CrossLink FROM="M-CONFIG" TO="M-AUTH-PROXY" REL="configures" />
-      <CrossLink FROM="M-AUTH-PROXY" TO="M-CONFIG" REL="depends_on" />
-
       <CrossLink FROM="M-CONFIG" TO="M-TG-CHAT-RAG-CLIENT" REL="configures" />
-      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" REL="depends_on" />
-
       <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOL-PROXY" REL="validates_inputs_for" />
-      <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" REL="depends_on" />
-
       <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TOOL-PROXY" REL="integrates_with" />
-      <CrossLink FROM="M-TOOL-PROXY" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
-
       <CrossLink FROM="M-AUTH-PROXY" TO="M-FASTMCP-RUNTIME" REL="authenticates" />
-      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-AUTH-PROXY" REL="depends_on" />
-
       <CrossLink FROM="M-TOOL-PROXY" TO="M-FASTMCP-RUNTIME" REL="handles_tool_execution_for" />
-      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOL-PROXY" REL="depends_on" />
-
       <CrossLink FROM="M-ADMIN-AUTH" TO="M-ADMIN-UI" REL="authorizes" />
-      <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" REL="depends_on" />
-
       <CrossLink FROM="M-ADMIN-UI" TO="M-FASTMCP-RUNTIME" REL="mounted_by" />
-      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-ADMIN-UI" REL="depends_on" />
-
       <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-SERVER" REL="booted_by" />
-      <CrossLink FROM="M-SERVER" TO="M-FASTMCP-RUNTIME" REL="depends_on" />
-
       <CrossLink FROM="M-SERVER" TO="M-ROOT-ENTRYPOINT" REL="invoked_by" />
-      <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" REL="depends_on" />
-
+      <CrossLink FROM="M-CONFIG" TO="M-CONFIG-TEST" REL="validated_by" />
+      <CrossLink FROM="M-AUTH-PROXY" TO="M-AUTH-PROXY-TEST" REL="validated_by" />
       <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TG-CHAT-RAG-CLIENT-TEST" REL="validated_by" />
-      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT-TEST" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
-
       <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOL-PROXY-TEST" REL="validated_by" />
-      <CrossLink FROM="M-TOOL-PROXY-TEST" TO="M-TOOL-PROXY" REL="depends_on" />
-
       <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOLS-CONTRACTS-TEST" REL="validated_by" />
+      <CrossLink FROM="M-ADMIN-AUTH" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-ADMIN-AUTH" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-ADMIN-UI" TO="M-ADMIN-AUTH" REL="depends_on" />
+      <CrossLink FROM="M-ADMIN-UI" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-ADMIN-UI" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-ADMIN-UI" REL="depends_on" />
+      <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-ADMIN-UI-OPS-TEST" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-DB" REL="depends_on" />
+      <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-AUTH-PROXY" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-AUTH-PROXY" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-AUTH-PROXY-TEST" TO="M-AUTH-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-AUTH-PROXY-TEST" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-AUTH-PROXY-TEST" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-CONFIG-TEST" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-DB" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-DB" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-AUTH-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOL-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-TOOLS-CONTRACTS" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-AUTH-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-FASTMCP-RUNTIME" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-FASTMCP-RUNTIME-SMOKE" TO="M-TOOL-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-LOGGER" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-MCP-AUTH-PROVIDER" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-MCP-AUTH-ADAPTER" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-ADAPTER-TEST" TO="M-MCP-AUTH-PROVIDER" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-ROOT-ENTRYPOINT" TO="M-SERVER" REL="depends_on" />
+      <CrossLink FROM="M-SERVER" TO="M-ADMIN-UI" REL="depends_on" />
+      <CrossLink FROM="M-SERVER" TO="M-AUTH-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-SERVER" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-SERVER" TO="M-FASTMCP-RUNTIME" REL="depends_on" />
+      <CrossLink FROM="M-SERVER" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-SERVER" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
+      <CrossLink FROM="M-SERVER" TO="M-TOOL-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-AUTH-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-FASTMCP-RUNTIME" REL="depends_on" />
+      <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-SERVER-INTEGRATION-TEST" TO="M-TOOL-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT-TEST" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT-TEST" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-TG-CHAT-RAG-CLIENT-TEST" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY" TO="M-TOOLS-CONTRACTS" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY-TEST" TO="M-CONFIG" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY-TEST" TO="M-LOGGER" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY-TEST" TO="M-TG-CHAT-RAG-CLIENT" REL="depends_on" />
+      <CrossLink FROM="M-TOOL-PROXY-TEST" TO="M-TOOL-PROXY" REL="depends_on" />
+      <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-LOGGER" REL="depends_on" />
       <CrossLink FROM="M-TOOLS-CONTRACTS-TEST" TO="M-TOOLS-CONTRACTS" REL="depends_on" />
     </CrossLinks>
 
