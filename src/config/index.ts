@@ -1,26 +1,27 @@
 // FILE: src/config/index.ts
-// VERSION: 1.7.0
+// VERSION: 1.8.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, admin root auth, and portal session/identity settings.
-//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, portal session/identity config, and M2M provisioning credentials for self-serve onboarding.
+//   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, admin root auth, portal session/identity settings, and database connection.
+//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, portal session/identity config, M2M provisioning credentials for self-serve onboarding, and DATABASE_URL for PostgreSQL connectivity.
 //   DEPENDS: none
-//   LINKS: M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY
+//   LINKS: M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY, M-DB
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy, portal session/identity settings, and M2M provisioning credentials.
+//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy, portal session/identity settings, M2M provisioning credentials, and database connection.
 //   ConfigValidationError - Typed validation error carrying CONFIG_VALIDATION_ERROR code.
 //   loadConfig - Validate process environment and return AppConfig.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.7.0 - Added M2M provisioning credentials (LOGTO_M2M_APP_ID, LOGTO_M2M_APP_SECRET) and configurable role ID (LOGTO_MCP_USER_ROLE_ID) to portal config for Logto Management API role assignment.
+//   LAST_CHANGE: v1.8.0 - Added databaseUrl (DATABASE_URL) to AppConfig for PostgreSQL connectivity, supporting M-DB reactivation.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
   port: number;
   publicUrl: string;
   rootAuthToken: string;
+  databaseUrl: string;
   tgChatRag: {
     baseUrl: string;
     bearerToken: string;
@@ -60,7 +61,7 @@ export class ConfigValidationError extends Error {
 // START_CONTRACT: loadConfig
 //   PURPOSE: Validate runtime environment values and return typed AppConfig.
 //   INPUTS: { env: NodeJS.ProcessEnv | undefined - Source env map, defaults to process.env }
-//   OUTPUTS: { AppConfig - Typed config for tg-chat-rag integration, root auth, public URL, Logto OAuth proxy credentials/endpoints, portal session/identity settings, and M2M provisioning credentials }
+//   OUTPUTS: { AppConfig - Typed config for tg-chat-rag integration, root auth, public URL, Logto OAuth proxy credentials/endpoints, portal session/identity settings, M2M provisioning credentials, and database connection URL }
 //   SIDE_EFFECTS: [Throws ConfigValidationError with code CONFIG_VALIDATION_ERROR when validation fails]
 //   LINKS: [M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY]
 // END_CONTRACT: loadConfig
@@ -86,6 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const portalLogtoManagementApiResource = (env.LOGTO_MANAGEMENT_API_RESOURCE ?? "").trim();
   const portalMcpUserRoleId = (env.LOGTO_MCP_USER_ROLE_ID ?? "").trim();
   const portalSessionTtlRaw = (env.PORTAL_SESSION_TTL_SECONDS ?? "").trim();
+  const databaseUrlRaw = (env.DATABASE_URL ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -234,6 +236,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   // END_BLOCK_VALIDATE_MCP_USER_ROLE_ID_M_CONFIG_018
 
+  // START_BLOCK_VALIDATE_DATABASE_URL_M_CONFIG_019
+  if (!databaseUrlRaw) {
+    errors.push("DATABASE_URL is required.");
+  }
+  // END_BLOCK_VALIDATE_DATABASE_URL_M_CONFIG_019
+
   // START_BLOCK_PARSE_PORTAL_SESSION_TTL_M_CONFIG_016
   let portalSessionTtlSeconds = 604800; // 7 days default
   if (portalSessionTtlRaw) {
@@ -257,6 +265,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port,
     publicUrl,
     rootAuthToken,
+    databaseUrl: databaseUrlRaw,
     tgChatRag: {
       baseUrl: normalizedBaseUrl,
       bearerToken,
