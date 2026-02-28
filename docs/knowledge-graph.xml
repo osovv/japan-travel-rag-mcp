@@ -1,15 +1,15 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.5.0">
-    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first</keywords>
-    <annotation>Portal-first architecture keeps current four MCP proxy tools and adds shareable landing + self-serve user portal onboarding before deferred ingestion work.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.6.0">
+    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql</keywords>
+    <annotation>Portal-first architecture keeps current four MCP proxy tools, adds shareable landing + self-serve user portal onboarding, and tracks per-user MCP tool call usage in PostgreSQL with portal display.</annotation>
 
-    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
-      <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, and M2M provisioning credentials.</purpose>
+    <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active-target">
+      <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
       <annotations>
-        <fn-loadConfig description="Validate env and build typed AppConfig." />
-        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, Logto credentials, and M2M provisioning credentials with configurable role ID." />
+        <fn-loadConfig description="Validate env and build typed AppConfig including DATABASE_URL." />
+        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, Logto credentials, M2M provisioning credentials, and databaseUrl." />
       </annotations>
     </M-CONFIG>
 
@@ -120,6 +120,20 @@
       </annotations>
     </M-PORTAL-PROVISIONING>
 
+    <M-USAGE-TRACKER NAME="UsageTracker" TYPE="DATA_LAYER" STATUS="active-target">
+      <purpose>Track per-user MCP tool call counts in PostgreSQL via Drizzle UPSERT and expose query interface for portal display.</purpose>
+      <path>src/usage/tracker.ts</path>
+      <depends>M-DB, M-LOGGER</depends>
+      <annotations>
+        <fn-createUsageTracker description="Build usage tracker backed by Drizzle PostgreSQL with auto-schema bootstrap." />
+        <fn-recordToolCall description="Increment per-user per-tool counter via UPSERT; fire-and-forget with warning on failure." />
+        <fn-getUserStats description="Query all per-tool counters and total for a given user ID." />
+        <type-UsageTracker description="Usage tracking interface for tool call recording and stats queries." />
+        <type-UserUsageStats description="Per-user usage statistics payload for portal rendering." />
+        <schema-usageCountersTable description="Drizzle pg-core schema: usage_counters(user_id, tool_name, call_count, last_called_at) with composite PK." />
+      </annotations>
+    </M-USAGE-TRACKER>
+
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
       <purpose>Server-rendered admin login and ops routes guarded by AdminAuth.</purpose>
       <path>src/admin/ui-routes.tsx</path>
@@ -131,10 +145,10 @@
       </annotations>
     </M-ADMIN-UI>
 
-    <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
-      <purpose>Server-rendered landing + portal per-page routes for external tester onboarding with progressive enhancement.</purpose>
+    <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="active-target">
+      <purpose>Server-rendered landing + portal per-page routes for external tester onboarding with progressive enhancement and per-user usage statistics display.</purpose>
       <path>src/portal/ui-routes.tsx</path>
-      <depends>M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-CONFIG, M-LOGGER</depends>
+      <depends>M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-CONFIG, M-LOGGER, M-USAGE-TRACKER</depends>
       <annotations>
         <fn-handleLandingRequest description="Serve / landing with redirect action to portal." />
         <fn-handlePortalRootRoute description="Handle /portal and route to login/home by portal session state." />
@@ -142,7 +156,7 @@
         <fn-handlePortalLoginRoute description="Handle /portal/login social-provider page without password fields." />
         <fn-handlePortalOauthStartRoute description="Handle /portal/auth/start and redirect to Logto social OAuth endpoint." />
         <fn-handlePortalOauthCallbackRoute description="Handle /portal/auth/callback and create portal session after provisioning." />
-        <fn-handlePortalHomeRoute description="Handle /portal/home authenticated onboarding view." />
+        <fn-handlePortalHomeRoute description="Handle /portal/home authenticated onboarding view with per-user usage statistics." />
         <fn-handlePortalAgentSetupRoute description="Handle /portal/integrations/agent-setup MCP setup guide view." />
         <fn-handlePortalLogoutRoute description="Handle /portal/logout session clear action." />
         <fn-renderPortalLayout description="Render shared portal page shell and include compiled Tailwind stylesheet asset." />
@@ -151,21 +165,22 @@
     </M-PORTAL-UI>
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" STATUS="active-target">
-      <purpose>Construct FastMCP runtime, register current tool surface, configure OAuth Proxy on /mcp, and mount admin + portal routes.</purpose>
+      <purpose>Construct FastMCP runtime, register current tool surface with per-user usage tracking, configure OAuth Proxy on /mcp, and mount admin + portal routes.</purpose>
       <path>src/runtime/fastmcp-runtime.ts</path>
-      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-ADMIN-UI, M-PORTAL-UI</depends>
+      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER</depends>
       <annotations>
         <fn-createFastMcpRuntime description="Build FastMCP instance with oauth proxy and route extension." />
-        <fn-registerProxyTools description="Register current four tool handlers with Zod schemas." />
+        <fn-registerProxyTools description="Register current four tool handlers with Zod schemas and per-user usage tracking via context.session JWT sub extraction." />
+        <fn-extractUserIdFromSession description="Decode JWT sub claim from RuntimeOauthSession idToken or accessToken for usage tracking." />
         <fn-mountAdminRoutes description="Mount /admin routes through Hono app returned by getApp()." />
         <fn-mountPortalRoutes description="Mount /, /portal, and /portal/* routes through Hono app returned by getApp()." />
       </annotations>
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active-target">
-      <purpose>Bootstrap config and dependencies, then start FastMCP HTTP stream runtime with MCP, admin, and portal surfaces.</purpose>
+      <purpose>Bootstrap config, database, and dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, and usage tracking.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER</depends>
       <annotations>
         <fn-main description="Initialize runtime dependencies, mount route handlers, and start server lifecycle." />
       </annotations>
@@ -207,12 +222,14 @@
       </annotations>
     </M-API-KEY-REPOSITORY>
 
-    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" STATUS="deprecated">
-      <purpose>Legacy PostgreSQL bootstrap used by previously planned API-key lifecycle.</purpose>
+    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" STATUS="active">
+      <purpose>Drizzle PostgreSQL client bootstrap with fail-fast connectivity probe for usage tracking and future persistence modules.</purpose>
       <path>src/db/index.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-createDb description="Legacy DB bootstrap retained pending cleanup." />
+        <fn-createDb description="Validate DATABASE_URL, initialize pg Pool + Drizzle, verify connectivity, and return DbClient." />
+        <type-DbClient description="Typed Drizzle database and pg Pool handles for repository modules." />
+        <type-DbConnectionError description="Typed database bootstrap error with DB_CONNECTION_ERROR code." />
       </annotations>
     </M-DB>
 
@@ -236,8 +253,11 @@
       <CrossLink FROM="M-SERVER" TO="M-ROOT-ENTRYPOINT" REL="invoked_by" />
       <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-AUTH-PROXY" REL="superseded_by" />
       <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-AUTH-PROXY" REL="superseded_by" />
+      <CrossLink FROM="M-CONFIG" TO="M-DB" REL="configures" />
+      <CrossLink FROM="M-DB" TO="M-USAGE-TRACKER" REL="persists_for" />
+      <CrossLink FROM="M-USAGE-TRACKER" TO="M-FASTMCP-RUNTIME" REL="tracks_usage_for" />
+      <CrossLink FROM="M-USAGE-TRACKER" TO="M-PORTAL-UI" REL="provides_stats_for" />
       <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-PORTAL-PROVISIONING" REL="outside_scope_of" />
-      <CrossLink FROM="M-DB" TO="M-PORTAL-PROVISIONING" REL="outside_scope_of" />
     </CrossLinks>
 
     <DataFlows>
@@ -274,6 +294,19 @@
         <step-3>M-TOOL-PROXY applies policy and calls M-TG-CHAT-RAG-CLIENT.</step-3>
         <step-4>Normalized result is returned via MCP transport.</step-4>
       </DF-TOOL-PROXY>
+
+      <DF-USAGE-TRACKING NAME="per-user tool call usage tracking flow">
+        <step-1>MCP tool execute handler receives context.session with RuntimeOauthSession.</step-1>
+        <step-2>extractUserIdFromSession decodes idToken/accessToken JWT and extracts sub claim.</step-2>
+        <step-3>M-USAGE-TRACKER.recordToolCall(userId, toolName) performs UPSERT on usage_counters.</step-3>
+        <step-4>Tracking failures are caught and logged; tool result is always returned.</step-4>
+      </DF-USAGE-TRACKING>
+
+      <DF-PORTAL-USAGE-DISPLAY NAME="portal usage statistics display flow">
+        <step-1>Authenticated portal user opens /portal/home.</step-1>
+        <step-2>M-PORTAL-UI calls M-USAGE-TRACKER.getUserStats(session.sub).</step-2>
+        <step-3>Portal home renders per-tool call counts and total in usage section.</step-3>
+      </DF-PORTAL-USAGE-DISPLAY>
 
       <DF-ADMIN-ROOT-AUTH NAME="admin root auth flow">
         <step-1>Operator posts token to `/admin/login`.</step-1>

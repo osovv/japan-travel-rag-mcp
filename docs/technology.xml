@@ -1,4 +1,4 @@
-<TechnologyStack VERSION="0.6.0">
+<TechnologyStack VERSION="0.7.0">
   <Runtime>Bun 1.3.8</Runtime>
   <Language>TypeScript 5.x</Language>
   <Framework>fastmcp 3.33.x</Framework>
@@ -9,8 +9,8 @@
     <dep-tailwindcss name="tailwindcss" version="3.x" purpose="Portal UI styling pipeline for SSR pages" />
     <dep-htmx name="htmx.org" version="1.9.x" purpose="Progressive enhancement for portal forms and fragment updates" />
     <dep-alpine name="alpinejs" version="3.x" purpose="Minimal client-side interactivity for portal micro-interactions when needed" />
-    <dep-pg name="pg" version="8.x" purpose="Deferred persistence/integration modules for post-e2e ingestion stage" />
-    <dep-drizzle name="drizzle-orm" version="0.45.x" purpose="Deferred persistence/integration modules for post-e2e ingestion stage" />
+    <dep-pg name="pg" version="8.x" purpose="PostgreSQL client for usage tracking and future persistence modules" />
+    <dep-drizzle name="drizzle-orm" version="0.45.x" purpose="Type-safe query builder for PostgreSQL usage tracking and future persistence modules" />
   </Dependencies>
 
   <VersionConstraints>
@@ -64,10 +64,11 @@
     <RequiredEnv-7>LOGTO_CLIENT_ID</RequiredEnv-7>
     <RequiredEnv-8>LOGTO_CLIENT_SECRET</RequiredEnv-8>
     <RequiredEnv-9>PORTAL_SESSION_SECRET</RequiredEnv-9>
+    <RequiredEnv-10>DATABASE_URL</RequiredEnv-10>
   </RuntimeConfigPolicy>
 
   <ProductBoundary>
-    <InScope>OAuth-protected MCP proxy for existing 4 tools, landing redirect to user portal, custom portal registration/login, automatic tester provisioning, root-token admin auth, deterministic schema validation</InScope>
+    <InScope>OAuth-protected MCP proxy for existing 4 tools, landing redirect to user portal, custom portal registration/login, automatic tester provisioning, root-token admin auth, deterministic schema validation, per-user MCP tool call usage tracking with PostgreSQL persistence and portal display</InScope>
     <OutOfScope>`search_context`, `validate_google_map_link`, `verify_tabelog`, invite-link onboarding, billing settings implementation, curated ingestion/indexing before portal e2e readiness</OutOfScope>
   </ProductBoundary>
 

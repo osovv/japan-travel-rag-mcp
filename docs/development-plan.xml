@@ -1,7 +1,7 @@
-<DevelopmentPlan VERSION="1.0.0">
+<DevelopmentPlan VERSION="1.1.0">
   <Context>
-    <purpose>Deliver a shareable end-to-end onboarding flow for external testers using current MCP tool surface: landing redirect, user portal registration/login, automatic access provisioning, and first successful MCP usage.</purpose>
-    <scope>Keep existing public tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), preserve tg-chat-rag proxy behavior, keep `/admin/*` root-token protected, and add portal-first onboarding surface on `/` and `/portal/*`.</scope>
+    <purpose>Deliver a shareable end-to-end onboarding flow for external testers using current MCP tool surface: landing redirect, user portal registration/login, automatic access provisioning, first successful MCP usage, and per-user tool call usage tracking visible in the portal.</purpose>
+    <scope>Keep existing public tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), preserve tg-chat-rag proxy behavior, keep `/admin/*` root-token protected, add portal-first onboarding surface on `/` and `/portal/*`, and track per-user MCP tool call counts in PostgreSQL with portal home display.</scope>
     <constraints>
       <constraint-1>Public MCP surface remains exactly four tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources`.</constraint-1>
       <constraint-2>`search_context`, `validate_google_map_link`, and `verify_tabelog` are removed from active and deferred implementation plans.</constraint-2>
@@ -13,13 +13,15 @@
       <constraint-8>Portal session auth on `/portal/*` is isolated from both `/mcp` OAuth and `/admin/*` root session models.</constraint-8>
       <constraint-9>Curated-source ingestion/indexing and backfill are explicitly deferred until portal e2e flow is validated.</constraint-9>
       <constraint-10>Billing settings are deferred and represented as future extension points in portal architecture only.</constraint-10>
+      <constraint-11>Usage tracking failures must never block MCP tool execution; tracking is fire-and-forget with warning logs on failure.</constraint-11>
+      <constraint-12>User identity for usage tracking is extracted from MCP OAuth session JWT `sub` claim; the same Logto `sub` links MCP and portal users.</constraint-12>
     </constraints>
   </Context>
 
   <Modules>
     <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1">
       <contract>
-        <purpose>Load and validate runtime configuration for MCP proxy auth/routes, admin auth, portal auth/session, and upstream integrations.</purpose>
+        <purpose>Load and validate runtime configuration for MCP proxy auth/routes, admin auth, portal auth/session, upstream integrations, and database connection.</purpose>
         <inputs>
           <param-1 name="env" type="NodeJS.ProcessEnv" />
         </inputs>
@@ -32,11 +34,11 @@
       </contract>
       <interface>
         <export-loadConfig PURPOSE="Validate env and return typed AppConfig." />
-        <type-AppConfig PURPOSE="Typed runtime config for MCP OAuth, portal session, admin auth, and upstream clients." />
+        <type-AppConfig PURPOSE="Typed runtime config for MCP OAuth, portal session, admin auth, upstream clients, and database URL." />
       </interface>
       <depends>none</depends>
       <notes>
-        <note-1>Required env includes existing MCP/admin/logto values plus `PORTAL_SESSION_SECRET`, `LOGTO_M2M_APP_ID`, `LOGTO_M2M_APP_SECRET`, and `LOGTO_MCP_USER_ROLE_ID`.</note-1>
+        <note-1>Required env includes existing MCP/admin/logto values plus `PORTAL_SESSION_SECRET`, `LOGTO_M2M_APP_ID`, `LOGTO_M2M_APP_SECRET`, `LOGTO_MCP_USER_ROLE_ID`, and `DATABASE_URL`.</note-1>
       </notes>
     </M-CONFIG>
 
@@ -108,7 +110,27 @@
       <depends>M-CONFIG, M-LOGGER</depends>
     </M-TG-CHAT-RAG-CLIENT>
 
-    <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" LAYER="2" ORDER="2">
+    <M-AUTH-CONSENT-PATCH NAME="ConsentPatch" TYPE="UI_COMPONENT" LAYER="2" ORDER="2">
+      <contract>
+        <purpose>Replace FastMCP built-in consent screen with portal-styled HTML via monkey-patching OAuthProxy.consentManager.</purpose>
+        <inputs>
+          <param-1 name="oauthProxy" type="OAuthProxy" />
+        </inputs>
+        <outputs>
+          <param-1 name="void" type="void" />
+        </outputs>
+        <errors>
+          <error-CONSENT_PATCH_ERROR code="CONSENT_PATCH_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-patchOAuthProxyConsent PURPOSE="Monkey-patch OAuthProxy.consentManager.generateConsentScreen with portal-styled HTML renderer." />
+        <export-generatePortalConsentScreen PURPOSE="Render portal-styled consent HTML with scope labels, XSS escaping, and form POST to /oauth/consent." />
+      </interface>
+      <depends>M-AUTH-PROXY</depends>
+    </M-AUTH-CONSENT-PATCH>
+
+    <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" LAYER="2" ORDER="3">
       <contract>
         <purpose>Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for `/mcp` authentication.</purpose>
         <inputs>
@@ -123,9 +145,9 @@
         </errors>
       </contract>
       <interface>
-        <export-createOauthProxy PURPOSE="Instantiate OAuthProxy with Logto auth/token endpoints and configured scopes." />
+        <export-createOauthProxy PURPOSE="Instantiate OAuthProxy with Logto auth/token endpoints, configured scopes, and portal consent patch." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH</depends>
     </M-AUTH-PROXY>
 
     <M-PORTAL-IDENTITY NAME="PortalIdentityClient" TYPE="INTEGRATION" LAYER="2" ORDER="3">
@@ -239,6 +261,59 @@
       <depends>M-PORTAL-IDENTITY, M-LOGGER</depends>
     </M-PORTAL-PROVISIONING>
 
+    <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" LAYER="1" ORDER="2">
+      <contract>
+        <purpose>Create Drizzle PostgreSQL client from DATABASE_URL with fail-fast connectivity probe.</purpose>
+        <inputs>
+          <param-1 name="config" type="AppConfig" />
+          <param-2 name="logger" type="Logger" />
+        </inputs>
+        <outputs>
+          <param-1 name="DbClient" type="{ db: NodePgDatabase; pool: Pool }" />
+        </outputs>
+        <errors>
+          <error-DB_CONNECTION_ERROR code="DB_CONNECTION_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-createDb PURPOSE="Validate DATABASE_URL, initialize pg Pool + Drizzle, verify connectivity, and return DbClient." />
+        <type-DbClient PURPOSE="Typed Drizzle database and pg Pool handles for repository modules." />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <notes>
+        <note-1>Reactivated from deprecated status to support M-USAGE-TRACKER persistence. Existing implementation at src/db/index.ts is fully functional.</note-1>
+      </notes>
+    </M-DB>
+
+    <M-USAGE-TRACKER NAME="UsageTracker" TYPE="DATA_LAYER" LAYER="2" ORDER="4">
+      <contract>
+        <purpose>Track per-user MCP tool call counts in PostgreSQL and expose query interface for portal display.</purpose>
+        <inputs>
+          <param-1 name="userId" type="string" />
+          <param-2 name="toolName" type="string" />
+        </inputs>
+        <outputs>
+          <param-1 name="UserUsageStats" type="{ tools: { toolName: string; callCount: number; lastCalledAt: Date | null }[]; total: number }" />
+        </outputs>
+        <errors>
+          <error-USAGE_TRACKER_ERROR code="USAGE_TRACKER_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-createUsageTracker PURPOSE="Build usage tracker backed by Drizzle PostgreSQL with auto-schema bootstrap." />
+        <export-recordToolCall PURPOSE="Increment per-user per-tool counter via UPSERT; fire-and-forget with warning on failure." />
+        <export-getUserStats PURPOSE="Query all per-tool counters and total for a given user ID." />
+        <type-UsageTracker PURPOSE="Usage tracking interface for tool call recording and stats queries." />
+        <type-UserUsageStats PURPOSE="Per-user usage statistics payload for portal rendering." />
+        <schema-usageCountersTable PURPOSE="Drizzle pg-core schema: usage_counters(user_id, tool_name, call_count, last_called_at) with composite PK." />
+      </interface>
+      <depends>M-DB, M-LOGGER</depends>
+      <notes>
+        <note-1>Schema uses composite primary key (user_id, tool_name) with UPSERT for atomic counter increment.</note-1>
+        <note-2>recordToolCall is designed to never throw to callers; failures are caught internally and logged as warnings.</note-2>
+      </notes>
+    </M-USAGE-TRACKER>
+
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="1">
       <contract>
         <purpose>Render admin login and ops pages with simple root-token auth workflow.</purpose>
@@ -262,7 +337,7 @@
 
     <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
       <contract>
-        <purpose>Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, and render MCP setup instructions for testers.</purpose>
+        <purpose>Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, render MCP setup instructions, and display per-user usage statistics on portal home.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
         </inputs>
@@ -280,13 +355,13 @@
         <export-handlePortalLoginRoute PURPOSE="Handle `GET /portal/login` social-provider login page without password fields." />
         <export-handlePortalOauthStartRoute PURPOSE="Handle `GET /portal/auth/start` and redirect to Logto social OAuth authorization endpoint." />
         <export-handlePortalOauthCallbackRoute PURPOSE="Handle `GET /portal/auth/callback` code exchange, provisioning, and portal session creation." />
-        <export-handlePortalHomeRoute PURPOSE="Handle `GET /portal/home` authenticated onboarding page." />
+        <export-handlePortalHomeRoute PURPOSE="Handle `GET /portal/home` authenticated onboarding page with per-user usage statistics." />
         <export-handlePortalAgentSetupRoute PURPOSE="Handle `GET /portal/integrations/agent-setup` detailed MCP setup guide page." />
         <export-handlePortalLogoutRoute PURPOSE="Handle `POST /portal/logout` and clear portal session." />
         <export-renderPortalLayout PURPOSE="Render shared portal shell and include compiled Tailwind CSS asset." />
         <export-renderPortalConnectionGuide PURPOSE="Render MCP endpoint/auth setup instructions for external AI agents." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY</depends>
+      <depends>M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER</depends>
       <notes>
         <note-1>Invite-link flow is intentionally excluded in this phase.</note-1>
         <note-2>Portal UI stack is Bun JSX SSR + Tailwind + HTMX, with Alpine.js only for optional local micro-interactions.</note-2>
@@ -297,7 +372,7 @@
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
+        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set with per-user usage tracking, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
           <param-2 name="logger" type="Logger" />
@@ -306,6 +381,7 @@
           <param-5 name="adminHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
           <param-6 name="portalLandingHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
           <param-7 name="portalHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
+          <param-8 name="usageTracker" type="UsageTracker" />
         </inputs>
         <outputs>
           <param-1 name="fastMcpServer" type="FastMCP" />
@@ -316,11 +392,12 @@
       </contract>
       <interface>
         <export-createFastMcpRuntime PURPOSE="Build FastMCP with oauth.enabled=true and mount non-MCP HTTP routes via getApp()." />
-        <export-registerProxyTools PURPOSE="Register the four active tools with described schemas and canAccess guards." />
+        <export-registerProxyTools PURPOSE="Register the four active tools with described schemas, canAccess guards, and per-user usage tracking via context.session JWT sub extraction." />
+        <export-extractUserIdFromSession PURPOSE="Decode JWT sub claim from RuntimeOauthSession idToken or accessToken for usage tracking." />
         <export-mountAdminRoutes PURPOSE="Mount `/admin` and `/admin/*` handlers via getApp()." />
         <export-mountPortalRoutes PURPOSE="Mount `/`, `/portal`, and `/portal/*` handlers via getApp()." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER</depends>
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
@@ -339,7 +416,7 @@
       <interface>
         <export-main PURPOSE="Load config, create dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER</depends>
     </M-SERVER>
 
     <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT" LAYER="7" ORDER="1">
@@ -409,6 +486,20 @@
       <step-4>Normalized result is returned via MCP transport.</step-4>
     </DF-TOOL-PROXY>
 
+    <DF-USAGE-TRACKING NAME="per-user tool call usage tracking flow">
+      <step-1>MCP tool call enters execute handler in M-FASTMCP-RUNTIME with context.session containing RuntimeOauthSession.</step-1>
+      <step-2>extractUserIdFromSession decodes idToken (or accessToken) JWT payload and extracts `sub` claim as userId.</step-2>
+      <step-3>After successful tool execution, M-USAGE-TRACKER.recordToolCall(userId, toolName) performs UPSERT on usage_counters table.</step-3>
+      <step-4>If userId extraction or recording fails, tool result is still returned; failure is logged as warning.</step-4>
+    </DF-USAGE-TRACKING>
+
+    <DF-PORTAL-USAGE-DISPLAY NAME="portal usage statistics display flow">
+      <step-1>Authenticated portal user opens `/portal/home`.</step-1>
+      <step-2>M-PORTAL-UI calls M-USAGE-TRACKER.getUserStats(session.sub) to query per-tool counters.</step-2>
+      <step-3>Portal home renders usage statistics section with per-tool call counts and total.</step-3>
+      <step-4>If stats query fails, portal home renders gracefully without usage section or with error placeholder.</step-4>
+    </DF-PORTAL-USAGE-DISPLAY>
+
     <DF-ADMIN-ROOT-AUTH NAME="admin root token flow">
       <step-1>Operator submits token on `/admin/login`.</step-1>
       <step-2>M-ADMIN-AUTH verifies against `ROOT_AUTH_TOKEN` and issues session cookie.</step-2>
@@ -438,6 +529,30 @@
       <step-3>Verify only four active tools remain callable.</step-3>
       <result>Pass when dropped tools do not appear in runtime contracts, plan, or knowledge graph.</result>
     </MT-3>
+
+    <MT-4 NAME="usage tracking e2e test">
+      <step-1>Authenticated MCP client calls search_messages; execute handler extracts sub from context.session.idToken JWT.</step-1>
+      <step-2>M-USAGE-TRACKER.recordToolCall(sub, "search_messages") performs UPSERT; usage_counters row created with call_count=1.</step-2>
+      <step-3>Same client calls search_messages again; call_count increments to 2.</step-3>
+      <step-4>Same user opens /portal/home; getUserStats(sub) returns {search_messages: 2, total: 2}; portal renders stats.</step-4>
+      <result>Pass when MCP sub matches portal sub and counters increment correctly across calls.</result>
+    </MT-4>
+
+    <MT-5 NAME="usage tracking graceful degradation test">
+      <step-1>MCP client authenticates but idToken is undefined and accessToken is opaque (not JWT).</step-1>
+      <step-2>extractUserIdFromSession returns null; tool execution proceeds normally.</step-2>
+      <step-3>recordToolCall is skipped; warning logged with tool name and reason.</step-3>
+      <step-4>Tool result is returned to MCP client without error.</step-4>
+      <result>Pass when tracking failure never blocks tool execution and warning is emitted.</result>
+    </MT-5>
+
+    <MT-6 NAME="usage tracker database failure resilience test">
+      <step-1>PostgreSQL is temporarily unreachable during tool execution.</step-1>
+      <step-2>recordToolCall catches database error internally and logs warning.</step-2>
+      <step-3>Tool result is returned to MCP client without error.</step-3>
+      <step-4>Portal home getUserStats also fails gracefully; page renders without stats or with fallback message.</step-4>
+      <result>Pass when database failures are isolated from both tool execution and portal rendering.</result>
+    </MT-6>
   </MentalTests>
 
   <ImplementationOrder>
@@ -469,11 +584,22 @@
       <justification>Runtime composition and tests validate real product objective: shareable tester onboarding to first MCP success.</justification>
     </Phase-4>
 
-    <Phase-5 name="PostE2EDeferredTrack" status="deferred">
+    <Phase-5 name="UsageTrackingAndPortalDisplay" status="pending">
+      <step-1>Add `DATABASE_URL` to M-CONFIG AppConfig type and loadConfig validation.</step-1>
+      <step-2>Reactivate M-DB: wire createDb into M-SERVER bootstrap with fail-fast connectivity probe.</step-2>
+      <step-3>Implement M-USAGE-TRACKER: Drizzle schema (usage_counters table), createUsageTracker factory, recordToolCall UPSERT, getUserStats query.</step-3>
+      <step-4>Add extractUserIdFromSession helper in M-FASTMCP-RUNTIME: decode JWT payload from idToken/accessToken to extract sub claim.</step-4>
+      <step-5>Update registerProxyTools execute handlers to accept context parameter, extract userId, and call usageTracker.recordToolCall after successful execution.</step-5>
+      <step-6>Update M-PORTAL-UI handlePortalHomeRoute to query usageTracker.getUserStats and render per-tool call counts and total on portal home.</step-6>
+      <step-7>Wire M-DB and M-USAGE-TRACKER into M-SERVER dependency bootstrap and pass usageTracker to runtime and portal handler deps.</step-7>
+      <justification>Usage tracking requires database persistence (M-DB reactivation), a new data-layer module (M-USAGE-TRACKER), JWT identity extraction in tool execution (M-FASTMCP-RUNTIME), and portal display integration (M-PORTAL-UI). Steps are ordered by dependency: config first, then DB, then tracker, then runtime integration, then UI.</justification>
+    </Phase-5>
+
+    <Phase-6 name="PostE2EDeferredTrack" status="deferred">
       <step-1>Plan curated-source ingestion/indexing/backfill architecture.</step-1>
       <step-2>Plan portal billing settings module set.</step-2>
       <justification>Deferred until portal-first e2e flow is stable in real tester usage.</justification>
-    </Phase-5>
+    </Phase-6>
   </ImplementationOrder>
 
   <RiskAssessment>
@@ -482,14 +608,15 @@
     <risk-3 severity="medium">Portal session secret/ttl misconfiguration can cause unstable login UX or accidental long-lived sessions.</risk-3>
     <risk-4 severity="medium">Social connector misconfiguration or provider outage can break both registration and login flows simultaneously.</risk-4>
     <risk-5 severity="medium">UI/contract drift between portal setup instructions and actual MCP OAuth requirements may increase tester setup failures.</risk-5>
-    <risk-6 severity="low">Keeping legacy deprecated modules in repo can confuse future implementation unless graph linkage remains explicit.</risk-6>
+    <risk-6 severity="low">Deprecated modules (M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-API-KEY-REPOSITORY) remaining in repo can confuse future implementation unless graph linkage remains explicit.</risk-6>
+    <risk-7 severity="medium">MCP OAuth session JWT (idToken/accessToken) may not always contain decodable sub claim depending on Logto configuration, causing silent tracking gaps.</risk-7>
+    <risk-8 severity="low">PostgreSQL unavailability during tool execution causes usage tracking gaps but does not affect tool functionality due to fire-and-forget design.</risk-8>
   </RiskAssessment>
 
   <DeprecatedModules>
     <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" reason="Replaced by FastMCP OAuth Proxy integration for `/mcp`." />
     <M-MCP-AUTH-ADAPTER NAME="McpAuthAdapter" reason="No longer needed when FastMCP OAuth Proxy handles OAuth session flow." />
     <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" reason="Out of active onboarding scope; admin remains ROOT_AUTH_TOKEN-only." />
-    <M-DB NAME="DrizzleDb" reason="No active dependency in current runtime path." />
   </DeprecatedModules>
 
   <DroppedModules>

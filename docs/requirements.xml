@@ -1,4 +1,4 @@
-<RequirementsAnalysis VERSION="0.6.0">
+<RequirementsAnalysis VERSION="0.7.0">
   <UseCases>
     <UC-001>
       <Actor>External MCP Client</Actor>
@@ -111,6 +111,13 @@
       <Goal>Finalize custom-UI social authentication flow with deterministic success/failure outcomes</Goal>
       <AcceptanceCriteria>`/portal/auth/callback` exchanges authorization code, handles expected OAuth errors safely, and redirects to `/portal/home` on success</AcceptanceCriteria>
     </UC-016>
+
+    <UC-017>
+      <Actor>System</Actor>
+      <Action>Tracks per-user MCP tool call counts in PostgreSQL during tool execution and exposes usage statistics to the portal</Action>
+      <Goal>Provide visibility into individual user MCP usage for portal display and future analytics</Goal>
+      <AcceptanceCriteria>Each successful MCP tool call increments a per-user per-tool counter in PostgreSQL; user identity is extracted from OAuth session JWT `sub` claim; portal home page displays per-tool call counts and total for the authenticated user; tracking failures never block tool execution</AcceptanceCriteria>
+    </UC-017>
   </UseCases>
 
   <DeferredUseCases>
