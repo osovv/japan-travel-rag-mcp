@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.4.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.5.0">
     <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first</keywords>
     <annotation>Portal-first architecture keeps current four MCP proxy tools and adds shareable landing + self-serve user portal onboarding before deferred ingestion work.</annotation>
 
@@ -46,12 +46,23 @@
       </annotations>
     </M-TG-CHAT-RAG-CLIENT>
 
+    <M-AUTH-CONSENT-PATCH NAME="ConsentPatch" TYPE="UI_COMPONENT" STATUS="active">
+      <purpose>Replace FastMCP built-in consent screen with portal-styled HTML via monkey-patching OAuthProxy.consentManager.</purpose>
+      <path>src/auth/consent-patch.ts</path>
+      <depends>M-AUTH-PROXY</depends>
+      <annotations>
+        <fn-patchOAuthProxyConsent description="Monkey-patch OAuthProxy.consentManager.generateConsentScreen with portal-styled HTML renderer." />
+        <fn-generatePortalConsentScreen description="Render portal-styled consent HTML with scope labels, XSS escaping, and form POST to /oauth/consent." />
+        <fn-formatScopeLabel description="Map OAuth scope strings to human-readable labels." />
+      </annotations>
+    </M-AUTH-CONSENT-PATCH>
+
     <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" STATUS="active">
       <purpose>FastMCP OAuthProxy integration for /mcp authentication backed by Logto OIDC upstream endpoints.</purpose>
       <path>src/auth/oauth-proxy.ts</path>
-      <depends>M-CONFIG, M-LOGGER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH</depends>
       <annotations>
-        <fn-createOauthProxy description="Create OAuthProxy and provide authorization-server metadata for FastMCP oauth config." />
+        <fn-createOauthProxy description="Create OAuthProxy, apply portal consent patch, and provide authorization-server metadata for FastMCP oauth config." />
         <type-OauthProxyDeps description="Validated dependency bundle for proxy construction." />
       </annotations>
     </M-AUTH-PROXY>
@@ -212,6 +223,7 @@
       <CrossLink FROM="M-CONFIG" TO="M-PORTAL-AUTH" REL="configures" />
       <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOL-PROXY" REL="validates_inputs_for" />
       <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TOOL-PROXY" REL="integrates_with" />
+      <CrossLink FROM="M-AUTH-CONSENT-PATCH" TO="M-AUTH-PROXY" REL="patches_consent_for" />
       <CrossLink FROM="M-AUTH-PROXY" TO="M-FASTMCP-RUNTIME" REL="authenticates" />
       <CrossLink FROM="M-TOOL-PROXY" TO="M-FASTMCP-RUNTIME" REL="handles_tool_execution_for" />
       <CrossLink FROM="M-ADMIN-AUTH" TO="M-ADMIN-UI" REL="authorizes" />
@@ -250,8 +262,10 @@
 
       <DF-MCP-OAUTH NAME="mcp oauth proxy flow">
         <step-1>Client starts OAuth flow through FastMCP endpoints on `/mcp`.</step-1>
-        <step-2>M-AUTH-PROXY exchanges code/tokens with Logto upstream.</step-2>
-        <step-3>Authenticated session can execute registered MCP tools.</step-3>
+        <step-2>M-AUTH-CONSENT-PATCH renders portal-styled consent screen for user approval.</step-2>
+        <step-3>After consent, M-AUTH-PROXY redirects to Logto upstream for authentication.</step-3>
+        <step-4>M-AUTH-PROXY exchanges code/tokens with Logto and issues proxy session.</step-4>
+        <step-5>Authenticated session can execute registered MCP tools.</step-5>
       </DF-MCP-OAUTH>
 
       <DF-TOOL-PROXY NAME="tool proxy flow">
