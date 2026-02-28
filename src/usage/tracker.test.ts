@@ -20,7 +20,7 @@
 import { describe, expect, it } from "bun:test";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Logger } from "../logger/index";
-import { createUsageTracker, type UsageTracker, type UserUsageStats } from "./tracker";
+import { createUsageTracker, UsageTrackerError, type UsageTracker, type UserUsageStats } from "./tracker";
 
 // START_CONTRACT: createNoopLogger
 //   PURPOSE: Provide a logger fixture that satisfies Logger interface without side effects.
@@ -122,8 +122,8 @@ describe("M-USAGE-TRACKER", () => {
         thrown = error;
       }
 
-      expect(thrown).toBeInstanceOf(Error);
-      expect((thrown as Error).message).toBe("connection refused");
+      expect(thrown).toBeInstanceOf(UsageTrackerError);
+      expect((thrown as UsageTrackerError).message).toBe("Schema bootstrap failed: connection refused");
       // END_BLOCK_VERIFY_BOOTSTRAP_FAILURE_PROPAGATION_M_USAGE_TRACKER_TEST_004
     });
   });
@@ -234,8 +234,8 @@ describe("M-USAGE-TRACKER", () => {
         thrown = error;
       }
 
-      expect(thrown).toBeInstanceOf(Error);
-      expect((thrown as Error).message).toBe("query timeout");
+      expect(thrown).toBeInstanceOf(UsageTrackerError);
+      expect((thrown as UsageTrackerError).message).toBe("Stats query failed for user user-001: query timeout");
       // END_BLOCK_VERIFY_STATS_QUERY_CAN_THROW_M_USAGE_TRACKER_TEST_010
     });
   });

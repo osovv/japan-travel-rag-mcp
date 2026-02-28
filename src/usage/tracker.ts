@@ -69,21 +69,26 @@ export class UsageTrackerError extends Error {
 // END_CONTRACT: bootstrapSchema
 async function bootstrapSchema(db: NodePgDatabase, logger: Logger): Promise<void> {
   // START_BLOCK_BOOTSTRAP_USAGE_COUNTERS_TABLE_M_USAGE_TRACKER_004
-  await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS usage_counters (
-      user_id    TEXT NOT NULL,
-      tool_name  TEXT NOT NULL,
-      call_count INTEGER NOT NULL DEFAULT 0,
-      last_called_at TIMESTAMPTZ,
-      PRIMARY KEY (user_id, tool_name)
-    )
-  `);
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS usage_counters (
+        user_id    TEXT NOT NULL,
+        tool_name  TEXT NOT NULL,
+        call_count INTEGER NOT NULL DEFAULT 0,
+        last_called_at TIMESTAMPTZ,
+        PRIMARY KEY (user_id, tool_name)
+      )
+    `);
 
-  logger.info(
-    "usage_counters table bootstrap complete.",
-    "bootstrapSchema",
-    "BOOTSTRAP_USAGE_COUNTERS_TABLE",
-  );
+    logger.info(
+      "usage_counters table bootstrap complete.",
+      "bootstrapSchema",
+      "BOOTSTRAP_USAGE_COUNTERS_TABLE",
+    );
+  } catch (error: unknown) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new UsageTrackerError(`Schema bootstrap failed: ${cause}`);
+  }
   // END_BLOCK_BOOTSTRAP_USAGE_COUNTERS_TABLE_M_USAGE_TRACKER_004
 }
 
@@ -148,24 +153,29 @@ function recordToolCallImpl(
 // END_CONTRACT: getUserStatsImpl
 async function getUserStatsImpl(db: NodePgDatabase, userId: string): Promise<UserUsageStats> {
   // START_BLOCK_QUERY_USER_STATS_M_USAGE_TRACKER_006
-  const rows = await db
-    .select({
-      toolName: usageCountersTable.toolName,
-      callCount: usageCountersTable.callCount,
-      lastCalledAt: usageCountersTable.lastCalledAt,
-    })
-    .from(usageCountersTable)
-    .where(eq(usageCountersTable.userId, userId));
+  try {
+    const rows = await db
+      .select({
+        toolName: usageCountersTable.toolName,
+        callCount: usageCountersTable.callCount,
+        lastCalledAt: usageCountersTable.lastCalledAt,
+      })
+      .from(usageCountersTable)
+      .where(eq(usageCountersTable.userId, userId));
 
-  const tools = rows.map((row) => ({
-    toolName: row.toolName,
-    callCount: row.callCount,
-    lastCalledAt: row.lastCalledAt,
-  }));
+    const tools = rows.map((row) => ({
+      toolName: row.toolName,
+      callCount: row.callCount,
+      lastCalledAt: row.lastCalledAt,
+    }));
 
-  const total = tools.reduce((sum, tool) => sum + tool.callCount, 0);
+    const total = tools.reduce((sum, tool) => sum + tool.callCount, 0);
 
-  return { tools, total };
+    return { tools, total };
+  } catch (error: unknown) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new UsageTrackerError(`Stats query failed for user ${userId}: ${cause}`);
+  }
   // END_BLOCK_QUERY_USER_STATS_M_USAGE_TRACKER_006
 }
 
