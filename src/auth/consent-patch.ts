@@ -25,10 +25,13 @@ import type { OAuthProxy } from "fastmcp/auth";
 // Types
 // ---------------------------------------------------------------------------
 
+// Mirrors FastMCP's ConsentData. The timestamp field is provided by FastMCP
+// but not rendered in the consent screen HTML.
 type ConsentScreenData = {
   clientName: string;
   provider: string;
   scope: string[];
+  timestamp?: number;
   transactionId: string;
 };
 
