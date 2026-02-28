@@ -35,9 +35,16 @@
   <AuthModel>
     <McpAuth>FastMCP OAuth Proxy (Logto OIDC upstream) is required for `/mcp`</McpAuth>
     <AdminAuth>ROOT_AUTH_TOKEN login/session is required for `/admin/*`</AdminAuth>
-    <PortalAuth>Portal user registration/login is handled on `/portal/*` with dedicated tester session model and automatic MCP-access provisioning</PortalAuth>
+    <PortalAuth>Portal authentication uses custom portal pages that start OAuth via Logto social connectors only; no local email/password flow is supported</PortalAuth>
     <IsolationRule>Machine OAuth (`/mcp`), admin root session (`/admin/*`), and tester portal session (`/portal/*`) are isolated and non-interchangeable</IsolationRule>
   </AuthModel>
+
+  <PortalIdentityPolicy>
+    <Provider>Logto</Provider>
+    <Mode>OAuth social-only for portal (`google`, `github`, etc.)</Mode>
+    <CustomUiPolicy>Custom `/portal/register` and `/portal/login` pages trigger OAuth start endpoint and do not collect password credentials</CustomUiPolicy>
+    <CallbackPolicy>`/portal/auth/callback` is server-handled and responsible for session issuance + provisioning trigger</CallbackPolicy>
+  </PortalIdentityPolicy>
 
   <CurrentToolSurface>
     <tool-1>search_messages</tool-1>
@@ -71,15 +78,17 @@
 
   <PortalUiArchitecture>
     <RenderingModel>Server-rendered JSX pages with per-page HTTP routes; no SPA client router in current phase.</RenderingModel>
-    <InteractionModel>HTMX handles partial form updates; Alpine.js is optional and limited to local UI micro-interactions.</InteractionModel>
+    <InteractionModel>HTMX handles partial form updates and OAuth-start actions from server-rendered pages; Alpine.js is optional and limited to local UI micro-interactions.</InteractionModel>
     <StylingModel>Tailwind-based stylesheet compiled into shared portal asset and reused across portal pages.</StylingModel>
     <Route-1>`GET /` landing with redirect CTA to `/portal`</Route-1>
     <Route-2>`GET /portal` route gate to login/home depending on portal session</Route-2>
-    <Route-3>`GET/POST /portal/register` registration page and submission</Route-3>
-    <Route-4>`GET/POST /portal/login` login page and submission</Route-4>
-    <Route-5>`GET /portal/home` authenticated onboarding + MCP setup guide</Route-5>
-    <Route-6>`POST /portal/logout` portal session invalidation</Route-6>
-    <Route-7>`GET /portal/integrations/agent-setup` dedicated MCP connection guide page</Route-7>
+    <Route-3>`GET /portal/register` social-provider selection page for new users</Route-3>
+    <Route-4>`GET /portal/login` social-provider selection page for returning users</Route-4>
+    <Route-5>`GET /portal/auth/start?provider=&lt;provider&gt;&amp;intent=&lt;register|login&gt;` start OAuth with direct social connector</Route-5>
+    <Route-6>`GET /portal/auth/callback` OAuth callback exchange + portal session issue + provisioning trigger</Route-6>
+    <Route-7>`GET /portal/home` authenticated onboarding + MCP setup guide</Route-7>
+    <Route-8>`POST /portal/logout` portal session invalidation</Route-8>
+    <Route-9>`GET /portal/integrations/agent-setup` dedicated MCP connection guide page</Route-9>
   </PortalUiArchitecture>
 
   <DroppedCapabilities>

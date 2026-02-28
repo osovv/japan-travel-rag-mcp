@@ -6,8 +6,8 @@
       <constraint-1>Public MCP surface remains exactly four tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources`.</constraint-1>
       <constraint-2>`search_context`, `validate_google_map_link`, and `verify_tabelog` are removed from active and deferred implementation plans.</constraint-2>
       <constraint-3>Landing remains intentionally simple and redirects users into user portal; invite link is not required in this phase.</constraint-3>
-      <constraint-4>User portal must support self-serve registration and custom login UI without manual operator permission grants.</constraint-4>
-      <constraint-5>Portal onboarding must culminate in actionable MCP connection instructions for external AI agents.</constraint-5>
+      <constraint-4>User portal must support self-serve onboarding through Logto social OAuth only (no email/password auth forms) and avoid manual operator permission grants.</constraint-4>
+      <constraint-5>Portal onboarding must culminate in actionable MCP connection instructions for external AI agents and deterministic OAuth callback handling.</constraint-5>
       <constraint-6>FastMCP OAuth Proxy is enabled only for `/mcp` transport surface.</constraint-6>
       <constraint-7>`/admin/*` is protected only by `ROOT_AUTH_TOKEN` login/session policy.</constraint-7>
       <constraint-8>Portal session auth on `/portal/*` is isolated from both `/mcp` OAuth and `/admin/*` root session models.</constraint-8>
@@ -130,22 +130,24 @@
 
     <M-PORTAL-IDENTITY NAME="PortalIdentityClient" TYPE="INTEGRATION" LAYER="2" ORDER="3">
       <contract>
-        <purpose>Wrap identity-provider operations needed by portal flows: registration, login token exchange, and role/permission updates for tester access.</purpose>
+        <purpose>Wrap identity-provider operations needed by portal social OAuth flows: start URL construction, callback token exchange, identity resolution, and role/permission updates for tester access.</purpose>
         <inputs>
-          <param-1 name="registrationPayload" type="object" />
-          <param-2 name="loginPayload" type="object" />
-          <param-3 name="userId" type="string" />
+          <param-1 name="provider" type="string" />
+          <param-2 name="intent" type="register|login" />
+          <param-3 name="callbackParams" type="object" />
+          <param-4 name="userId" type="string" />
         </inputs>
         <outputs>
-          <param-1 name="identityResult" type="object" />
+          <param-1 name="oauthStartUrl" type="string" />
+          <param-2 name="identityResult" type="object" />
         </outputs>
         <errors>
           <error-PORTAL_IDENTITY_ERROR code="PORTAL_IDENTITY_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-registerPortalUser PURPOSE="Create user account in identity provider using portal registration flow." />
-        <export-loginPortalUser PURPOSE="Authenticate user credentials and return identity/session payload." />
+        <export-buildPortalOauthStartUrl PURPOSE="Build Logto authorization URL with social direct-sign-in parameters and portal callback target." />
+        <export-handlePortalOauthCallback PURPOSE="Exchange callback authorization code and resolve portal identity profile." />
         <export-ensureMcpAccessRole PURPOSE="Ensure tester has required MCP access role/policy without manual admin action." />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
@@ -211,7 +213,7 @@
         </errors>
       </contract>
       <interface>
-        <export-authenticatePortalUser PURPOSE="Create portal session from successful identity login/registration result." />
+        <export-authenticatePortalUser PURPOSE="Create portal session from successful social OAuth callback identity result." />
         <export-requirePortalSession PURPOSE="Allow or redirect for protected `/portal/*` routes." />
         <export-clearPortalSession PURPOSE="Invalidate tester portal session cookie." />
       </interface>
@@ -260,7 +262,7 @@
 
     <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
       <contract>
-        <purpose>Render public landing and user-portal pages with per-page route handlers, dispatch registration/login flows, and expose MCP setup instructions for testers.</purpose>
+        <purpose>Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, and render MCP setup instructions for testers.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
         </inputs>
@@ -274,8 +276,10 @@
       <interface>
         <export-handleLandingRequest PURPOSE="Serve `/` landing with primary redirect action to `/portal`." />
         <export-handlePortalRootRoute PURPOSE="Handle `GET /portal` and route to login/home by session state." />
-        <export-handlePortalRegisterRoute PURPOSE="Handle `GET/POST /portal/register` registration route with HTMX-compatible fragments." />
-        <export-handlePortalLoginRoute PURPOSE="Handle `GET/POST /portal/login` login route with HTMX-compatible fragments." />
+        <export-handlePortalRegisterRoute PURPOSE="Handle `GET /portal/register` social-provider onboarding page without password fields." />
+        <export-handlePortalLoginRoute PURPOSE="Handle `GET /portal/login` social-provider login page without password fields." />
+        <export-handlePortalOauthStartRoute PURPOSE="Handle `GET /portal/auth/start` and redirect to Logto social OAuth authorization endpoint." />
+        <export-handlePortalOauthCallbackRoute PURPOSE="Handle `GET /portal/auth/callback` code exchange, provisioning, and portal session creation." />
         <export-handlePortalHomeRoute PURPOSE="Handle `GET /portal/home` authenticated onboarding page." />
         <export-handlePortalAgentSetupRoute PURPOSE="Handle `GET /portal/integrations/agent-setup` detailed MCP setup guide page." />
         <export-handlePortalLogoutRoute PURPOSE="Handle `POST /portal/logout` and clear portal session." />
@@ -287,6 +291,7 @@
         <note-1>Invite-link flow is intentionally excluded in this phase.</note-1>
         <note-2>Portal UI stack is Bun JSX SSR + Tailwind + HTMX, with Alpine.js only for optional local micro-interactions.</note-2>
         <note-3>Per-page route architecture is mandatory in this phase (no client-side SPA router).</note-3>
+        <note-4>Register/login pages are custom but social-only; they route users to OAuth start endpoint rather than collecting password credentials.</note-4>
       </notes>
     </M-PORTAL-UI>
 
@@ -365,23 +370,23 @@
     </DF-LANDING-TO-PORTAL>
 
     <DF-PORTAL-REGISTRATION NAME="portal registration flow">
-      <step-1>Tester submits registration form at `/portal/register`.</step-1>
-      <step-2>M-PORTAL-IDENTITY creates identity account.</step-2>
-      <step-3>M-PORTAL-PROVISIONING ensures tester MCP access entitlement.</step-3>
-      <step-4>M-PORTAL-AUTH issues portal session cookie and redirects to `/portal/home`.</step-4>
+      <step-1>Tester opens `/portal/register` and chooses a social provider.</step-1>
+      <step-2>Route `/portal/auth/start` builds provider-specific OAuth URL (direct social sign-in) and redirects to Logto.</step-2>
+      <step-3>Logto redirects to `/portal/auth/callback`, then M-PORTAL-IDENTITY exchanges code and resolves identity.</step-3>
+      <step-4>M-PORTAL-PROVISIONING ensures tester MCP access entitlement; M-PORTAL-AUTH issues portal session and redirects to `/portal/home`.</step-4>
     </DF-PORTAL-REGISTRATION>
 
     <DF-PORTAL-LOGIN NAME="portal login flow">
-      <step-1>Tester submits credentials at `/portal/login`.</step-1>
-      <step-2>M-PORTAL-IDENTITY validates credentials and returns identity payload.</step-2>
-      <step-3>M-PORTAL-PROVISIONING enforces required tester access entitlements.</step-3>
+      <step-1>Tester opens `/portal/login` and chooses a social provider.</step-1>
+      <step-2>Route `/portal/auth/start` redirects to provider login via Logto OAuth flow.</step-2>
+      <step-3>`/portal/auth/callback` resolves identity and M-PORTAL-PROVISIONING re-validates tester access entitlements.</step-3>
       <step-4>M-PORTAL-AUTH issues session and portal home renders MCP setup guide.</step-4>
     </DF-PORTAL-LOGIN>
 
     <DF-PORTAL-HTMX-FORMS NAME="portal progressive form interaction flow">
-      <step-1>User submits registration/login form from server-rendered page.</step-1>
-      <step-2>HTMX posts to route handler and receives HTML fragment/full page response.</step-2>
-      <step-3>Route handler returns deterministic validation or success fragments without SPA state management.</step-3>
+      <step-1>User interacts with server-rendered register/login pages containing social provider actions.</step-1>
+      <step-2>HTMX requests can update provider selection/error fragments and route to OAuth start endpoint.</step-2>
+      <step-3>Route handlers return deterministic HTML fragments/full responses without SPA state management.</step-3>
       <step-4>Alpine.js is used only for optional local UI behaviors that do not replace server authority.</step-4>
     </DF-PORTAL-HTMX-FORMS>
 
@@ -443,7 +448,7 @@
     </Phase-1>
 
     <Phase-2 name="PortalIdentityAndAuthCore" status="planned">
-      <step-1>Implement M-PORTAL-IDENTITY integration for registration/login/provisioning endpoints.</step-1>
+      <step-1>Implement M-PORTAL-IDENTITY integration for social OAuth start/callback/provisioning endpoints.</step-1>
       <step-2>Implement M-PORTAL-AUTH session model for tester portal routes.</step-2>
       <step-3>Implement M-PORTAL-PROVISIONING automatic access grants.</step-3>
       <justification>Self-serve onboarding depends on identity integration and deterministic provisioning core logic.</justification>
@@ -451,9 +456,9 @@
 
     <Phase-3 name="PortalAndLandingUI" status="planned">
       <step-1>Implement simple landing with redirect CTA to `/portal`.</step-1>
-      <step-2>Implement per-page portal routes (`/portal/register`, `/portal/login`, `/portal/home`, `/portal/integrations/agent-setup`, `/portal/logout`).</step-2>
+      <step-2>Implement per-page portal routes (`/portal/register`, `/portal/login`, `/portal/auth/start`, `/portal/auth/callback`, `/portal/home`, `/portal/integrations/agent-setup`, `/portal/logout`).</step-2>
       <step-3>Implement Bun JSX SSR templates/components and compile Tailwind shared stylesheet asset.</step-3>
-      <step-4>Add HTMX form interactions for auth flows; use Alpine.js only for optional local micro-interactions.</step-4>
+      <step-4>Add HTMX interactions for social-provider UI states and OAuth start actions; use Alpine.js only for optional local micro-interactions.</step-4>
       <justification>UI layer is meaningful only after auth/provisioning contracts are defined and must follow the approved lightweight SSR interaction model.</justification>
     </Phase-3>
 
@@ -475,8 +480,9 @@
     <risk-1 severity="high">Automatic provisioning can fail due to identity-provider API/permission misconfiguration, blocking onboarding despite valid registration.</risk-1>
     <risk-2 severity="high">Auth-boundary mistakes across `/mcp`, `/admin/*`, and `/portal/*` can create privilege crossover.</risk-2>
     <risk-3 severity="medium">Portal session secret/ttl misconfiguration can cause unstable login UX or accidental long-lived sessions.</risk-3>
-    <risk-4 severity="medium">UI/contract drift between portal setup instructions and actual MCP OAuth requirements may increase tester setup failures.</risk-4>
-    <risk-5 severity="low">Keeping legacy deprecated modules in repo can confuse future implementation unless graph linkage remains explicit.</risk-5>
+    <risk-4 severity="medium">Social connector misconfiguration or provider outage can break both registration and login flows simultaneously.</risk-4>
+    <risk-5 severity="medium">UI/contract drift between portal setup instructions and actual MCP OAuth requirements may increase tester setup failures.</risk-5>
+    <risk-6 severity="low">Keeping legacy deprecated modules in repo can confuse future implementation unless graph linkage remains explicit.</risk-6>
   </RiskAssessment>
 
   <DeprecatedModules>

@@ -72,16 +72,16 @@
 
     <UC-011>
       <Actor>External Tester</Actor>
-      <Action>Registers an account in custom user-portal registration UI</Action>
-      <Goal>Create account without manual platform-admin intervention</Goal>
-      <AcceptanceCriteria>User can complete registration from `/portal/register`; invite links are not required</AcceptanceCriteria>
+      <Action>Opens custom `/portal/register` page and starts OAuth with an allowed social provider</Action>
+      <Goal>Create account without manual platform-admin intervention and without password flow</Goal>
+      <AcceptanceCriteria>Registration page offers only social sign-in options; no email/password registration fields are shown</AcceptanceCriteria>
     </UC-011>
 
     <UC-012>
       <Actor>External Tester</Actor>
-      <Action>Authenticates in custom user-portal login UI</Action>
+      <Action>Opens custom `/portal/login` page and starts OAuth with an allowed social provider</Action>
       <Goal>Access tester area that explains how to connect MCP in external AI agents</Goal>
-      <AcceptanceCriteria>Login from `/portal/login` creates a portal user session and opens portal home/instructions screen</AcceptanceCriteria>
+      <AcceptanceCriteria>Login page offers only social sign-in options; no email/password login fields are shown</AcceptanceCriteria>
     </UC-012>
 
     <UC-013>
@@ -104,6 +104,13 @@
       <Goal>Prevent privilege crossover between machine auth, operator auth, and tester portal auth</Goal>
       <AcceptanceCriteria>Portal session cannot access admin routes; admin session cannot bypass `/mcp` OAuth; MCP OAuth token is not treated as portal/admin session</AcceptanceCriteria>
     </UC-015>
+
+    <UC-016>
+      <Actor>System</Actor>
+      <Action>Completes OAuth callback from Logto for portal social login and creates local portal session</Action>
+      <Goal>Finalize custom-UI social authentication flow with deterministic success/failure outcomes</Goal>
+      <AcceptanceCriteria>`/portal/auth/callback` exchanges authorization code, handles expected OAuth errors safely, and redirects to `/portal/home` on success</AcceptanceCriteria>
+    </UC-016>
   </UseCases>
 
   <DeferredUseCases>

@@ -10,6 +10,16 @@
 2. Portal architecture is per-page routes (not SPA client router).
 3. Invite-link flow is not required in current phase.
 
+## Portal auth policy approval (social-only)
+
+1. Portal auth is Logto OAuth-based and allows only social login connectors.
+2. Local email/password registration/login is not part of this phase.
+3. `/portal/register` and `/portal/login` remain custom pages, but they contain social-provider actions only.
+4. Portal routes include OAuth entry/callback endpoints:
+   - `GET /portal/auth/start?provider=<provider>&intent=<register|login>`
+   - `GET /portal/auth/callback`
+5. After callback success, server performs provisioning and creates portal session.
+
 ## Approved route map (portal-first e2e)
 
 1. `GET /` - simple landing with primary CTA redirect to `/portal`.
@@ -19,6 +29,8 @@
 5. `GET /portal/home` - authenticated onboarding and quick MCP setup.
 6. `POST /portal/logout` - clear portal session.
 7. `GET /portal/integrations/agent-setup` - detailed MCP connection guide.
+8. `GET /portal/auth/start` - start Logto social OAuth flow from custom portal UI.
+9. `GET /portal/auth/callback` - complete OAuth callback, provisioning, and session issue.
 
 ## Interaction model constraints
 

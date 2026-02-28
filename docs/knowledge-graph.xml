@@ -57,12 +57,12 @@
     </M-AUTH-PROXY>
 
     <M-PORTAL-IDENTITY NAME="PortalIdentityClient" TYPE="INTEGRATION" STATUS="planned">
-      <purpose>Identity-provider adapter for portal registration/login and automatic tester access role assignment.</purpose>
+      <purpose>Identity-provider adapter for portal social OAuth start/callback flows and automatic tester access role assignment.</purpose>
       <path>src/portal/identity-client.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
       <annotations>
-        <fn-registerPortalUser description="Create tester account via portal registration flow." />
-        <fn-loginPortalUser description="Authenticate tester credentials for portal login flow." />
+        <fn-buildPortalOauthStartUrl description="Build provider-specific Logto authorization URL for social direct sign-in." />
+        <fn-handlePortalOauthCallback description="Exchange callback code and resolve tester identity profile." />
         <fn-ensureMcpAccessRole description="Assign/verify MCP tester role without manual admin actions." />
       </annotations>
     </M-PORTAL-IDENTITY>
@@ -127,8 +127,10 @@
       <annotations>
         <fn-handleLandingRequest description="Serve / landing with redirect action to portal." />
         <fn-handlePortalRootRoute description="Handle /portal and route to login/home by portal session state." />
-        <fn-handlePortalRegisterRoute description="Handle /portal/register page and registration submit flow." />
-        <fn-handlePortalLoginRoute description="Handle /portal/login page and login submit flow." />
+        <fn-handlePortalRegisterRoute description="Handle /portal/register social-provider page without password fields." />
+        <fn-handlePortalLoginRoute description="Handle /portal/login social-provider page without password fields." />
+        <fn-handlePortalOauthStartRoute description="Handle /portal/auth/start and redirect to Logto social OAuth endpoint." />
+        <fn-handlePortalOauthCallbackRoute description="Handle /portal/auth/callback and create portal session after provisioning." />
         <fn-handlePortalHomeRoute description="Handle /portal/home authenticated onboarding view." />
         <fn-handlePortalAgentSetupRoute description="Handle /portal/integrations/agent-setup MCP setup guide view." />
         <fn-handlePortalLogoutRoute description="Handle /portal/logout session clear action." />
@@ -234,14 +236,15 @@
       </DF-LANDING-TO-PORTAL>
 
       <DF-PORTAL-ONBOARDING NAME="portal onboarding flow">
-        <step-1>User registers/logs in at `/portal/register` or `/portal/login`.</step-1>
-        <step-2>M-PORTAL-IDENTITY validates identity and M-PORTAL-PROVISIONING ensures MCP access role.</step-2>
-        <step-3>M-PORTAL-AUTH issues session and M-PORTAL-UI renders MCP setup guide.</step-3>
+        <step-1>User opens `/portal/register` or `/portal/login` and chooses social provider.</step-1>
+        <step-2>`/portal/auth/start` redirects to Logto social OAuth flow and returns to `/portal/auth/callback`.</step-2>
+        <step-3>M-PORTAL-IDENTITY resolves identity, M-PORTAL-PROVISIONING ensures MCP role, and M-PORTAL-AUTH issues session.</step-3>
+        <step-4>M-PORTAL-UI renders MCP setup guide after successful callback flow.</step-4>
       </DF-PORTAL-ONBOARDING>
 
       <DF-PORTAL-UI-INTERACTION NAME="portal progressive enhancement flow">
         <step-1>Portal page is rendered on server using Bun JSX templates.</step-1>
-        <step-2>HTMX submits auth forms and updates response fragments from server route handlers.</step-2>
+        <step-2>HTMX updates social-provider selection/error fragments and can trigger OAuth start route requests.</step-2>
         <step-3>Alpine.js handles optional local UI state only (for example toggles/copy helpers).</step-3>
       </DF-PORTAL-UI-INTERACTION>
 
