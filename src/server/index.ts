@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 3.0.0
+// VERSION: 3.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server with MCP, admin, and portal surfaces, and start HTTP stream transport on /mcp.
-//   SCOPE: Load config/logger, initialize OAuth proxy/upstream proxy/portal identity/admin handler/portal handler dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
+//   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -15,13 +15,16 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.0.0 - Added portal identity client, portal UI handler, and landing handler construction to server boot path for self-serve onboarding.
+//   LAST_CHANGE: v3.1.0 - Wired createDb into server bootstrap with fail-fast connectivity probe and graceful pool shutdown.
 // END_CHANGE_SUMMARY
 
 import { type FastMCP } from "fastmcp";
+import type { Pool } from "pg";
 import { handleAdminRequest } from "../admin/ui-routes";
 import { createOauthProxy } from "../auth/oauth-proxy";
 import { loadConfig } from "../config/index";
+import { createDb } from "../db/index";
+import type { DbClient } from "../db/index";
 import { createTgChatRagClient } from "../integrations/tg-chat-rag-client";
 import { createLogger } from "../logger/index";
 import type { Logger } from "../logger/index";
@@ -43,6 +46,7 @@ import { createToolProxyService } from "../tools/proxy-service";
 
 type ShutdownTarget = {
   fastMcpServer: FastMCP | null;
+  dbPool: Pool | null;
 };
 
 type ShutdownReason = "SIGINT" | "SIGTERM" | "STARTUP_FAILURE";
@@ -59,11 +63,11 @@ export class ServerStartError extends Error {
 }
 
 // START_CONTRACT: stopRuntime
-//   PURPOSE: Stop FastMCP runtime in deterministic order with idempotent target clearing.
+//   PURPOSE: Stop FastMCP runtime and database pool in deterministic order with idempotent target clearing.
 //   INPUTS: { shutdownTarget: ShutdownTarget - Mutable runtime handle, logger: Logger - Server logger, reason: ShutdownReason - Shutdown trigger label }
 //   OUTPUTS: { Promise<void> - Resolves after stop attempts complete }
-//   SIDE_EFFECTS: [Calls FastMCP.stop(), mutates shutdownTarget handles to null, emits structured logs]
-//   LINKS: [M-SERVER, M-FASTMCP-RUNTIME, M-LOGGER]
+//   SIDE_EFFECTS: [Calls FastMCP.stop(), closes database pool, mutates shutdownTarget handles to null, emits structured logs]
+//   LINKS: [M-SERVER, M-FASTMCP-RUNTIME, M-DB, M-LOGGER]
 // END_CONTRACT: stopRuntime
 async function stopRuntime(
   shutdownTarget: ShutdownTarget,
@@ -97,6 +101,34 @@ async function stopRuntime(
     }
   }
   // END_BLOCK_STOP_FASTMCP_RUNTIME_M_SERVER_101
+
+  // START_BLOCK_CLOSE_DATABASE_POOL_M_SERVER_106
+  const poolToClose = shutdownTarget.dbPool;
+
+  shutdownTarget.dbPool = null;
+
+  if (poolToClose !== null) {
+    try {
+      await poolToClose.end();
+      logger.info(
+        "Closed database connection pool.",
+        "stopRuntime",
+        "CLOSE_DATABASE_POOL",
+        { reason },
+      );
+    } catch (error: unknown) {
+      logger.error(
+        "Failed while closing database connection pool.",
+        "stopRuntime",
+        "CLOSE_DATABASE_POOL",
+        {
+          reason,
+          cause: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
+  }
+  // END_BLOCK_CLOSE_DATABASE_POOL_M_SERVER_106
 }
 
 // START_CONTRACT: installGracefulShutdownHandlers
@@ -164,12 +196,13 @@ function installGracefulShutdownHandlers(shutdownTarget: ShutdownTarget, logger:
 //   PURPOSE: Bootstrap all runtime dependencies, construct FastMCP runtime, and start MCP httpStream transport.
 //   INPUTS: {}
 //   OUTPUTS: { Promise<FastMCP> - Started FastMCP runtime instance }
-//   SIDE_EFFECTS: [Reads env config, initializes oauth proxy metadata and upstream dependencies, opens network listeners, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-ADMIN-UI]
+//   SIDE_EFFECTS: [Reads env config, initializes database client and oauth proxy metadata and upstream dependencies, opens network listeners, registers process signal handlers, emits logs]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-ADMIN-UI]
 // END_CONTRACT: main
 export async function main(): Promise<FastMCP> {
   const shutdownTarget: ShutdownTarget = {
     fastMcpServer: null,
+    dbPool: null,
   };
   let logger: Logger | null = null;
 
@@ -184,6 +217,11 @@ export async function main(): Promise<FastMCP> {
       "BOOTSTRAP_FASTMCP_SERVER_RUNTIME",
       { port: config.port },
     );
+
+    // START_BLOCK_BOOTSTRAP_DATABASE_CLIENT_M_SERVER_107
+    const dbClient: DbClient = await createDb(config, logger.child({ component: "db" }));
+    shutdownTarget.dbPool = dbClient.pool;
+    // END_BLOCK_BOOTSTRAP_DATABASE_CLIENT_M_SERVER_107
 
     const tgClient = createTgChatRagClient(config, logger.child({ component: "tgChatRagClient" }));
     const proxyService = createToolProxyService(
