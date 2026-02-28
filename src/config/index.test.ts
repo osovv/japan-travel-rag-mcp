@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Extended tests for portal session/identity config: PORTAL_SESSION_SECRET, LOGTO_PORTAL_APP_ID, LOGTO_PORTAL_APP_SECRET, PORTAL_SESSION_TTL_SECONDS.
+//   LAST_CHANGE: v1.4.0 - Extended tests for M2M provisioning credentials (LOGTO_M2M_APP_ID, LOGTO_M2M_APP_SECRET) and configurable role ID (LOGTO_MCP_USER_ROLE_ID).
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -45,6 +45,9 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     PORTAL_SESSION_SECRET: "portal-session-secret-value",
     LOGTO_PORTAL_APP_ID: "portal-app-id",
     LOGTO_PORTAL_APP_SECRET: "portal-app-secret",
+    LOGTO_M2M_APP_ID: "m2m-app-id",
+    LOGTO_M2M_APP_SECRET: "m2m-app-secret",
+    LOGTO_MCP_USER_ROLE_ID: "role-uuid-1234",
     ...overrides,
   };
   // END_BLOCK_BUILD_BASE_ENV_FOR_CONFIG_TESTS_M_CONFIG_TEST_001
@@ -87,6 +90,9 @@ describe("M-CONFIG runtime settings", () => {
     expect(config.portal.sessionSecret).toBe("portal-session-secret-value");
     expect(config.portal.logtoAppId).toBe("portal-app-id");
     expect(config.portal.logtoAppSecret).toBe("portal-app-secret");
+    expect(config.portal.logtoM2mAppId).toBe("m2m-app-id");
+    expect(config.portal.logtoM2mAppSecret).toBe("m2m-app-secret");
+    expect(config.portal.mcpUserRoleId).toBe("role-uuid-1234");
     expect(config.portal.sessionTtlSeconds).toBe(604800);
   });
 
@@ -133,6 +139,9 @@ describe("M-CONFIG runtime settings", () => {
         PORTAL_SESSION_SECRET: " ",
         LOGTO_PORTAL_APP_ID: " ",
         LOGTO_PORTAL_APP_SECRET: " ",
+        LOGTO_M2M_APP_ID: " ",
+        LOGTO_M2M_APP_SECRET: " ",
+        LOGTO_MCP_USER_ROLE_ID: " ",
       }),
     );
 
@@ -148,6 +157,9 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.details).toContain("PORTAL_SESSION_SECRET is required.");
     expect(error.details).toContain("LOGTO_PORTAL_APP_ID is required.");
     expect(error.details).toContain("LOGTO_PORTAL_APP_SECRET is required.");
+    expect(error.details).toContain("LOGTO_M2M_APP_ID is required.");
+    expect(error.details).toContain("LOGTO_M2M_APP_SECRET is required.");
+    expect(error.details).toContain("LOGTO_MCP_USER_ROLE_ID is required.");
   });
 
   it("throws CONFIG_VALIDATION_ERROR for invalid URL values", () => {

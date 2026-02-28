@@ -1,5 +1,5 @@
 // FILE: src/portal/identity-client.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Wrap identity-provider operations needed by portal social OAuth flows: start URL construction, callback token exchange, identity resolution, and role/permission updates for tester access.
 //   SCOPE: Build Logto authorization URL with social direct-sign-in parameters, exchange callback authorization code and resolve portal identity profile, and ensure tester has required MCP access role.
@@ -22,7 +22,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-PORTAL-IDENTITY with Logto social direct-sign-in, callback exchange, and Management API role provisioning.
+//   LAST_CHANGE: v1.1.0 - Fixed ensureMcpAccessRole to use dedicated M2M app credentials (LOGTO_M2M_APP_ID/SECRET) for client_credentials grant and configurable role ID (LOGTO_MCP_USER_ROLE_ID) instead of hardcoded constant.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -35,7 +35,6 @@ import type { Logger } from "../logger/index";
 const PORTAL_OAUTH_CALLBACK_PATH = "/portal/auth/callback" as const;
 const PORTAL_OAUTH_SCOPES = "openid profile email" as const;
 const PORTAL_OAUTH_RESPONSE_TYPE = "code" as const;
-const MCP_TESTER_ROLE_ID = "mcp-tester" as const;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -478,8 +477,8 @@ export function createPortalIdentityClient(
       m2mBody.set("resource", managementApiResource);
       m2mBody.set("scope", "all");
 
-      const portalAppId = config.portal.logtoAppId;
-      const portalAppSecret = config.portal.logtoAppSecret;
+      const m2mAppId = config.portal.logtoM2mAppId;
+      const m2mAppSecret = config.portal.logtoM2mAppSecret;
 
       log.debug(
         "Acquiring M2M access token for Logto Management API.",
@@ -495,7 +494,7 @@ export function createPortalIdentityClient(
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${Buffer.from(`${portalAppId}:${portalAppSecret}`, "utf8").toString("base64")}`,
+          Authorization: `Basic ${Buffer.from(`${m2mAppId}:${m2mAppSecret}`, "utf8").toString("base64")}`,
         },
         body: m2mBody.toString(),
       });
@@ -525,17 +524,18 @@ export function createPortalIdentityClient(
       );
       // END_BLOCK_ACQUIRE_M2M_ACCESS_TOKEN_M_PORTAL_IDENTITY_014
 
-      // START_BLOCK_ASSIGN_MCP_TESTER_ROLE_TO_USER_M_PORTAL_IDENTITY_015
+      // START_BLOCK_ASSIGN_MCP_USER_ROLE_TO_USER_M_PORTAL_IDENTITY_015
+      const mcpUserRoleId = config.portal.mcpUserRoleId;
       const roleAssignUrl = `${tenantBaseUrl}/api/users/${encodeURIComponent(trimmedUserId)}/roles`;
-      const rolePayload = JSON.stringify({ roleIds: [MCP_TESTER_ROLE_ID] });
+      const rolePayload = JSON.stringify({ roleIds: [mcpUserRoleId] });
 
       log.debug(
-        "Assigning MCP tester role to user via Management API.",
+        "Assigning MCP user role to user via Management API.",
         "ensureMcpAccessRole",
-        "ASSIGN_MCP_TESTER_ROLE_TO_USER",
+        "ASSIGN_MCP_USER_ROLE_TO_USER",
         {
           userId: trimmedUserId,
-          roleId: MCP_TESTER_ROLE_ID,
+          roleId: mcpUserRoleId,
           roleAssignUrl,
         },
       );
@@ -555,19 +555,19 @@ export function createPortalIdentityClient(
 
         log.info(
           alreadyAssigned
-            ? "MCP tester role already assigned to user."
-            : "MCP tester role assigned to user successfully.",
+            ? "MCP user role already assigned to user."
+            : "MCP user role assigned to user successfully.",
           "ensureMcpAccessRole",
-          "ASSIGN_MCP_TESTER_ROLE_TO_USER",
+          "ASSIGN_MCP_USER_ROLE_TO_USER",
           {
             userId: trimmedUserId,
-            roleId: MCP_TESTER_ROLE_ID,
+            roleId: mcpUserRoleId,
             alreadyAssigned,
             status: roleResponse.status,
           },
         );
 
-        return { provisioned: true, roleId: MCP_TESTER_ROLE_ID };
+        return { provisioned: true, roleId: mcpUserRoleId };
       }
 
       const roleResponseText = await roleResponse.text().catch(() => "(unreadable body)");
@@ -576,9 +576,9 @@ export function createPortalIdentityClient(
         statusText: roleResponse.statusText,
         body: roleResponseText,
         userId: trimmedUserId,
-        roleId: MCP_TESTER_ROLE_ID,
+        roleId: mcpUserRoleId,
       });
-      // END_BLOCK_ASSIGN_MCP_TESTER_ROLE_TO_USER_M_PORTAL_IDENTITY_015
+      // END_BLOCK_ASSIGN_MCP_USER_ROLE_TO_USER_M_PORTAL_IDENTITY_015
     } catch (error: unknown) {
       throw toPortalIdentityError(error, "Failed to ensure MCP access role.", {
         userId: trimmedUserId,

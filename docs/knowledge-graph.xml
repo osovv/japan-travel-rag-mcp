@@ -4,12 +4,12 @@
     <annotation>Portal-first architecture keeps current four MCP proxy tools and adds shareable landing + self-serve user portal onboarding before deferred ingestion work.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
-      <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, and portal session/identity settings.</purpose>
+      <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, and M2M provisioning credentials.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
       <annotations>
         <fn-loadConfig description="Validate env and build typed AppConfig." />
-        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, and Logto credentials." />
+        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, Logto credentials, and M2M provisioning credentials with configurable role ID." />
       </annotations>
     </M-CONFIG>
 
@@ -63,7 +63,7 @@
       <annotations>
         <fn-buildPortalOauthStartUrl description="Build provider-specific Logto authorization URL for social direct sign-in." />
         <fn-handlePortalOauthCallback description="Exchange callback code and resolve tester identity profile." />
-        <fn-ensureMcpAccessRole description="Assign/verify MCP tester role without manual admin actions." />
+        <fn-ensureMcpAccessRole description="Assign/verify MCP user role via dedicated M2M app credentials and configurable role ID without manual admin actions." />
       </annotations>
     </M-PORTAL-IDENTITY>
 

@@ -1,20 +1,20 @@
 // FILE: src/config/index.ts
-// VERSION: 1.6.0
+// VERSION: 1.7.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, admin root auth, and portal session/identity settings.
-//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, and portal session/identity config for self-serve onboarding.
+//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, portal session/identity config, and M2M provisioning credentials for self-serve onboarding.
 //   DEPENDS: none
 //   LINKS: M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy, and portal session/identity settings.
+//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy, portal session/identity settings, and M2M provisioning credentials.
 //   ConfigValidationError - Typed validation error carrying CONFIG_VALIDATION_ERROR code.
 //   loadConfig - Validate process environment and return AppConfig.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.6.0 - Extended AppConfig with portal session/identity config: PORTAL_SESSION_SECRET, LOGTO_PORTAL_APP_ID, LOGTO_PORTAL_APP_SECRET, and optional PORTAL_SESSION_TTL_SECONDS.
+//   LAST_CHANGE: v1.7.0 - Added M2M provisioning credentials (LOGTO_M2M_APP_ID, LOGTO_M2M_APP_SECRET) and configurable role ID (LOGTO_MCP_USER_ROLE_ID) to portal config for Logto Management API role assignment.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
@@ -38,6 +38,9 @@ export type AppConfig = {
     sessionSecret: string;
     logtoAppId: string;
     logtoAppSecret: string;
+    logtoM2mAppId: string;
+    logtoM2mAppSecret: string;
+    mcpUserRoleId: string;
     sessionTtlSeconds: number;
   };
 };
@@ -56,7 +59,7 @@ export class ConfigValidationError extends Error {
 // START_CONTRACT: loadConfig
 //   PURPOSE: Validate runtime environment values and return typed AppConfig.
 //   INPUTS: { env: NodeJS.ProcessEnv | undefined - Source env map, defaults to process.env }
-//   OUTPUTS: { AppConfig - Typed config for tg-chat-rag integration, root auth, public URL, Logto OAuth proxy credentials/endpoints, and portal session/identity settings }
+//   OUTPUTS: { AppConfig - Typed config for tg-chat-rag integration, root auth, public URL, Logto OAuth proxy credentials/endpoints, portal session/identity settings, and M2M provisioning credentials }
 //   SIDE_EFFECTS: [Throws ConfigValidationError with code CONFIG_VALIDATION_ERROR when validation fails]
 //   LINKS: [M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY]
 // END_CONTRACT: loadConfig
@@ -77,6 +80,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const portalSessionSecret = (env.PORTAL_SESSION_SECRET ?? "").trim();
   const portalLogtoAppId = (env.LOGTO_PORTAL_APP_ID ?? "").trim();
   const portalLogtoAppSecret = (env.LOGTO_PORTAL_APP_SECRET ?? "").trim();
+  const portalLogtoM2mAppId = (env.LOGTO_M2M_APP_ID ?? "").trim();
+  const portalLogtoM2mAppSecret = (env.LOGTO_M2M_APP_SECRET ?? "").trim();
+  const portalMcpUserRoleId = (env.LOGTO_MCP_USER_ROLE_ID ?? "").trim();
   const portalSessionTtlRaw = (env.PORTAL_SESSION_TTL_SECONDS ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
@@ -208,6 +214,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   // END_BLOCK_VALIDATE_PORTAL_LOGTO_APP_CREDENTIALS_M_CONFIG_015
 
+  // START_BLOCK_VALIDATE_PORTAL_M2M_CREDENTIALS_M_CONFIG_017
+  if (!portalLogtoM2mAppId) {
+    errors.push("LOGTO_M2M_APP_ID is required.");
+  }
+  if (!portalLogtoM2mAppSecret) {
+    errors.push("LOGTO_M2M_APP_SECRET is required.");
+  }
+  // END_BLOCK_VALIDATE_PORTAL_M2M_CREDENTIALS_M_CONFIG_017
+
+  // START_BLOCK_VALIDATE_MCP_USER_ROLE_ID_M_CONFIG_018
+  if (!portalMcpUserRoleId) {
+    errors.push("LOGTO_MCP_USER_ROLE_ID is required.");
+  }
+  // END_BLOCK_VALIDATE_MCP_USER_ROLE_ID_M_CONFIG_018
+
   // START_BLOCK_PARSE_PORTAL_SESSION_TTL_M_CONFIG_016
   let portalSessionTtlSeconds = 604800; // 7 days default
   if (portalSessionTtlRaw) {
@@ -248,6 +269,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       sessionSecret: portalSessionSecret,
       logtoAppId: portalLogtoAppId,
       logtoAppSecret: portalLogtoAppSecret,
+      logtoM2mAppId: portalLogtoM2mAppId,
+      logtoM2mAppSecret: portalLogtoM2mAppSecret,
+      mcpUserRoleId: portalMcpUserRoleId,
       sessionTtlSeconds: portalSessionTtlSeconds,
     },
   };
