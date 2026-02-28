@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 3.1.0
+// VERSION: 3.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server with MCP, admin, and portal surfaces, and start HTTP stream transport on /mcp.
 //   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -15,7 +15,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.1.0 - Wired createDb into server bootstrap with fail-fast connectivity probe and graceful pool shutdown.
+//   LAST_CHANGE: v3.2.0 - Wired usageTracker into portal and FastMCP runtime dependencies after DB initialization.
 // END_CHANGE_SUMMARY
 
 import { type FastMCP } from "fastmcp";
@@ -43,6 +43,7 @@ import {
 import type { PortalUiDependencies } from "../portal/ui-routes";
 import { createFastMcpRuntime } from "../runtime/fastmcp-runtime";
 import { createToolProxyService } from "../tools/proxy-service";
+import { createUsageTracker } from "../usage/tracker";
 
 type ShutdownTarget = {
   fastMcpServer: FastMCP | null;
@@ -223,6 +224,14 @@ export async function main(): Promise<FastMCP> {
     shutdownTarget.dbPool = dbClient.pool;
     // END_BLOCK_BOOTSTRAP_DATABASE_CLIENT_M_SERVER_107
 
+    // START_BLOCK_BOOTSTRAP_USAGE_TRACKER_M_SERVER_108
+    // Create usage tracker with auto-schema bootstrap
+    const usageTracker = await createUsageTracker({
+      db: dbClient.db,
+      logger: logger.child({ component: "usageTracker" }),
+    });
+    // END_BLOCK_BOOTSTRAP_USAGE_TRACKER_M_SERVER_108
+
     const tgClient = createTgChatRagClient(config, logger.child({ component: "tgChatRagClient" }));
     const proxyService = createToolProxyService(
       config,
@@ -251,6 +260,7 @@ export async function main(): Promise<FastMCP> {
       config,
       logger: logger.child({ route: "portal", component: "portalUiRoutes" }),
       identityClient,
+      usageTracker,
     };
 
     const portalLandingHandler = async (request: Request): Promise<Response> => {
@@ -299,6 +309,7 @@ export async function main(): Promise<FastMCP> {
       adminHandler,
       portalLandingHandler,
       portalHandler,
+      usageTracker,
     });
     shutdownTarget.fastMcpServer = fastMcpServer;
 
