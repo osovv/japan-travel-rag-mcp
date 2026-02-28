@@ -1,10 +1,10 @@
 // FILE: src/runtime/fastmcp-runtime.ts
-// VERSION: 1.6.0
+// VERSION: 1.7.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface with per-user usage tracking, health endpoint, delegated /admin routes, and portal/landing routes.
-//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService with fire-and-forget usage tracking, mount OAuth diagnostics notFound routes, mount /admin routes, and mount / and /portal/* routes through FastMCP.getApp().
-//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER
-//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER
+//   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface (4 proxied + 1 local) with per-user usage tracking, health endpoint, delegated /admin routes, and portal/landing routes.
+//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools and one local tool (get_site_sources) with zod schemas and canAccess guards, route tool execution to ToolProxyService or local handler with fire-and-forget usage tracking, mount OAuth diagnostics notFound routes, mount /admin routes, and mount / and /portal/* routes through FastMCP.getApp().
+//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES
+//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -16,14 +16,15 @@
 //   countScopesFromQueryValue - Count normalized scope entries from OAuth scope query value.
 //   mountOauthDiagnosticsNotFoundRoutes - Mount OAuth diagnostics notFound routes to log sanitized authorize/callback query diagnostics.
 //   registerProxyTools - Register fixed four-tool proxy surface on FastMCP.
+//   registerLocalTools - Register local tools (get_site_sources) with canAccess guard and usage tracking.
 //   mountAdminRoutes - Mount /admin and /admin/* handlers via FastMCP.getApp().
 //   mountPortalRoutes - Mount / landing and /portal/* handlers via FastMCP.getApp().
 //   extractUserIdFromSession - Extract user sub claim from MCP OAuth session JWT tokens for usage tracking.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.6.0 - Added per-user usage tracking to tool execute handlers via fire-and-forget recordToolCall after successful tool execution with JWT sub extraction.
-//   PREVIOUS: v1.5.0 - Added extractUserIdFromSession helper to extract user sub claim from MCP OAuth session JWT tokens for usage tracking.
+//   LAST_CHANGE: v1.7.0 - Added registerLocalTools for get_site_sources local registry tool with canAccess guard and usage tracking.
+//   PREVIOUS: v1.6.0 - Added per-user usage tracking to tool execute handlers via fire-and-forget recordToolCall after successful tool execution with JWT sub extraction.
 // END_CHANGE_SUMMARY
 
 import { FastMCP, type ServerOptions } from "fastmcp";
@@ -39,6 +40,7 @@ import {
   TOOL_INPUT_JSON_SCHEMAS,
 } from "../tools/contracts";
 import { ProxyExecutionError, type ToolProxyService } from "../tools/proxy-service";
+import { SITE_SOURCES_RESPONSE, GetSiteSourcesInputSchema } from "../tools/site-sources";
 import type { UsageTracker } from "../usage/tracker";
 
 const FASTMCP_SERVER_NAME = "japan-travel-rag-mcp";
@@ -1111,6 +1113,66 @@ export function registerProxyTools(
   // END_BLOCK_REGISTER_FIXED_PROXY_TOOL_SET_ON_FASTMCP_M_FASTMCP_RUNTIME_018
 }
 
+type RegisterLocalToolsDependencies = {
+  logger: Logger;
+  usageTracker: UsageTracker;
+};
+
+// START_CONTRACT: registerLocalTools
+//   PURPOSE: Register local tools (get_site_sources) on FastMCP with canAccess guard and fire-and-forget usage tracking.
+//   INPUTS: { fastMcpServer: FastMCP<RuntimeSessionAuth> - Runtime instance, deps: RegisterLocalToolsDependencies - Logger and usage tracker }
+//   OUTPUTS: { void - Local tools are registered on FastMCP instance }
+//   SIDE_EFFECTS: [Mutates FastMCP tool registry, emits structured logs, fires usage tracking after successful execution]
+//   INVARIANTS:
+//     - get_site_sources returns frozen SITE_SOURCES_RESPONSE without upstream calls
+//     - Usage tracking failure MUST NEVER affect tool result
+//   LINKS: [M-FASTMCP-RUNTIME, M-SITE-SOURCES, M-USAGE-TRACKER, M-LOGGER]
+// END_CONTRACT: registerLocalTools
+export function registerLocalTools(
+  fastMcpServer: FastMCP<RuntimeSessionAuth>,
+  deps: RegisterLocalToolsDependencies,
+): void {
+  // START_BLOCK_REGISTER_LOCAL_TOOLS_ON_FASTMCP_M_FASTMCP_RUNTIME_022
+  fastMcpServer.addTool({
+    name: "get_site_sources",
+    description:
+      "Returns a curated registry of trusted sources for Japan travel research. Metadata-only: domains, tiers, language hints. No page content.",
+    parameters: GetSiteSourcesInputSchema,
+    canAccess: canAccessAuthenticatedProxyTools,
+    execute: async (_args, context) => {
+      // Fire-and-forget usage tracking
+      const userId = extractUserIdFromSession(context.session);
+      if (userId !== null) {
+        deps.usageTracker.recordToolCall(userId, "get_site_sources");
+      } else {
+        deps.logger.warn(
+          "Could not extract user ID from session for usage tracking.",
+          "registerLocalTools",
+          "TRACK_LOCAL_TOOL_USAGE",
+          { toolName: "get_site_sources" },
+        );
+      }
+
+      deps.logger.info(
+        "Executed local MCP tool get_site_sources.",
+        "registerLocalTools",
+        "REGISTER_LOCAL_TOOLS_ON_FASTMCP",
+        { toolName: "get_site_sources" },
+      );
+
+      return JSON.stringify(SITE_SOURCES_RESPONSE);
+    },
+  });
+
+  deps.logger.info(
+    "Registered local tools on FastMCP.",
+    "registerLocalTools",
+    "REGISTER_LOCAL_TOOLS_ON_FASTMCP",
+    { toolNames: ["get_site_sources"] },
+  );
+  // END_BLOCK_REGISTER_LOCAL_TOOLS_ON_FASTMCP_M_FASTMCP_RUNTIME_022
+}
+
 // START_CONTRACT: mountAdminRoutes
 //   PURPOSE: Mount /admin and /admin/* route handlers on FastMCP underlying Hono app via delegated adminHandler.
 //   INPUTS: { fastMcpServer: FastMCP<RuntimeSessionAuth> - Runtime instance, deps: MountAdminRoutesDependencies - Admin route dependencies }
@@ -1291,6 +1353,11 @@ export function createFastMcpRuntime(
     registerProxyTools(fastMcpServer, {
       logger: runtimeLogger.child({ component: "proxyTools" }),
       proxyService: deps.proxyService,
+      usageTracker: deps.usageTracker,
+    });
+
+    registerLocalTools(fastMcpServer, {
+      logger: runtimeLogger.child({ component: "localTools" }),
       usageTracker: deps.usageTracker,
     });
 

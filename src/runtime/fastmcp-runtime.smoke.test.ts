@@ -454,7 +454,7 @@ function assertMcpInvalidParamsError(error: unknown): void {
 }
 
 describe("M-FASTMCP-RUNTIME smoke checks", () => {
-  it("exposes exactly 4 tools and excludes list_chats at /mcp runtime boundary", async () => {
+  it("exposes exactly 5 tools (4 proxied + 1 local) and excludes list_chats at /mcp runtime boundary", async () => {
     const harness = await createRuntimeHarnessOrSkipWhenBindRestricted("allow");
     if (!harness) {
       return;
@@ -469,6 +469,7 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
         "get_message_context",
         "get_related_messages",
         "list_sources",
+        "get_site_sources",
       ]);
       expect(toolNames).not.toContain("list_chats");
       expect(harness.proxyCalls).toEqual([]);
@@ -552,6 +553,8 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
             toolName: "get_message_context",
             rawArgs: {
               message_uid: "message-uid-123",
+              before: 5,
+              after: 5,
             },
           }),
         },
@@ -561,10 +564,41 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
           toolName: "get_message_context",
           rawArgs: {
             message_uid: "message-uid-123",
+            before: 5,
+            after: 5,
           },
         },
       ]);
       expect(harness.tokenLoadCalls.length).toBeGreaterThan(0);
+    } finally {
+      await harness.stop();
+    }
+  });
+
+  it("returns frozen site sources registry from local get_site_sources tool", async () => {
+    const harness = await createRuntimeHarnessOrSkipWhenBindRestricted("allow");
+    if (!harness) {
+      return;
+    }
+
+    try {
+      const response = await harness.client.callTool({
+        name: "get_site_sources",
+        arguments: {},
+      });
+
+      expect(response.isError).not.toBe(true);
+      expect(response.content).toHaveLength(1);
+      const textContent = response.content[0] as { type: string; text: string };
+      expect(textContent.type).toBe("text");
+
+      const parsed = JSON.parse(textContent.text);
+      expect(parsed.description_and_tiers).toBeDefined();
+      expect(parsed.description_and_tiers.tiers).toHaveLength(3);
+      expect(parsed.sources).toHaveLength(12);
+
+      // Local tool should NOT go through proxy
+      expect(harness.proxyCalls).toEqual([]);
     } finally {
       await harness.stop();
     }

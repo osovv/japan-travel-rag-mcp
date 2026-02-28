@@ -77,7 +77,7 @@ describe("SITE_SOURCES_RESPONSE seed data", () => {
   it("tier 0 has exactly 1 source (wrenjapan)", () => {
     const tier0 = SITE_SOURCES_RESPONSE.sources.filter((s) => s.tier === 0);
     expect(tier0).toHaveLength(1);
-    expect(tier0[0].source_id).toBe("wrenjapan");
+    expect(tier0[0]?.source_id).toBe("wrenjapan");
   });
 
   it("tier 1 has exactly 6 sources", () => {
@@ -98,8 +98,7 @@ describe("SITE_SOURCES_RESPONSE seed data", () => {
 
   it("wrenjapan source has language ru", () => {
     const wrenjapan = SITE_SOURCES_RESPONSE.sources.find((s) => s.source_id === "wrenjapan");
-    expect(wrenjapan).toBeDefined();
-    expect(wrenjapan!.language).toBe("ru");
+    expect(wrenjapan?.language).toBe("ru");
   });
 
   it("jreast and smart_ex have language en/ja", () => {
@@ -172,13 +171,17 @@ describe("SiteSourcesResponse type conformance", () => {
   });
 
   it("individual source satisfies SiteSource type", () => {
-    const _source: SiteSource = SITE_SOURCES_RESPONSE.sources[0];
-    expect(_source).toBeDefined();
+    const source = SITE_SOURCES_RESPONSE.sources[0];
+    expect(source).toBeDefined();
+    const _source: SiteSource = source!;
+    expect(_source.source_id).toBe("wrenjapan");
   });
 
   it("individual tier satisfies TierDescription type", () => {
-    const _tier: TierDescription = SITE_SOURCES_RESPONSE.description_and_tiers.tiers[0];
-    expect(_tier).toBeDefined();
+    const tier = SITE_SOURCES_RESPONSE.description_and_tiers.tiers[0];
+    expect(tier).toBeDefined();
+    const _tier: TierDescription = tier!;
+    expect(_tier.tier).toBe(0);
   });
 
   it("description_and_tiers satisfies DescriptionAndTiers type", () => {
