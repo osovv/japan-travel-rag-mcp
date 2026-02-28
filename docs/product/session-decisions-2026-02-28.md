@@ -48,3 +48,10 @@
 ## Supersession note
 
 This decision complements the portal-first planning update from 2026-02-28 and is the source of truth for UI stack and route architecture details.
+
+## Legal posture (Telegram indexing, current limited scope)
+
+1. Current legal posture for Telegram indexing is documented in:
+   - `docs/product/legal-telegram-indexing-policy-2026-02-28.md`
+2. Scope is explicitly limited to two allowlisted public Telegram sources.
+3. Production launch remains conditional on written source permissions and legal sign-off.
