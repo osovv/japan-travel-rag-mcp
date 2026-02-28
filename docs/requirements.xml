@@ -1,4 +1,4 @@
-<RequirementsAnalysis VERSION="0.5.0">
+<RequirementsAnalysis VERSION="0.6.0">
   <UseCases>
     <UC-001>
       <Actor>External MCP Client</Actor>
@@ -64,40 +64,70 @@
     </UC-009>
 
     <UC-010>
-      <Actor>System</Actor>
-      <Action>Validates tool inputs with described Zod schemas</Action>
-      <Goal>Provide deterministic machine-consumable contracts for MCP clients</Goal>
-      <AcceptanceCriteria>Schema errors are stable and explicit; tool descriptions and parameters are available via FastMCP metadata</AcceptanceCriteria>
+      <Actor>Visitor</Actor>
+      <Action>Opens public landing page and chooses to start testing</Action>
+      <Goal>Reach user portal with minimal friction from a shareable public URL</Goal>
+      <AcceptanceCriteria>Landing exposes a single primary action that redirects to `/portal` without invite-link requirements</AcceptanceCriteria>
     </UC-010>
 
     <UC-011>
-      <Actor>Platform Owner</Actor>
-      <Action>Runs MCP runtime without API-key CRUD dependency</Action>
-      <Goal>Reduce operational complexity in current scope</Goal>
-      <AcceptanceCriteria>No runtime requirement for API-key repository/DB-backed key lifecycle to authorize `/mcp`</AcceptanceCriteria>
+      <Actor>External Tester</Actor>
+      <Action>Registers an account in custom user-portal registration UI</Action>
+      <Goal>Create account without manual platform-admin intervention</Goal>
+      <AcceptanceCriteria>User can complete registration from `/portal/register`; invite links are not required</AcceptanceCriteria>
     </UC-011>
 
     <UC-012>
-      <Actor>External AI Agent</Actor>
-      <Action>Performs orchestration and final answer synthesis outside MCP server</Action>
-      <Goal>Keep MCP boundary narrow (proxy + contracts + auth)</Goal>
-      <AcceptanceCriteria>No internal trip planner or long-horizon reasoning subsystem is required in this phase</AcceptanceCriteria>
+      <Actor>External Tester</Actor>
+      <Action>Authenticates in custom user-portal login UI</Action>
+      <Goal>Access tester area that explains how to connect MCP in external AI agents</Goal>
+      <AcceptanceCriteria>Login from `/portal/login` creates a portal user session and opens portal home/instructions screen</AcceptanceCriteria>
     </UC-012>
+
+    <UC-013>
+      <Actor>System</Actor>
+      <Action>Auto-provisions MCP access entitlements for newly registered/first-login portal users</Action>
+      <Goal>Eliminate manual permission grants by platform admin for tester onboarding</Goal>
+      <AcceptanceCriteria>After successful registration/login, user is granted required MCP access role/policy automatically or receives deterministic recoverable error</AcceptanceCriteria>
+    </UC-013>
+
+    <UC-014>
+      <Actor>Portal User</Actor>
+      <Action>Reads MCP connection instructions in portal and configures external AI agent</Action>
+      <Goal>Achieve end-to-end flow from shared link to first successful MCP usage</Goal>
+      <AcceptanceCriteria>Portal shows MCP endpoint/auth requirements and tester can execute at least one of the four active tools through authorized client flow</AcceptanceCriteria>
+    </UC-014>
+
+    <UC-015>
+      <Actor>System</Actor>
+      <Action>Enforces auth isolation across three surfaces (`/mcp`, `/admin/*`, `/portal/*`)</Action>
+      <Goal>Prevent privilege crossover between machine auth, operator auth, and tester portal auth</Goal>
+      <AcceptanceCriteria>Portal session cannot access admin routes; admin session cannot bypass `/mcp` OAuth; MCP OAuth token is not treated as portal/admin session</AcceptanceCriteria>
+    </UC-015>
   </UseCases>
 
   <DeferredUseCases>
-    <UC-101>
-      <Actor>External AI Agent</Actor>
-      <Action>Calls `search_context` with routing keys</Action>
-      <Goal>Hybrid evidence retrieval over curated multi-source index</Goal>
-      <Status>Deferred</Status>
-    </UC-101>
-
-    <UC-102>
-      <Actor>External AI Agent</Actor>
-      <Action>Calls `validate_google_map_link` and `verify_tabelog`</Action>
-      <Goal>Deterministic POI verification contract</Goal>
-      <Status>Deferred</Status>
-    </UC-102>
+    <UC-201>
+      <Actor>Platform Owner</Actor>
+      <Action>Runs curated-source ingestion and indexing jobs (including backfill) after portal e2e flow is validated</Action>
+      <Goal>Expand retrieval coverage beyond current tg-chat-rag upstream corpus</Goal>
+      <Status>DeferredUntilPortalE2E</Status>
+    </UC-201>
   </DeferredUseCases>
+
+  <DroppedUseCases>
+    <UC-301>
+      <Actor>Platform Owner</Actor>
+      <Action>Expose `search_context` as MCP public tool</Action>
+      <Goal>Hybrid multi-source retrieval tool in MCP boundary</Goal>
+      <Status>Dropped</Status>
+    </UC-301>
+
+    <UC-302>
+      <Actor>Platform Owner</Actor>
+      <Action>Expose `validate_google_map_link` and `verify_tabelog` as MCP public tools</Action>
+      <Goal>Deterministic verification tools in MCP boundary</Goal>
+      <Status>Dropped</Status>
+    </UC-302>
+  </DroppedUseCases>
 </RequirementsAnalysis>

@@ -1,25 +1,25 @@
-<DevelopmentPlan VERSION="0.9.0">
+<DevelopmentPlan VERSION="1.0.0">
   <Context>
-    <purpose>Simplify MCP runtime to a clear FastMCP structure: OAuth Proxy protection only for /mcp, fixed proxy tool set, and root-token admin surface.</purpose>
-    <scope>Keep existing public tools (search_messages, get_message_context, get_related_messages, list_sources), preserve tg-chat-rag proxy behavior, and keep /admin protected by ROOT_AUTH_TOKEN.</scope>
+    <purpose>Deliver a shareable end-to-end onboarding flow for external testers using current MCP tool surface: landing redirect, user portal registration/login, automatic access provisioning, and first successful MCP usage.</purpose>
+    <scope>Keep existing public tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), preserve tg-chat-rag proxy behavior, keep `/admin/*` root-token protected, and add portal-first onboarding surface on `/` and `/portal/*`.</scope>
     <constraints>
-      <constraint-1>Public MCP surface remains exactly four tools: search_messages, get_message_context, get_related_messages, list_sources.</constraint-1>
-      <constraint-2>search_messages always injects filters.chat_ids from TG_CHAT_RAG_CHAT_IDS; caller-provided filters.chat_ids stays forbidden.</constraint-2>
-      <constraint-3>All upstream tg-chat-rag calls use Bearer token from TG_CHAT_RAG_BEARER_TOKEN.</constraint-3>
-      <constraint-4>FastMCP OAuth Proxy is enabled only for /mcp transport surface.</constraint-4>
-      <constraint-5>/admin/* is not OAuth-protected; it is protected only by ROOT_AUTH_TOKEN login/session policy.</constraint-5>
-      <constraint-6>ROOT_AUTH_TOKEN must never be accepted for /mcp authentication.</constraint-6>
-      <constraint-7>FastMCP HTTP stream transport is the single MCP transport; endpoint is /mcp.</constraint-7>
-      <constraint-8>Tool parameter schemas stay Zod-based and richly described for deterministic MCP contracts.</constraint-8>
-      <constraint-9>No API-key repository lifecycle is required in this simplified runtime target.</constraint-9>
-      <constraint-10>No internal trip-planning/orchestration subsystem is introduced in this phase.</constraint-10>
+      <constraint-1>Public MCP surface remains exactly four tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources`.</constraint-1>
+      <constraint-2>`search_context`, `validate_google_map_link`, and `verify_tabelog` are removed from active and deferred implementation plans.</constraint-2>
+      <constraint-3>Landing remains intentionally simple and redirects users into user portal; invite link is not required in this phase.</constraint-3>
+      <constraint-4>User portal must support self-serve registration and custom login UI without manual operator permission grants.</constraint-4>
+      <constraint-5>Portal onboarding must culminate in actionable MCP connection instructions for external AI agents.</constraint-5>
+      <constraint-6>FastMCP OAuth Proxy is enabled only for `/mcp` transport surface.</constraint-6>
+      <constraint-7>`/admin/*` is protected only by `ROOT_AUTH_TOKEN` login/session policy.</constraint-7>
+      <constraint-8>Portal session auth on `/portal/*` is isolated from both `/mcp` OAuth and `/admin/*` root session models.</constraint-8>
+      <constraint-9>Curated-source ingestion/indexing and backfill are explicitly deferred until portal e2e flow is validated.</constraint-9>
+      <constraint-10>Billing settings are deferred and represented as future extension points in portal architecture only.</constraint-10>
     </constraints>
   </Context>
 
   <Modules>
     <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1">
       <contract>
-        <purpose>Load and validate runtime configuration for FastMCP server, OAuth Proxy upstream credentials, admin auth, and tg-chat-rag proxy calls.</purpose>
+        <purpose>Load and validate runtime configuration for MCP proxy auth/routes, admin auth, portal auth/session, and upstream integrations.</purpose>
         <inputs>
           <param-1 name="env" type="NodeJS.ProcessEnv" />
         </inputs>
@@ -32,24 +32,17 @@
       </contract>
       <interface>
         <export-loadConfig PURPOSE="Validate env and return typed AppConfig." />
-        <type-AppConfig PURPOSE="Typed runtime config for OAuth Proxy, tool proxy policy, and admin auth." />
+        <type-AppConfig PURPOSE="Typed runtime config for MCP OAuth, portal session, admin auth, and upstream clients." />
       </interface>
       <depends>none</depends>
       <notes>
-        <note-1>Required env: TG_CHAT_RAG_BASE_URL</note-1>
-        <note-2>Required env: TG_CHAT_RAG_BEARER_TOKEN</note-2>
-        <note-3>Required env: TG_CHAT_RAG_CHAT_IDS</note-3>
-        <note-4>Required env: ROOT_AUTH_TOKEN</note-4>
-        <note-5>Required env: PUBLIC_URL</note-5>
-        <note-6>Required env: LOGTO_TENANT_URL</note-6>
-        <note-7>Required env: LOGTO_CLIENT_ID</note-7>
-        <note-8>Required env: LOGTO_CLIENT_SECRET</note-8>
+        <note-1>Required env includes existing MCP/admin/logto values plus `PORTAL_SESSION_SECRET`.</note-1>
       </notes>
     </M-CONFIG>
 
     <M-LOGGER NAME="Logger" TYPE="UTILITY" LAYER="0" ORDER="2">
       <contract>
-        <purpose>Provide structured logs for runtime startup, auth decisions, tool execution, upstream failures, and admin actions.</purpose>
+        <purpose>Provide structured logs for startup, auth decisions, onboarding routes, tool execution, and upstream failures.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
@@ -68,7 +61,7 @@
 
     <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="1">
       <contract>
-        <purpose>Define deterministic Zod schemas and allowlist for the four existing proxied MCP tools.</purpose>
+        <purpose>Define deterministic Zod schemas and allowlist for the four active proxied MCP tools.</purpose>
         <inputs>
           <param-1 name="rawArgs" type="unknown" />
           <param-2 name="toolName" type="string" />
@@ -117,7 +110,7 @@
 
     <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" LAYER="2" ORDER="2">
       <contract>
-        <purpose>Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for /mcp authentication.</purpose>
+        <purpose>Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for `/mcp` authentication.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
@@ -133,12 +126,30 @@
         <export-createOauthProxy PURPOSE="Instantiate OAuthProxy with Logto auth/token endpoints and configured scopes." />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
-      <notes>
-        <note-1>Upstream Authorization endpoint: &lt;LOGTO_TENANT_URL&gt;/oidc/auth</note-1>
-        <note-2>Upstream Token endpoint: &lt;LOGTO_TENANT_URL&gt;/oidc/token</note-2>
-        <note-3>Proxy base URL comes from PUBLIC_URL.</note-3>
-      </notes>
     </M-AUTH-PROXY>
+
+    <M-PORTAL-IDENTITY NAME="PortalIdentityClient" TYPE="INTEGRATION" LAYER="2" ORDER="3">
+      <contract>
+        <purpose>Wrap identity-provider operations needed by portal flows: registration, login token exchange, and role/permission updates for tester access.</purpose>
+        <inputs>
+          <param-1 name="registrationPayload" type="object" />
+          <param-2 name="loginPayload" type="object" />
+          <param-3 name="userId" type="string" />
+        </inputs>
+        <outputs>
+          <param-1 name="identityResult" type="object" />
+        </outputs>
+        <errors>
+          <error-PORTAL_IDENTITY_ERROR code="PORTAL_IDENTITY_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-registerPortalUser PURPOSE="Create user account in identity provider using portal registration flow." />
+        <export-loginPortalUser PURPOSE="Authenticate user credentials and return identity/session payload." />
+        <export-ensureMcpAccessRole PURPOSE="Ensure tester has required MCP access role/policy without manual admin action." />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+    </M-PORTAL-IDENTITY>
 
     <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
       <contract>
@@ -164,7 +175,7 @@
 
     <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="3" ORDER="2">
       <contract>
-        <purpose>Authenticate admin operators with ROOT_AUTH_TOKEN and protect /admin routes via signed cookie session checks.</purpose>
+        <purpose>Authenticate admin operators with `ROOT_AUTH_TOKEN` and protect `/admin` routes via signed cookie session checks.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
           <param-2 name="loginToken" type="string" />
@@ -178,12 +189,53 @@
         </errors>
       </contract>
       <interface>
-        <export-authenticateAdmin PURPOSE="Validate ROOT_AUTH_TOKEN on /admin/login and issue session cookie." />
-        <export-requireAdminSession PURPOSE="Allow or redirect for /admin/* routes." />
+        <export-authenticateAdmin PURPOSE="Validate root token on `/admin/login` and issue session cookie." />
+        <export-requireAdminSession PURPOSE="Allow or redirect for `/admin/*` routes." />
         <export-clearAdminSession PURPOSE="Invalidate admin auth cookie on logout." />
       </interface>
       <depends>M-CONFIG, M-LOGGER</depends>
     </M-ADMIN-AUTH>
+
+    <M-PORTAL-AUTH NAME="PortalAuth" TYPE="CORE_LOGIC" LAYER="3" ORDER="3">
+      <contract>
+        <purpose>Issue and validate tester portal session cookies and enforce portal-route authorization checks.</purpose>
+        <inputs>
+          <param-1 name="request" type="Request" />
+          <param-2 name="identityPayload" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="portalSessionDecision" type="object" />
+        </outputs>
+        <errors>
+          <error-PORTAL_AUTH_ERROR code="PORTAL_AUTH_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-authenticatePortalUser PURPOSE="Create portal session from successful identity login/registration result." />
+        <export-requirePortalSession PURPOSE="Allow or redirect for protected `/portal/*` routes." />
+        <export-clearPortalSession PURPOSE="Invalidate tester portal session cookie." />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+    </M-PORTAL-AUTH>
+
+    <M-PORTAL-PROVISIONING NAME="PortalProvisioning" TYPE="CORE_LOGIC" LAYER="3" ORDER="4">
+      <contract>
+        <purpose>Coordinate first-login provisioning to guarantee tester MCP access entitlements are assigned automatically.</purpose>
+        <inputs>
+          <param-1 name="portalUser" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="provisioningResult" type="object" />
+        </outputs>
+        <errors>
+          <error-PROVISIONING_ERROR code="PROVISIONING_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-provisionTesterAccess PURPOSE="Ensure identity-provider role/policy grants for MCP testing access are present." />
+      </interface>
+      <depends>M-PORTAL-IDENTITY, M-LOGGER</depends>
+    </M-PORTAL-PROVISIONING>
 
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="1">
       <contract>
@@ -199,22 +251,56 @@
         </errors>
       </contract>
       <interface>
-        <export-handleAdminRequest PURPOSE="Handle /admin/login and /admin/ops endpoints." />
+        <export-handleAdminRequest PURPOSE="Handle `/admin/login` and `/admin/ops` endpoints." />
         <export-renderAdminLayout PURPOSE="Render HTML layout for admin pages." />
         <export-renderOpsStatus PURPOSE="Render runtime diagnostic fragment." />
       </interface>
       <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
     </M-ADMIN-UI>
 
+    <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
+      <contract>
+        <purpose>Render public landing and user-portal pages with per-page route handlers, dispatch registration/login flows, and expose MCP setup instructions for testers.</purpose>
+        <inputs>
+          <param-1 name="request" type="Request" />
+        </inputs>
+        <outputs>
+          <param-1 name="response" type="Response" />
+        </outputs>
+        <errors>
+          <error-PORTAL_UI_ERROR code="PORTAL_UI_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-handleLandingRequest PURPOSE="Serve `/` landing with primary redirect action to `/portal`." />
+        <export-handlePortalRootRoute PURPOSE="Handle `GET /portal` and route to login/home by session state." />
+        <export-handlePortalRegisterRoute PURPOSE="Handle `GET/POST /portal/register` registration route with HTMX-compatible fragments." />
+        <export-handlePortalLoginRoute PURPOSE="Handle `GET/POST /portal/login` login route with HTMX-compatible fragments." />
+        <export-handlePortalHomeRoute PURPOSE="Handle `GET /portal/home` authenticated onboarding page." />
+        <export-handlePortalAgentSetupRoute PURPOSE="Handle `GET /portal/integrations/agent-setup` detailed MCP setup guide page." />
+        <export-handlePortalLogoutRoute PURPOSE="Handle `POST /portal/logout` and clear portal session." />
+        <export-renderPortalLayout PURPOSE="Render shared portal shell and include compiled Tailwind CSS asset." />
+        <export-renderPortalConnectionGuide PURPOSE="Render MCP endpoint/auth setup instructions for external AI agents." />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY</depends>
+      <notes>
+        <note-1>Invite-link flow is intentionally excluded in this phase.</note-1>
+        <note-2>Portal UI stack is Bun JSX SSR + Tailwind + HTMX, with Alpine.js only for optional local micro-interactions.</note-2>
+        <note-3>Per-page route architecture is mandatory in this phase (no client-side SPA router).</note-3>
+      </notes>
+    </M-PORTAL-UI>
+
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Create FastMCP server with OAuth Proxy for /mcp, register fixed tool set, and mount admin routes on Hono app.</purpose>
+        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
           <param-2 name="logger" type="Logger" />
           <param-3 name="oauthProxy" type="OAuthProxy" />
           <param-4 name="proxyService" type="ToolProxyService" />
           <param-5 name="adminHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
+          <param-6 name="portalLandingHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
+          <param-7 name="portalHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
         </inputs>
         <outputs>
           <param-1 name="fastMcpServer" type="FastMCP" />
@@ -224,20 +310,17 @@
         </errors>
       </contract>
       <interface>
-        <export-createFastMcpRuntime PURPOSE="Build FastMCP with oauth.enabled=true and oauth.proxy wired from M-AUTH-PROXY." />
-        <export-registerProxyTools PURPOSE="Register the four existing tools with described schemas and canAccess guards." />
-        <export-mountAdminRoutes PURPOSE="Mount /admin and /admin/* handlers via getApp()." />
+        <export-createFastMcpRuntime PURPOSE="Build FastMCP with oauth.enabled=true and mount non-MCP HTTP routes via getApp()." />
+        <export-registerProxyTools PURPOSE="Register the four active tools with described schemas and canAccess guards." />
+        <export-mountAdminRoutes PURPOSE="Mount `/admin` and `/admin/*` handlers via getApp()." />
+        <export-mountPortalRoutes PURPOSE="Mount `/`, `/portal`, and `/portal/*` handlers via getApp()." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI</depends>
-      <notes>
-        <note-1>/mcp is OAuth-protected through FastMCP oauth proxy flow.</note-1>
-        <note-2>/admin routes are handled separately by AdminAuth flow.</note-2>
-      </notes>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI</depends>
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
       <contract>
-        <purpose>Bootstrap runtime dependencies and start FastMCP HTTP stream server.</purpose>
+        <purpose>Bootstrap runtime dependencies and start FastMCP HTTP stream server with MCP, admin, and portal surfaces.</purpose>
         <inputs>
           <param-1 name="none" type="void" />
         </inputs>
@@ -249,9 +332,9 @@
         </errors>
       </contract>
       <interface>
-        <export-main PURPOSE="Load config, create dependencies, start FastMCP runtime, install graceful shutdown." />
+        <export-main PURPOSE="Load config, create dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-FASTMCP-RUNTIME</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME</depends>
     </M-SERVER>
 
     <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT" LAYER="7" ORDER="1">
@@ -275,105 +358,137 @@
   </Modules>
 
   <DataFlows>
+    <DF-LANDING-TO-PORTAL NAME="public landing redirect flow">
+      <step-1>Visitor opens `/` and receives concise landing page.</step-1>
+      <step-2>Primary CTA redirects visitor to `/portal` (or directly `/portal/register`).</step-2>
+      <step-3>No invite-link precondition is checked in this phase.</step-3>
+    </DF-LANDING-TO-PORTAL>
+
+    <DF-PORTAL-REGISTRATION NAME="portal registration flow">
+      <step-1>Tester submits registration form at `/portal/register`.</step-1>
+      <step-2>M-PORTAL-IDENTITY creates identity account.</step-2>
+      <step-3>M-PORTAL-PROVISIONING ensures tester MCP access entitlement.</step-3>
+      <step-4>M-PORTAL-AUTH issues portal session cookie and redirects to `/portal/home`.</step-4>
+    </DF-PORTAL-REGISTRATION>
+
+    <DF-PORTAL-LOGIN NAME="portal login flow">
+      <step-1>Tester submits credentials at `/portal/login`.</step-1>
+      <step-2>M-PORTAL-IDENTITY validates credentials and returns identity payload.</step-2>
+      <step-3>M-PORTAL-PROVISIONING enforces required tester access entitlements.</step-3>
+      <step-4>M-PORTAL-AUTH issues session and portal home renders MCP setup guide.</step-4>
+    </DF-PORTAL-LOGIN>
+
+    <DF-PORTAL-HTMX-FORMS NAME="portal progressive form interaction flow">
+      <step-1>User submits registration/login form from server-rendered page.</step-1>
+      <step-2>HTMX posts to route handler and receives HTML fragment/full page response.</step-2>
+      <step-3>Route handler returns deterministic validation or success fragments without SPA state management.</step-3>
+      <step-4>Alpine.js is used only for optional local UI behaviors that do not replace server authority.</step-4>
+    </DF-PORTAL-HTMX-FORMS>
+
+    <DF-PORTAL-E2E-MCP NAME="portal to first mcp usage flow">
+      <step-1>Authenticated portal user reads MCP setup details (`/mcp` endpoint + auth requirements).</step-1>
+      <step-2>User configures external AI agent with provided instructions.</step-2>
+      <step-3>Agent authenticates via OAuth flow on `/mcp` and executes one of four active tools.</step-3>
+    </DF-PORTAL-E2E-MCP>
+
     <DF-MCP-OAUTH NAME="mcp oauth proxy auth flow">
-      <step-1>External MCP client reaches /mcp and receives OAuth discovery/register/authorize flow from FastMCP.</step-1>
-      <step-2>FastMCP OAuthProxy exchanges auth code with Logto upstream using pre-registered client credentials.</step-2>
-      <step-3>FastMCP tool execution proceeds only for authenticated session.</step-3>
+      <step-1>External MCP client reaches `/mcp` and receives OAuth flow from FastMCP.</step-1>
+      <step-2>FastMCP OAuthProxy exchanges auth code with Logto upstream.</step-2>
+      <step-3>Tool execution proceeds only for authenticated OAuth session.</step-3>
     </DF-MCP-OAUTH>
 
-    <DF-SEARCH-MESSAGES NAME="search messages proxy flow">
-      <step-1>Client invokes search_messages with public args.</step-1>
-      <step-2>M-TOOLS-CONTRACTS validates args and blocks filters.chat_ids from caller input.</step-2>
-      <step-3>M-TOOL-PROXY injects internal TG_CHAT_RAG_CHAT_IDS and forwards request to tg-chat-rag.</step-3>
-      <step-4>Response is normalized into deterministic MCP tool result envelope.</step-4>
-    </DF-SEARCH-MESSAGES>
-
-    <DF-MESSAGE-CONTEXT NAME="message context proxy flow">
-      <step-1>Client invokes get_message_context with message_uid.</step-1>
-      <step-2>Schema validation ensures deterministic payload constraints.</step-2>
-      <step-3>Request is proxied to tg-chat-rag and upstream response is returned in MCP envelope.</step-3>
-    </DF-MESSAGE-CONTEXT>
-
-    <DF-RELATED-MESSAGES NAME="related messages proxy flow">
-      <step-1>Client invokes get_related_messages with message_uid.</step-1>
-      <step-2>Schema and allowlist checks run before upstream call.</step-2>
-      <step-3>Result is proxied and normalized without tool-side business branching.</step-3>
-    </DF-RELATED-MESSAGES>
-
-    <DF-LIST-SOURCES NAME="list sources proxy flow">
-      <step-1>Client invokes list_sources with message_uids array.</step-1>
-      <step-2>Schema enforces array bounds and non-empty entries.</step-2>
-      <step-3>Proxy returns deterministic structured output from upstream.</step-3>
-    </DF-LIST-SOURCES>
+    <DF-TOOL-PROXY NAME="tool proxy flow">
+      <step-1>Tool call enters M-FASTMCP-RUNTIME.</step-1>
+      <step-2>M-TOOLS-CONTRACTS validates payload.</step-2>
+      <step-3>M-TOOL-PROXY applies policy and calls M-TG-CHAT-RAG-CLIENT.</step-3>
+      <step-4>Normalized result is returned via MCP transport.</step-4>
+    </DF-TOOL-PROXY>
 
     <DF-ADMIN-ROOT-AUTH NAME="admin root token flow">
-      <step-1>Operator submits token on /admin/login.</step-1>
-      <step-2>M-ADMIN-AUTH verifies against ROOT_AUTH_TOKEN and issues session cookie.</step-2>
-      <step-3>Protected /admin/ops routes require valid admin session and never use OAuth /mcp auth path.</step-3>
+      <step-1>Operator submits token on `/admin/login`.</step-1>
+      <step-2>M-ADMIN-AUTH verifies against `ROOT_AUTH_TOKEN` and issues session cookie.</step-2>
+      <step-3>Protected `/admin/ops` routes require valid admin session and never use portal/MCP auth paths.</step-3>
     </DF-ADMIN-ROOT-AUTH>
   </DataFlows>
 
   <MentalTests>
-    <MT-1 NAME="oauth isolation test">
-      <step-1>Unauthenticated request to /mcp must receive OAuth flow challenge.</step-1>
-      <step-2>Same caller accessing /admin/login must not be processed by OAuth proxy.</step-2>
-      <step-3>No path overlap should allow ROOT_AUTH_TOKEN on /mcp.</step-3>
-      <result>Pass when /mcp and /admin auth paths remain strictly isolated.</result>
+    <MT-1 NAME="portal onboarding e2e test">
+      <step-1>Open shared landing URL as unauthenticated user.</step-1>
+      <step-2>Register/login in portal and receive portal session.</step-2>
+      <step-3>Open portal MCP guide and configure external agent.</step-3>
+      <step-4>Execute one active MCP tool successfully.</step-4>
+      <result>Pass when flow works without invite links and without manual admin permission grant.</result>
     </MT-1>
 
-    <MT-2 NAME="tool policy integrity test">
-      <step-1>Caller sends search_messages with nested filters.chat_ids.</step-1>
-      <step-2>Validation rejects input deterministically.</step-2>
-      <step-3>When caller omits chat_ids, runtime injects configured internal chat IDs.</step-3>
-      <result>Pass when public chat scope cannot be overridden externally.</result>
+    <MT-2 NAME="triple auth isolation test">
+      <step-1>Use portal session cookie against `/admin/*` and `/mcp`.</step-1>
+      <step-2>Use admin cookie against `/portal/*` and `/mcp`.</step-2>
+      <step-3>Use MCP OAuth token against `/admin/*` and `/portal/*`.</step-3>
+      <result>Pass when each credential works only on its intended surface.</result>
     </MT-2>
 
-    <MT-3 NAME="dependency direction test">
-      <step-1>Trace dependency chain from entrypoints to integrations.</step-1>
-      <step-2>Ensure no module in UTILITY/INTEGRATION depends on ENTRY_POINT modules.</step-2>
-      <step-3>Verify deprecated auth modules are not in active dependency chain.</step-3>
-      <result>Pass when graph is acyclic and top-down.</result>
+    <MT-3 NAME="dropped tools surface test">
+      <step-1>Enumerate MCP tools via runtime metadata.</step-1>
+      <step-2>Verify `search_context`, `validate_google_map_link`, and `verify_tabelog` are absent.</step-2>
+      <step-3>Verify only four active tools remain callable.</step-3>
+      <result>Pass when dropped tools do not appear in runtime contracts, plan, or knowledge graph.</result>
     </MT-3>
   </MentalTests>
 
   <ImplementationOrder>
-    <Phase-1 name="ConfigAndContracts" status="done">
-      <step-1>Finalize M-CONFIG env contract for OAuth Proxy + admin root token + tg-chat-rag.</step-1>
-      <step-2>Finalize M-TOOLS-CONTRACTS with field descriptions and deterministic errors.</step-2>
-      <justification>All runtime branches depend on validated config and stable tool schemas.</justification>
+    <Phase-1 name="ScopeAndContractsAlignment" status="planned">
+      <step-1>Synchronize requirements/technology/development-plan/knowledge-graph with portal-first scope and dropped tools list.</step-1>
+      <step-2>Extend config contract with portal session requirements.</step-2>
+      <justification>Architecture and contracts must reflect new product direction before module generation.</justification>
     </Phase-1>
 
-    <Phase-2 name="Integrations" status="done">
-      <step-1>Implement M-AUTH-PROXY wrapper around FastMCP OAuthProxy.</step-1>
-      <step-2>Keep M-TG-CHAT-RAG-CLIENT focused on one method call contract.</step-2>
-      <justification>External boundaries should be explicit before wiring runtime entrypoints.</justification>
+    <Phase-2 name="PortalIdentityAndAuthCore" status="planned">
+      <step-1>Implement M-PORTAL-IDENTITY integration for registration/login/provisioning endpoints.</step-1>
+      <step-2>Implement M-PORTAL-AUTH session model for tester portal routes.</step-2>
+      <step-3>Implement M-PORTAL-PROVISIONING automatic access grants.</step-3>
+      <justification>Self-serve onboarding depends on identity integration and deterministic provisioning core logic.</justification>
     </Phase-2>
 
-    <Phase-3 name="CoreLogicAndAdmin" status="done">
-      <step-1>Simplify M-TOOL-PROXY orchestration around validate -> policy -> upstream -> normalize.</step-1>
-      <step-2>Keep M-ADMIN-AUTH and M-ADMIN-UI root-token-only with no MCP auth coupling.</step-2>
-      <justification>Core behavior and admin guardrails are independent and testable in isolation.</justification>
+    <Phase-3 name="PortalAndLandingUI" status="planned">
+      <step-1>Implement simple landing with redirect CTA to `/portal`.</step-1>
+      <step-2>Implement per-page portal routes (`/portal/register`, `/portal/login`, `/portal/home`, `/portal/integrations/agent-setup`, `/portal/logout`).</step-2>
+      <step-3>Implement Bun JSX SSR templates/components and compile Tailwind shared stylesheet asset.</step-3>
+      <step-4>Add HTMX form interactions for auth flows; use Alpine.js only for optional local micro-interactions.</step-4>
+      <justification>UI layer is meaningful only after auth/provisioning contracts are defined and must follow the approved lightweight SSR interaction model.</justification>
     </Phase-3>
 
-    <Phase-4 name="RuntimeAndBoot" status="done">
-      <step-1>Wire M-FASTMCP-RUNTIME with oauth proxy for /mcp and mount admin routes.</step-1>
-      <step-2>Finalize M-SERVER/M-ROOT-ENTRYPOINT startup and shutdown lifecycle.</step-2>
-      <justification>Entrypoints are assembled last to avoid hidden coupling and ease smoke validation.</justification>
+    <Phase-4 name="RuntimeMountingAndE2EValidation" status="planned">
+      <step-1>Mount landing and portal routes in M-FASTMCP-RUNTIME alongside existing admin routes.</step-1>
+      <step-2>Add integration/smoke tests for onboarding e2e and auth isolation.</step-2>
+      <step-3>Confirm tool surface remains fixed to four active tools.</step-3>
+      <justification>Runtime composition and tests validate real product objective: shareable tester onboarding to first MCP success.</justification>
     </Phase-4>
+
+    <Phase-5 name="PostE2EDeferredTrack" status="deferred">
+      <step-1>Plan curated-source ingestion/indexing/backfill architecture.</step-1>
+      <step-2>Plan portal billing settings module set.</step-2>
+      <justification>Deferred until portal-first e2e flow is stable in real tester usage.</justification>
+    </Phase-5>
   </ImplementationOrder>
 
   <RiskAssessment>
-    <risk-1 severity="high">Runtime still contains legacy mcp-auth/api-key-era modules that can create implementation drift until OAuth Proxy migration is completed in code.</risk-1>
-    <risk-2 severity="medium">OAuth callback/base URL misconfiguration can break authorization flow in production.</risk-2>
-    <risk-3 severity="medium">Schema tightening may break existing client payloads that relied on permissive behavior.</risk-3>
-    <risk-4 severity="medium">If /admin route mounting order is wrong, auth middleware can leak or over-protect endpoints.</risk-4>
-    <risk-5 severity="low">Tool description drift between Zod schema and docs can confuse MCP clients.</risk-5>
+    <risk-1 severity="high">Automatic provisioning can fail due to identity-provider API/permission misconfiguration, blocking onboarding despite valid registration.</risk-1>
+    <risk-2 severity="high">Auth-boundary mistakes across `/mcp`, `/admin/*`, and `/portal/*` can create privilege crossover.</risk-2>
+    <risk-3 severity="medium">Portal session secret/ttl misconfiguration can cause unstable login UX or accidental long-lived sessions.</risk-3>
+    <risk-4 severity="medium">UI/contract drift between portal setup instructions and actual MCP OAuth requirements may increase tester setup failures.</risk-4>
+    <risk-5 severity="low">Keeping legacy deprecated modules in repo can confuse future implementation unless graph linkage remains explicit.</risk-5>
   </RiskAssessment>
 
   <DeprecatedModules>
-    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" reason="Replaced by FastMCP OAuth Proxy integration for /mcp." />
+    <M-MCP-AUTH-PROVIDER NAME="McpAuthProvider" reason="Replaced by FastMCP OAuth Proxy integration for `/mcp`." />
     <M-MCP-AUTH-ADAPTER NAME="McpAuthAdapter" reason="No longer needed when FastMCP OAuth Proxy handles OAuth session flow." />
-    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" reason="Out of simplified runtime scope; admin remains ROOT_AUTH_TOKEN only." />
-    <M-DB NAME="DrizzleDb" reason="No active dependency in simplified runtime path." />
+    <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" reason="Out of active onboarding scope; admin remains ROOT_AUTH_TOKEN-only." />
+    <M-DB NAME="DrizzleDb" reason="No active dependency in current runtime path." />
   </DeprecatedModules>
+
+  <DroppedModules>
+    <M-SEARCH-CONTEXT-TOOL NAME="SearchContextTool" reason="Dropped from product plan by scope decision; not implemented in active roadmap." />
+    <M-VERIFY-GMAP-TOOL NAME="ValidateGoogleMapLinkTool" reason="Dropped from product plan by scope decision; not implemented in active roadmap." />
+    <M-VERIFY-TABELOG-TOOL NAME="VerifyTabelogTool" reason="Dropped from product plan by scope decision; not implemented in active roadmap." />
+  </DroppedModules>
 </DevelopmentPlan>

@@ -1,4 +1,4 @@
-<TechnologyStack VERSION="0.5.0">
+<TechnologyStack VERSION="0.6.0">
   <Runtime>Bun 1.3.8</Runtime>
   <Language>TypeScript 5.x</Language>
   <Framework>fastmcp 3.33.x</Framework>
@@ -6,8 +6,11 @@
   <Dependencies>
     <dep-fastmcp name="fastmcp" version="3.33.x" purpose="MCP runtime, OAuth Proxy integration, tool registration, and HTTP stream transport" />
     <dep-zod name="zod" version="4.x" purpose="Tool input schemas with deterministic validation" />
-    <dep-pg name="pg" version="8.x" purpose="Deferred/legacy persistence modules outside current runtime auth path" />
-    <dep-drizzle name="drizzle-orm" version="0.45.x" purpose="Deferred/legacy persistence modules outside current runtime auth path" />
+    <dep-tailwindcss name="tailwindcss" version="3.x" purpose="Portal UI styling pipeline for SSR pages" />
+    <dep-htmx name="htmx.org" version="1.9.x" purpose="Progressive enhancement for portal forms and fragment updates" />
+    <dep-alpine name="alpinejs" version="3.x" purpose="Minimal client-side interactivity for portal micro-interactions when needed" />
+    <dep-pg name="pg" version="8.x" purpose="Deferred persistence/integration modules for post-e2e ingestion stage" />
+    <dep-drizzle name="drizzle-orm" version="0.45.x" purpose="Deferred persistence/integration modules for post-e2e ingestion stage" />
   </Dependencies>
 
   <VersionConstraints>
@@ -20,17 +23,20 @@
   <Tooling>
     <tool-package-manager name="package-manager" value="bun" version="1.3.x" />
     <tool-test-runner name="test-runner" value="bun test" version="1.3.x" />
+    <tool-tailwind-build name="tailwind-build" value="bunx tailwindcss -i src/portal/styles/tailwind.css -o public/assets/portal.css --minify" version="3.x" />
   </Tooling>
 
   <TransportSurface>
     <McpTransport>FastMCP HTTP stream endpoint `/mcp`</McpTransport>
     <AdminTransport>FastMCP underlying Hono app routes `/admin/*`</AdminTransport>
+    <PortalTransport>Server-rendered routes `/`, `/portal`, `/portal/*`</PortalTransport>
   </TransportSurface>
 
   <AuthModel>
     <McpAuth>FastMCP OAuth Proxy (Logto OIDC upstream) is required for `/mcp`</McpAuth>
     <AdminAuth>ROOT_AUTH_TOKEN login/session is required for `/admin/*`</AdminAuth>
-    <IsolationRule>ROOT_AUTH_TOKEN is never valid for `/mcp`; OAuth session is not admin credential</IsolationRule>
+    <PortalAuth>Portal user registration/login is handled on `/portal/*` with dedicated tester session model and automatic MCP-access provisioning</PortalAuth>
+    <IsolationRule>Machine OAuth (`/mcp`), admin root session (`/admin/*`), and tester portal session (`/portal/*`) are isolated and non-interchangeable</IsolationRule>
   </AuthModel>
 
   <CurrentToolSurface>
@@ -50,16 +56,35 @@
     <RequiredEnv-6>LOGTO_TENANT_URL</RequiredEnv-6>
     <RequiredEnv-7>LOGTO_CLIENT_ID</RequiredEnv-7>
     <RequiredEnv-8>LOGTO_CLIENT_SECRET</RequiredEnv-8>
+    <RequiredEnv-9>PORTAL_SESSION_SECRET</RequiredEnv-9>
   </RuntimeConfigPolicy>
 
   <ProductBoundary>
-    <InScope>OAuth-protected MCP proxy for existing 4 tools, root-token admin auth, deterministic schema validation</InScope>
-    <OutOfScope>API-key auth for `/mcp`, `search_context`, `validate_google_map_link`, `verify_tabelog`, trip planning/orchestration/memory subsystems</OutOfScope>
+    <InScope>OAuth-protected MCP proxy for existing 4 tools, landing redirect to user portal, custom portal registration/login, automatic tester provisioning, root-token admin auth, deterministic schema validation</InScope>
+    <OutOfScope>`search_context`, `validate_google_map_link`, `verify_tabelog`, invite-link onboarding, billing settings implementation, curated ingestion/indexing before portal e2e readiness</OutOfScope>
   </ProductBoundary>
 
   <DeferredCapabilities>
-    <capability-1>search_context hybrid retrieval with evidence contract</capability-1>
-    <capability-2>validate_google_map_link deterministic verifier</capability-2>
-    <capability-3>verify_tabelog deterministic verifier</capability-3>
+    <capability-1>Curated-source ingestion and backfill after portal e2e onboarding validation</capability-1>
+    <capability-2>User billing settings inside portal after stable onboarding flow</capability-2>
   </DeferredCapabilities>
+
+  <PortalUiArchitecture>
+    <RenderingModel>Server-rendered JSX pages with per-page HTTP routes; no SPA client router in current phase.</RenderingModel>
+    <InteractionModel>HTMX handles partial form updates; Alpine.js is optional and limited to local UI micro-interactions.</InteractionModel>
+    <StylingModel>Tailwind-based stylesheet compiled into shared portal asset and reused across portal pages.</StylingModel>
+    <Route-1>`GET /` landing with redirect CTA to `/portal`</Route-1>
+    <Route-2>`GET /portal` route gate to login/home depending on portal session</Route-2>
+    <Route-3>`GET/POST /portal/register` registration page and submission</Route-3>
+    <Route-4>`GET/POST /portal/login` login page and submission</Route-4>
+    <Route-5>`GET /portal/home` authenticated onboarding + MCP setup guide</Route-5>
+    <Route-6>`POST /portal/logout` portal session invalidation</Route-6>
+    <Route-7>`GET /portal/integrations/agent-setup` dedicated MCP connection guide page</Route-7>
+  </PortalUiArchitecture>
+
+  <DroppedCapabilities>
+    <capability-101>search_context hybrid retrieval MCP tool</capability-101>
+    <capability-102>validate_google_map_link MCP tool</capability-102>
+    <capability-103>verify_tabelog MCP tool</capability-103>
+  </DroppedCapabilities>
 </TechnologyStack>

@@ -1,29 +1,31 @@
-# MCP Verification Contracts (Deferred)
+# MCP Verification Contracts (Dropped)
 
-Date: 2026-02-27
+Date: 2026-02-28
 Project: `japan-travel-rag-mcp`
-Status: Deferred (not active in current runtime scope)
+Status: Dropped (removed from active and deferred product plans)
 
 ## Scope note
 
-This document describes future contracts for:
+This document remains only as a historical record for previously discussed contracts:
 1. `validate_google_map_link`
 2. `verify_tabelog`
 3. Related POI/HITL policies
 
-These tools are intentionally out of the active MCP surface while current scope focuses on:
+These tools are not part of the current roadmap.
+Active MCP surface is limited to:
 1. `search_messages`
 2. `get_message_context`
 3. `get_related_messages`
 4. `list_sources`
 
-Auth model for active scope:
+Active auth model:
 1. FastMCP OAuth Proxy for `/mcp`
 2. `ROOT_AUTH_TOKEN` login/session for `/admin/*`
+3. Portal session model for `/portal/*`
 
-## Re-activation rule
+## Re-introduction rule
 
-When verification tools return to active scope:
-1. Promote this document from Deferred to Active.
-2. Synchronize `docs/requirements.xml`, `docs/technology.xml`, and `docs/contracts/mcp-tools.v1.json` in the same change set.
-3. Add corresponding modules/contracts to `docs/development-plan.xml` and `docs/knowledge-graph.xml`.
+If business priorities change and verification tools return:
+1. Create a new planning decision explicitly re-introducing them.
+2. Update `docs/requirements.xml`, `docs/technology.xml`, `docs/development-plan.xml`, and `docs/knowledge-graph.xml` in one change set.
+3. Create new contracts instead of reusing this archived draft as-is.
