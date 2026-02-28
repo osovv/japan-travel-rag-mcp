@@ -1,5 +1,5 @@
 // FILE: src/runtime/fastmcp-runtime.ts
-// VERSION: 1.4.0
+// VERSION: 1.5.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface, health endpoint, delegated /admin routes, and portal/landing routes.
 //   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools with zod schemas and canAccess guards, route tool execution to ToolProxyService, mount OAuth diagnostics notFound routes, mount /admin routes, and mount / and /portal/* routes through FastMCP.getApp().
@@ -18,10 +18,12 @@
 //   registerProxyTools - Register fixed four-tool proxy surface on FastMCP.
 //   mountAdminRoutes - Mount /admin and /admin/* handlers via FastMCP.getApp().
 //   mountPortalRoutes - Mount / landing and /portal/* handlers via FastMCP.getApp().
+//   extractUserIdFromSession - Extract user sub claim from MCP OAuth session JWT tokens for usage tracking.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.4.0 - Added portal landing and /portal/* route mounting through FastMCP getApp() alongside existing admin routes.
+//   LAST_CHANGE: v1.5.0 - Added extractUserIdFromSession helper to extract user sub claim from MCP OAuth session JWT tokens for usage tracking.
+//   PREVIOUS: v1.4.0 - Added portal landing and /portal/* route mounting through FastMCP getApp() alongside existing admin routes.
 // END_CHANGE_SUMMARY
 
 import { FastMCP, type ServerOptions } from "fastmcp";
@@ -51,6 +53,60 @@ type RuntimeOauthSession = {
   refreshToken?: string;
 };
 type RuntimeSessionAuth = RuntimeOauthSession | undefined;
+
+// START_CONTRACT: extractUserIdFromSession
+//   PURPOSE: Extract user identity (sub claim) from MCP OAuth session JWT tokens for per-user usage tracking.
+//   INPUTS: { session: RuntimeSessionAuth - OAuth session with optional idToken and accessToken, or undefined }
+//   OUTPUTS: { string | null - The sub claim value from the JWT payload, or null on any failure }
+//   SIDE_EFFECTS: [none]
+//   INVARIANTS:
+//     - MUST NEVER THROW under any input
+//     - Prefers idToken over accessToken when both are present
+//     - Performs JWT payload extraction only (no cryptographic verification)
+//     - Returns null for missing session, missing tokens, malformed JWTs, invalid JSON payloads, or absent sub claim
+//   LINKS: [M-FASTMCP-RUNTIME, M-USAGE-TRACKER]
+// END_CONTRACT: extractUserIdFromSession
+export function extractUserIdFromSession(session: RuntimeSessionAuth): string | null {
+  // START_BLOCK_EXTRACT_USER_ID_FROM_SESSION_JWT_M_FASTMCP_RUNTIME_010
+  if (!session) {
+    return null;
+  }
+
+  const tokens: string[] = [];
+  if (session.idToken) {
+    tokens.push(session.idToken);
+  }
+  if (session.accessToken) {
+    tokens.push(session.accessToken);
+  }
+
+  for (const token of tokens) {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) {
+        continue;
+      }
+
+      const payloadSegment = parts[1];
+      const decoded = atob(payloadSegment.replace(/-/g, "+").replace(/_/g, "/"));
+      const payload: unknown = JSON.parse(decoded);
+
+      if (
+        typeof payload === "object" &&
+        payload !== null &&
+        "sub" in payload &&
+        typeof (payload as Record<string, unknown>).sub === "string"
+      ) {
+        return (payload as Record<string, unknown>).sub as string;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+  // END_BLOCK_EXTRACT_USER_ID_FROM_SESSION_JWT_M_FASTMCP_RUNTIME_010
+}
 
 type RuntimeToolName =
   | "search_messages"
