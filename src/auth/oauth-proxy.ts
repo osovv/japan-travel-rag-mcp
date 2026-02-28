@@ -1,10 +1,10 @@
 // FILE: src/auth/oauth-proxy.ts
-// VERSION: 1.7.0
+// VERSION: 1.8.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for /mcp authentication.
 //   SCOPE: Validate runtime config/logger dependencies, build deterministic OAuthProxy configuration from AppConfig Logto/public URL fields, instantiate OAuthProxy, expose authorization server metadata, and map init failures to OAUTH_PROXY_INIT_ERROR.
-//   DEPENDS: M-CONFIG, M-LOGGER
-//   LINKS: M-AUTH-PROXY, M-CONFIG, M-LOGGER
+//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH
+//   LINKS: M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -12,16 +12,17 @@
 //   OauthProxyContext - Initialized OAuthProxy and derived authorization-server metadata payload.
 //   OauthProxyInitError - Typed initialization failure with stable OAUTH_PROXY_INIT_ERROR code.
 //   DEFAULT_OAUTH_PROXY_SCOPES - Deterministic default upstream scopes forwarded to authorization requests.
-//   createOauthProxy - Build and return OAuthProxy plus authorization server metadata.
+//   createOauthProxy - Build and return OAuthProxy plus authorization server metadata; applies portal consent screen patch.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.7.0 - Enforced single default upstream scope ["mcp:access"] for OAuthProxy authorization metadata and upstream authorize requests.
+//   LAST_CHANGE: v1.8.0 - Integrated patchOAuthProxyConsent from M-AUTH-CONSENT-PATCH to replace default consent screen with portal-styled HTML after OAuthProxy construction.
 // END_CHANGE_SUMMARY
 
 import { OAuthProxy, type OAuthProxyConfig } from "fastmcp/auth";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
+import { patchOAuthProxyConsent } from "./consent-patch";
 
 type OauthProxyInitErrorDetails = {
   field?: string;
@@ -290,6 +291,14 @@ export function createOauthProxy(deps: OauthProxyDeps): OauthProxyContext {
     };
 
     const oauthProxy = new OAuthProxy(oauthProxyConfig);
+
+    patchOAuthProxyConsent(oauthProxy);
+    logger.info(
+      "Applied portal consent screen patch to OAuthProxy.",
+      "createOauthProxy",
+      "APPLY_PORTAL_CONSENT_PATCH_M_AUTH_PROXY_011",
+    );
+
     const authorizationServerMetadata = oauthProxy.getAuthorizationServerMetadata();
 
     logger.info(
