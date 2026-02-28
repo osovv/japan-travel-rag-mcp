@@ -47,6 +47,7 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     LOGTO_PORTAL_APP_SECRET: "portal-app-secret",
     LOGTO_M2M_APP_ID: "m2m-app-id",
     LOGTO_M2M_APP_SECRET: "m2m-app-secret",
+    LOGTO_MANAGEMENT_API_RESOURCE: "https://default.logto.app/api",
     LOGTO_MCP_USER_ROLE_ID: "role-uuid-1234",
     ...overrides,
   };
@@ -92,6 +93,7 @@ describe("M-CONFIG runtime settings", () => {
     expect(config.portal.logtoAppSecret).toBe("portal-app-secret");
     expect(config.portal.logtoM2mAppId).toBe("m2m-app-id");
     expect(config.portal.logtoM2mAppSecret).toBe("m2m-app-secret");
+    expect(config.portal.logtoManagementApiResource).toBe("https://default.logto.app/api");
     expect(config.portal.mcpUserRoleId).toBe("role-uuid-1234");
     expect(config.portal.sessionTtlSeconds).toBe(604800);
   });
@@ -141,6 +143,7 @@ describe("M-CONFIG runtime settings", () => {
         LOGTO_PORTAL_APP_SECRET: " ",
         LOGTO_M2M_APP_ID: " ",
         LOGTO_M2M_APP_SECRET: " ",
+        LOGTO_MANAGEMENT_API_RESOURCE: " ",
         LOGTO_MCP_USER_ROLE_ID: " ",
       }),
     );
@@ -159,6 +162,7 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.details).toContain("LOGTO_PORTAL_APP_SECRET is required.");
     expect(error.details).toContain("LOGTO_M2M_APP_ID is required.");
     expect(error.details).toContain("LOGTO_M2M_APP_SECRET is required.");
+    expect(error.details).toContain("LOGTO_MANAGEMENT_API_RESOURCE is required.");
     expect(error.details).toContain("LOGTO_MCP_USER_ROLE_ID is required.");
   });
 

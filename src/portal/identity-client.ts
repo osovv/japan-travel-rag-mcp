@@ -470,7 +470,7 @@ export function createPortalIdentityClient(
     try {
       // START_BLOCK_ACQUIRE_M2M_ACCESS_TOKEN_M_PORTAL_IDENTITY_014
       const tenantBaseUrl = config.logto.tenantUrl.replace(/\/+$/, "");
-      const managementApiResource = `${tenantBaseUrl}/api`;
+      const managementApiResource = config.portal.logtoManagementApiResource;
 
       const m2mBody = new URLSearchParams();
       m2mBody.set("grant_type", "client_credentials");

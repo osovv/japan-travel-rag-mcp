@@ -40,6 +40,7 @@ export type AppConfig = {
     logtoAppSecret: string;
     logtoM2mAppId: string;
     logtoM2mAppSecret: string;
+    logtoManagementApiResource: string;
     mcpUserRoleId: string;
     sessionTtlSeconds: number;
   };
@@ -82,6 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const portalLogtoAppSecret = (env.LOGTO_PORTAL_APP_SECRET ?? "").trim();
   const portalLogtoM2mAppId = (env.LOGTO_M2M_APP_ID ?? "").trim();
   const portalLogtoM2mAppSecret = (env.LOGTO_M2M_APP_SECRET ?? "").trim();
+  const portalLogtoManagementApiResource = (env.LOGTO_MANAGEMENT_API_RESOURCE ?? "").trim();
   const portalMcpUserRoleId = (env.LOGTO_MCP_USER_ROLE_ID ?? "").trim();
   const portalSessionTtlRaw = (env.PORTAL_SESSION_TTL_SECONDS ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
@@ -221,6 +223,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!portalLogtoM2mAppSecret) {
     errors.push("LOGTO_M2M_APP_SECRET is required.");
   }
+  if (!portalLogtoManagementApiResource) {
+    errors.push("LOGTO_MANAGEMENT_API_RESOURCE is required.");
+  }
   // END_BLOCK_VALIDATE_PORTAL_M2M_CREDENTIALS_M_CONFIG_017
 
   // START_BLOCK_VALIDATE_MCP_USER_ROLE_ID_M_CONFIG_018
@@ -271,6 +276,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       logtoAppSecret: portalLogtoAppSecret,
       logtoM2mAppId: portalLogtoM2mAppId,
       logtoM2mAppSecret: portalLogtoM2mAppSecret,
+      logtoManagementApiResource: portalLogtoManagementApiResource,
       mcpUserRoleId: portalMcpUserRoleId,
       sessionTtlSeconds: portalSessionTtlSeconds,
     },

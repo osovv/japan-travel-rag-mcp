@@ -236,9 +236,7 @@ function isPortalSessionPayload(payload: unknown): payload is PortalSessionPaylo
     typeof candidate["sub"] === "string" &&
     candidate["sub"].length > 0 &&
     typeof candidate["email"] === "string" &&
-    candidate["email"].length > 0 &&
     typeof candidate["name"] === "string" &&
-    candidate["name"].length > 0 &&
     typeof candidate["iat"] === "number" &&
     Number.isInteger(candidate["iat"]) &&
     candidate["iat"] > 0 &&
