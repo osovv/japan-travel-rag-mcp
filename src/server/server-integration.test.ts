@@ -492,12 +492,21 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
   const { proxyService, proxyCalls } = createMockProxyService();
   const { adminHandler, adminCalls } = createMockAdminHandler();
 
+  const portalLandingHandler = async (): Promise<Response> => {
+    return new Response("landing", { status: 200 });
+  };
+  const portalHandler = async (): Promise<Response> => {
+    return new Response("portal", { status: 200 });
+  };
+
   const runtime = createFastMcpRuntime({
     config,
     logger,
     oauthProxyContext,
     proxyService,
     adminHandler,
+    portalLandingHandler,
+    portalHandler,
   });
 
   const app = runtime.getApp();
@@ -789,6 +798,12 @@ describe("M-SERVER FastMCP integration", () => {
     const { oauthProxyContext } = createMockOauthProxyContext("valid.oauth.diagnostics.jwt");
     const { proxyService } = createMockProxyService();
     const { adminHandler } = createMockAdminHandler();
+    const portalLandingHandler = async (): Promise<Response> => {
+      return new Response("landing", { status: 200 });
+    };
+    const portalHandler = async (): Promise<Response> => {
+      return new Response("portal", { status: 200 });
+    };
 
     const runtime = createFastMcpRuntime({
       config,
@@ -796,6 +811,8 @@ describe("M-SERVER FastMCP integration", () => {
       oauthProxyContext,
       proxyService,
       adminHandler,
+      portalLandingHandler,
+      portalHandler,
     });
 
     const app = runtime.getApp();

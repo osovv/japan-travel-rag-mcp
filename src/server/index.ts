@@ -1,21 +1,21 @@
 // FILE: src/server/index.ts
-// VERSION: 2.0.0
+// VERSION: 3.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server, and start MCP HTTP stream transport on /mcp.
-//   SCOPE: Load config/logger, initialize OAuth proxy and upstream proxy dependencies, construct FastMCP runtime with admin handler binding, start FastMCP httpStream transport, and manage graceful shutdown.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME
+//   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server with MCP, admin, and portal surfaces, and start HTTP stream transport on /mcp.
+//   SCOPE: Load config/logger, initialize OAuth proxy/upstream proxy/portal identity/admin handler/portal handler dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   ServerStartError - Typed startup failure error with SERVER_START_ERROR code.
 //   stopRuntime - Stop FastMCP runtime with deterministic logs.
 //   installGracefulShutdownHandlers - Register SIGINT/SIGTERM handlers with idempotent shutdown guard.
-//   main - Application entrypoint that initializes dependencies and starts FastMCP httpStream runtime at /mcp.
+//   main - Application entrypoint that initializes dependencies and starts FastMCP httpStream runtime at /mcp with admin and portal surfaces.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.0.0 - Finalized M-SERVER boot path on OAuthProxy runtime architecture by removing legacy DB/mcp-auth dependencies and keeping FastMCP graceful shutdown lifecycle.
+//   LAST_CHANGE: v3.0.0 - Added portal identity client, portal UI handler, and landing handler construction to server boot path for self-serve onboarding.
 // END_CHANGE_SUMMARY
 
 import { type FastMCP } from "fastmcp";
@@ -25,6 +25,19 @@ import { loadConfig } from "../config/index";
 import { createTgChatRagClient } from "../integrations/tg-chat-rag-client";
 import { createLogger } from "../logger/index";
 import type { Logger } from "../logger/index";
+import { createPortalIdentityClient } from "../portal/identity-client";
+import {
+  handleLandingRequest,
+  handlePortalRootRoute,
+  handlePortalRegisterRoute,
+  handlePortalLoginRoute,
+  handlePortalOauthStartRoute,
+  handlePortalOauthCallbackRoute,
+  handlePortalHomeRoute,
+  handlePortalAgentSetupRoute,
+  handlePortalLogoutRoute,
+} from "../portal/ui-routes";
+import type { PortalUiDependencies } from "../portal/ui-routes";
 import { createFastMcpRuntime } from "../runtime/fastmcp-runtime";
 import { createToolProxyService } from "../tools/proxy-service";
 
@@ -191,12 +204,63 @@ export async function main(): Promise<FastMCP> {
       return handleAdminRequest(request, adminDeps);
     };
 
+    // START_BLOCK_CONSTRUCT_PORTAL_DEPENDENCIES_M_SERVER_105
+    const identityClient = createPortalIdentityClient(
+      config,
+      logger.child({ component: "portalIdentityClient" }),
+    );
+    const portalDeps: PortalUiDependencies = {
+      config,
+      logger: logger.child({ route: "portal", component: "portalUiRoutes" }),
+      identityClient,
+    };
+
+    const portalLandingHandler = async (request: Request): Promise<Response> => {
+      return handleLandingRequest(request, portalDeps);
+    };
+
+    const portalHandler = async (request: Request): Promise<Response> => {
+      const url = new URL(request.url);
+      const pathname = url.pathname;
+      const method = request.method.toUpperCase();
+
+      if (pathname === "/portal" && method === "GET") {
+        return handlePortalRootRoute(request, portalDeps);
+      }
+      if (pathname === "/portal/register" && method === "GET") {
+        return handlePortalRegisterRoute(request, portalDeps);
+      }
+      if (pathname === "/portal/login" && method === "GET") {
+        return handlePortalLoginRoute(request, portalDeps);
+      }
+      if (pathname === "/portal/auth/start" && method === "GET") {
+        return handlePortalOauthStartRoute(request, portalDeps);
+      }
+      if (pathname === "/portal/auth/callback" && method === "GET") {
+        return handlePortalOauthCallbackRoute(request, portalDeps);
+      }
+      if (pathname === "/portal/home" && method === "GET") {
+        return handlePortalHomeRoute(request, portalDeps);
+      }
+      if (pathname === "/portal/integrations/agent-setup" && method === "GET") {
+        return handlePortalAgentSetupRoute(request, portalDeps);
+      }
+      if (pathname === "/portal/logout" && method === "POST") {
+        return handlePortalLogoutRoute(request, portalDeps);
+      }
+
+      return new Response("Not Found", { status: 404 });
+    };
+    // END_BLOCK_CONSTRUCT_PORTAL_DEPENDENCIES_M_SERVER_105
+
     const fastMcpServer = createFastMcpRuntime({
       config,
       logger: logger.child({ component: "fastMcpRuntime" }),
       oauthProxyContext,
       proxyService,
       adminHandler,
+      portalLandingHandler,
+      portalHandler,
     });
     shutdownTarget.fastMcpServer = fastMcpServer;
 

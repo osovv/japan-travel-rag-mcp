@@ -277,12 +277,21 @@ async function createRuntimeHarness(
     });
   };
 
+  const portalLandingHandler = async (): Promise<Response> => {
+    return new Response("landing", { status: 200 });
+  };
+  const portalHandler = async (): Promise<Response> => {
+    return new Response("portal", { status: 200 });
+  };
+
   const runtime = createFastMcpRuntime({
     config,
     logger,
     oauthProxyContext,
     proxyService,
     adminHandler,
+    portalLandingHandler,
+    portalHandler,
   });
 
   await runtime.start({
