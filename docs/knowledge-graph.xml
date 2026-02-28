@@ -56,7 +56,7 @@
       </annotations>
     </M-AUTH-PROXY>
 
-    <M-PORTAL-IDENTITY NAME="PortalIdentityClient" TYPE="INTEGRATION" STATUS="planned">
+    <M-PORTAL-IDENTITY NAME="PortalIdentityClient" TYPE="INTEGRATION" STATUS="active">
       <purpose>Identity-provider adapter for portal social OAuth start/callback flows and automatic tester access role assignment.</purpose>
       <path>src/portal/identity-client.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
@@ -89,7 +89,7 @@
       </annotations>
     </M-ADMIN-AUTH>
 
-    <M-PORTAL-AUTH NAME="PortalAuth" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-PORTAL-AUTH NAME="PortalAuth" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Portal tester session lifecycle management and route guards for /portal protected routes.</purpose>
       <path>src/portal/auth.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
@@ -100,7 +100,7 @@
       </annotations>
     </M-PORTAL-AUTH>
 
-    <M-PORTAL-PROVISIONING NAME="PortalProvisioning" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-PORTAL-PROVISIONING NAME="PortalProvisioning" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Automatic post-registration/login provisioning for tester MCP access rights.</purpose>
       <path>src/portal/provisioning.ts</path>
       <depends>M-PORTAL-IDENTITY, M-LOGGER</depends>
@@ -120,7 +120,7 @@
       </annotations>
     </M-ADMIN-UI>
 
-    <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="planned">
+    <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
       <purpose>Server-rendered landing + portal per-page routes for external tester onboarding with progressive enhancement.</purpose>
       <path>src/portal/ui-routes.tsx</path>
       <depends>M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-CONFIG, M-LOGGER</depends>

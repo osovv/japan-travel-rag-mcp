@@ -462,7 +462,7 @@
       <justification>UI layer is meaningful only after auth/provisioning contracts are defined and must follow the approved lightweight SSR interaction model.</justification>
     </Phase-3>
 
-    <Phase-4 name="RuntimeMountingAndE2EValidation" status="planned">
+    <Phase-4 name="RuntimeMountingAndE2EValidation" status="done">
       <step-1>Mount landing and portal routes in M-FASTMCP-RUNTIME alongside existing admin routes.</step-1>
       <step-2>Add integration/smoke tests for onboarding e2e and auth isolation.</step-2>
       <step-3>Confirm tool surface remains fixed to four active tools.</step-3>
