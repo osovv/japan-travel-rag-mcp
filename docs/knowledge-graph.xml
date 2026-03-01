@@ -1,7 +1,7 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.9.0">
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.10.0">
     <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management</keywords>
-    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, worker-driven curated-sites crawl/index pipeline with attributed local retrieval, and admin sites management CRUD.</annotation>
+    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, worker-driven curated-sites crawl/index pipeline with attributed local retrieval, admin sites management CRUD, and persistent OAuth token storage.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
       <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
@@ -41,7 +41,7 @@
     <M-SITE-SOURCES NAME="SiteSources" TYPE="DATA_LAYER" STATUS="active">
       <purpose>Serve curated source registry from `site_sources` database table with bootstrap seed constant used only for initialization.</purpose>
       <path>src/tools/site-sources.ts</path>
-      <depends>M-DB, M-LOGGER</depends>
+      <depends>M-DB, M-DB-SCHEMA, M-LOGGER</depends>
       <annotations>
         <const-SITE_SOURCES_RESPONSE description="Bootstrap seed data: description_and_tiers + initial source entries." />
         <fn-getSiteSources description="Fetch registry rows from `site_sources` table for local tool response." />
@@ -145,10 +145,19 @@
       </annotations>
     </M-AUTH-CONSENT-PATCH>
 
+    <M-AUTH-PG-TOKEN-STORAGE NAME="PgTokenStorage" TYPE="DATA_LAYER" STATUS="active">
+      <purpose>PostgreSQL-backed TokenStorage implementation for persistent OAuth session state across redeploys.</purpose>
+      <path>src/auth/pg-token-storage.ts</path>
+      <depends>M-DB, M-LOGGER</depends>
+      <annotations>
+        <class-PostgresTokenStorage description="Implements fastmcp TokenStorage interface (save/get/delete/cleanup) using oauth_token_store table via Drizzle raw SQL." />
+      </annotations>
+    </M-AUTH-PG-TOKEN-STORAGE>
+
     <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" STATUS="active">
       <purpose>FastMCP OAuthProxy integration for /mcp authentication backed by Logto OIDC upstream endpoints.</purpose>
       <path>src/auth/oauth-proxy.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH, M-AUTH-PG-TOKEN-STORAGE</depends>
       <annotations>
         <fn-createOauthProxy description="Create OAuthProxy, apply portal consent patch, and provide authorization-server metadata for FastMCP oauth config." />
         <type-OauthProxyDeps description="Validated dependency bundle for proxy construction." />
@@ -211,7 +220,7 @@
     <M-USAGE-TRACKER NAME="UsageTracker" TYPE="DATA_LAYER" STATUS="active">
       <purpose>Track per-user MCP tool call counts in PostgreSQL via Drizzle UPSERT and expose query interface for portal display.</purpose>
       <path>src/usage/tracker.ts</path>
-      <depends>M-DB, M-LOGGER</depends>
+      <depends>M-DB, M-DB-SCHEMA, M-LOGGER</depends>
       <annotations>
         <fn-createUsageTracker description="Build usage tracker backed by Drizzle PostgreSQL with auto-schema bootstrap." />
         <fn-recordToolCall description="Increment per-user per-tool counter via UPSERT; fire-and-forget with warning on failure." />
@@ -289,7 +298,7 @@
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active">
       <purpose>Bootstrap API runtime config/dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, usage tracking, and local tools.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-DB-SITES-BOOTSTRAP, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
       <annotations>
         <fn-main description="Initialize API runtime dependencies, mount route handlers, and start server lifecycle." />
       </annotations>
@@ -298,7 +307,7 @@
     <M-WORKER-ENTRYPOINT NAME="WorkerMain" TYPE="ENTRY_POINT" STATUS="active">
       <purpose>Bootstrap worker runtime and execute recurring curated-site scheduling/ingestion/index jobs.</purpose>
       <path>src/worker-main.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-DB, M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-VOYAGE-PROXY-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-SITES-INDEX-REPOSITORY, M-SITES-INGESTION</depends>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-DB-SITES-BOOTSTRAP, M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-VOYAGE-PROXY-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-SITES-INDEX-REPOSITORY, M-SITES-INGESTION</depends>
       <annotations>
         <fn-main description="Run scheduler loop for crawl-only ingestion and index refresh jobs." />
       </annotations>
@@ -334,11 +343,44 @@
     <M-API-KEY-REPOSITORY NAME="ApiKeyRepository" TYPE="DATA_LAYER" STATUS="deprecated">
       <purpose>Legacy API-key repository outside simplified runtime target.</purpose>
       <path>src/admin/api-key-repository.ts</path>
-      <depends>M-DB, M-LOGGER</depends>
+      <depends>M-DB, M-DB-SCHEMA, M-LOGGER</depends>
       <annotations>
         <fn-createApiKeyRepository description="Legacy API-key CRUD repository." />
       </annotations>
     </M-API-KEY-REPOSITORY>
+
+    <M-DB-SCHEMA NAME="DbSchema" TYPE="DATA_LAYER" STATUS="active">
+      <purpose>Unified Drizzle pgTable schemas for the entire application: API keys, curated site indexing pipeline, usage tracking, and OAuth token store.</purpose>
+      <path>src/db/schema.ts</path>
+      <depends>none</depends>
+      <annotations>
+        <schema-apiKeysTable description="API key persistence table (id PK, key_hash, label, expiry/revocation timestamps)." />
+        <schema-siteSourcesTable description="Curated site source registry (source_id PK, tier, domain, crawl config)." />
+        <schema-sitePagesTable description="Fetched pages linked to a source (page_id PK, source_id FK)." />
+        <schema-siteChunksTable description="Text chunks derived from pages (chunk_id PK, page_id FK)." />
+        <schema-siteChunkEmbeddingsTable description="Embedding vectors for chunks (chunk_id PK+FK, pgvector 1024-dim column)." />
+        <schema-siteCrawlJobsTable description="Crawl job tracking (crawl_job_id PK, source_id FK)." />
+        <schema-usageCountersTable description="Per-user per-tool call counters with composite PK (user_id, tool_name)." />
+        <schema-oauthTokenStoreTable description="OAuth token store for persistent session state (key PK, jsonb value, expires_at)." />
+        <type-SiteSourceSelect description="Inferred select type for site_sources." />
+        <type-SitePageSelect description="Inferred select type for site_pages." />
+        <type-SiteChunkSelect description="Inferred select type for site_chunks." />
+        <type-SiteChunkEmbeddingSelect description="Inferred select type for site_chunk_embeddings." />
+        <type-SiteCrawlJobSelect description="Inferred select type for site_crawl_jobs." />
+      </annotations>
+    </M-DB-SCHEMA>
+
+    <M-DB-SITES-BOOTSTRAP NAME="SitesBootstrap" TYPE="DATA_LAYER" STATUS="active">
+      <purpose>Bootstrap curated sites index schema (pgvector extension, 5 site tables, oauth_token_store) and seed site_sources from frozen constant.</purpose>
+      <path>src/db/sites-bootstrap.ts</path>
+      <depends>M-DB, M-LOGGER, M-SITE-SOURCES</depends>
+      <annotations>
+        <fn-bootstrapSitesSchema description="Enable pgvector, create all site index tables + oauth_token_store, ensure unique indexes, and upsert seed sources." />
+        <fn-getDefaultCrawlInterval description="Return default crawl interval in minutes based on source tier." />
+        <fn-getDefaultMaxPages description="Return default max pages limit based on source tier." />
+        <type-SitesBootstrapError description="Typed error for sites schema bootstrap failures." />
+      </annotations>
+    </M-DB-SITES-BOOTSTRAP>
 
     <M-DB NAME="DrizzleDb" TYPE="DATA_LAYER" STATUS="active">
       <purpose>Drizzle PostgreSQL client bootstrap with fail-fast connectivity probe for usage tracking and future persistence modules.</purpose>
@@ -369,6 +411,7 @@
       <CrossLink FROM="M-SITES-INDEX-REPOSITORY" TO="M-SITES-INGESTION" REL="persists_for" />
       <CrossLink FROM="M-SITES-INDEX-REPOSITORY" TO="M-SITES-SEARCH" REL="queries_for" />
       <CrossLink FROM="M-AUTH-CONSENT-PATCH" TO="M-AUTH-PROXY" REL="patches_consent_for" />
+      <CrossLink FROM="M-AUTH-PG-TOKEN-STORAGE" TO="M-AUTH-PROXY" REL="persists_sessions_for" />
       <CrossLink FROM="M-AUTH-PROXY" TO="M-FASTMCP-RUNTIME" REL="authenticates" />
       <CrossLink FROM="M-TOOL-PROXY" TO="M-FASTMCP-RUNTIME" REL="handles_tool_execution_for" />
       <CrossLink FROM="M-SITES-SEARCH" TO="M-FASTMCP-RUNTIME" REL="handles_local_tool_execution_for" />
@@ -387,6 +430,11 @@
       <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-AUTH-PROXY" REL="superseded_by" />
       <CrossLink FROM="M-CONFIG" TO="M-DB" REL="configures" />
       <CrossLink FROM="M-DB" TO="M-USAGE-TRACKER" REL="persists_for" />
+      <CrossLink FROM="M-DB-SCHEMA" TO="M-USAGE-TRACKER" REL="defines_schema_for" />
+      <CrossLink FROM="M-DB-SCHEMA" TO="M-SITE-SOURCES" REL="defines_schema_for" />
+      <CrossLink FROM="M-DB-SCHEMA" TO="M-API-KEY-REPOSITORY" REL="defines_schema_for" />
+      <CrossLink FROM="M-DB-SITES-BOOTSTRAP" TO="M-SERVER" REL="bootstraps_for" />
+      <CrossLink FROM="M-DB-SITES-BOOTSTRAP" TO="M-WORKER-ENTRYPOINT" REL="bootstraps_for" />
       <CrossLink FROM="M-DB" TO="M-SITE-SOURCES" REL="persists_for" />
       <CrossLink FROM="M-DB" TO="M-SITES-INDEX-REPOSITORY" REL="persists_for" />
       <CrossLink FROM="M-USAGE-TRACKER" TO="M-FASTMCP-RUNTIME" REL="tracks_usage_for" />
