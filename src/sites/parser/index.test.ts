@@ -1,5 +1,5 @@
 // FILE: src/sites/parser/index.test.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate deterministic parsing behavior for M-SITES-PARSER.
 //   SCOPE: Assert URL normalization, title extraction, text cleaning, SHA-256 hashing, error handling, and non-200 status warnings.
@@ -20,7 +20,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Added coverage that undefined status_code does not emit non-200 warning.
+//   LAST_CHANGE: v1.2.0 - Added coverage for fallback Spider content fields (markdown/text/html) when content is empty.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -374,6 +374,43 @@ describe("M-SITES-PARSER", () => {
     });
   });
   // END_BLOCK_ERROR_HANDLING_TESTS_M_SITES_PARSER_TEST_008
+
+  // START_BLOCK_CONTENT_FALLBACK_TESTS_M_SITES_PARSER_TEST_011
+  describe("Content fallback fields", () => {
+    it("should use markdown when content is empty", () => {
+      const item = {
+        ...makeCrawlItem({ content: "", metadata: {} }),
+        markdown: "# Markdown Title\n\nFallback markdown content.",
+      };
+      const result = parseCrawlItem(item, TEST_SOURCE_ID, createNoopLogger());
+      expect(result.clean_text).toContain("Fallback markdown content.");
+      expect(result.title).toBe("Markdown Title");
+    });
+
+    it("should use text when content and markdown are empty", () => {
+      const item = {
+        ...makeCrawlItem({ content: "", metadata: {} }),
+        markdown: "",
+        text: "# Text Title\n\nFallback text content.",
+      };
+      const result = parseCrawlItem(item, TEST_SOURCE_ID, createNoopLogger());
+      expect(result.clean_text).toContain("Fallback text content.");
+      expect(result.title).toBe("Text Title");
+    });
+
+    it("should use html when other fields are empty", () => {
+      const item = {
+        ...makeCrawlItem({ content: "", metadata: {} }),
+        markdown: "",
+        text: "",
+        html: "<h1>HTML Title</h1><p>Fallback html content.</p>",
+      };
+      const result = parseCrawlItem(item, TEST_SOURCE_ID, createNoopLogger());
+      expect(result.clean_text).toContain("HTML TitleFallback html content.");
+      expect(result.title).toBe("tokyo guide");
+    });
+  });
+  // END_BLOCK_CONTENT_FALLBACK_TESTS_M_SITES_PARSER_TEST_011
 
   // START_BLOCK_NON_OK_STATUS_TESTS_M_SITES_PARSER_TEST_009
   describe("Non-200 status handling", () => {

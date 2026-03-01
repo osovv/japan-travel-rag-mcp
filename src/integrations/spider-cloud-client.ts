@@ -1,5 +1,5 @@
 // FILE: src/integrations/spider-cloud-client.ts
-// VERSION: 1.3.0
+// VERSION: 1.4.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Call Spider crawl API through a unified proxy for scheduled and targeted crawl jobs.
 //   SCOPE: Build proxy crawl URLs, execute authenticated HTTP calls with timeout policy, normalize errors, and return parsed crawl response objects.
@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Add readability, filter_output_main_only, filter_output_images, filter_output_svg to SpiderCrawlRequest and pass through in runCrawl body.
+//   LAST_CHANGE: v1.4.0 - Expand SpiderCrawlItem content shape to support optional content plus markdown/text/html fallbacks.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -39,7 +39,10 @@ export type SpiderCrawlRequest = {
 
 export type SpiderCrawlItem = {
   url: string;
-  content: string;
+  content?: string;
+  markdown?: string;
+  text?: string;
+  html?: string;
   status_code?: number;
   metadata?: {
     title?: string;

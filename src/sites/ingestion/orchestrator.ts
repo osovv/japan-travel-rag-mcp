@@ -1,5 +1,5 @@
 // FILE: src/sites/ingestion/orchestrator.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Coordinate the crawl-parse-chunk-embed-upsert pipeline for curated sites ingestion.
 //   SCOPE: Orchestrate Spider crawl, page parsing, text chunking, Voyage embedding, and repository upsert for scheduled and targeted recrawl jobs.
@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Enable Spider readability and content filtering via SPIDER_EXTRACTION_DEFAULTS in both processSource and runTargetedRecrawl crawl calls.
+//   LAST_CHANGE: v1.3.0 - Downgrade known empty-content page parsing failures to warn-level skip events instead of error-level processing failures.
 // END_CHANGE_SUMMARY
 
 import type { SpiderCloudClient } from "../../integrations/spider-cloud-client";
@@ -205,13 +205,23 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
         const errorCode = pageError instanceof SitesIngestionError
           ? pageError.code
           : "SITES_INGESTION_ERROR";
+        const isEmptyContentError = errorMessage === "Crawl item content is empty.";
 
-        logger.error(
-          `Failed to process page ${item.url} for source ${source.source_id}: ${errorMessage}`,
-          functionName,
-          "PAGE_PROCESSING_ERROR",
-          { sourceId: source.source_id, url: item.url, error: errorMessage },
-        );
+        if (isEmptyContentError) {
+          logger.warn(
+            `Skipping page ${item.url} for source ${source.source_id}: ${errorMessage}`,
+            functionName,
+            "PAGE_SKIPPED_EMPTY_CONTENT",
+            { sourceId: source.source_id, url: item.url, error: errorMessage },
+          );
+        } else {
+          logger.error(
+            `Failed to process page ${item.url} for source ${source.source_id}: ${errorMessage}`,
+            functionName,
+            "PAGE_PROCESSING_ERROR",
+            { sourceId: source.source_id, url: item.url, error: errorMessage },
+          );
+        }
 
         result.errors.push({
           source_id: source.source_id,

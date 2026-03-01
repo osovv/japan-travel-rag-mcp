@@ -1,5 +1,5 @@
 // FILE: src/sites/ingestion/orchestrator.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate the ingestion orchestrator pipeline with mocked dependencies.
 //   SCOPE: Assert correct pipeline flow, result accumulation, per-source error isolation, per-page error isolation, and targeted recrawl behavior.
@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial test suite for M-SITES-INGESTION orchestrator.
+//   LAST_CHANGE: v1.1.0 - Added coverage that empty-content page parser failures are logged as warn-level skip events.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -440,6 +440,51 @@ describe("error isolation", () => {
     expect(result.sources_processed).toBe(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].error).toContain("DB connection lost");
+  });
+
+  it("logs empty-content page failures as warn-level skip events", async () => {
+    const warnCalls: { blockName: string; extra?: Record<string, unknown> }[] = [];
+    const errorCalls: { blockName: string; extra?: Record<string, unknown> }[] = [];
+    const captureLogger: Logger = {
+      debug: () => {},
+      info: () => {},
+      warn: (_message, _functionName, blockName, extra) => {
+        warnCalls.push({ blockName, extra });
+      },
+      error: (_message, _functionName, blockName, extra) => {
+        errorCalls.push({ blockName, extra });
+      },
+      child: function () { return this; },
+    };
+
+    const items = [
+      makeCrawlItem({ url: "https://example.com/ok-page", content: "# OK\n\n" + "Good content. ".repeat(50) }),
+      makeCrawlItem({ url: "https://example.com/empty-page", content: "" }),
+    ];
+
+    const spiderClient = createMockSpiderClient({ items });
+    const voyageClient = createMockVoyageClient();
+    const { repository } = createMockRepository();
+
+    const orchestrator = createIngestionOrchestrator({
+      spiderClient,
+      voyageClient,
+      repository,
+      logger: captureLogger,
+    });
+
+    const result = await orchestrator.runScheduledIngestion([makeSource()]);
+
+    expect(result.sources_processed).toBe(1);
+    expect(result.pages_fetched).toBe(2);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toBe("Crawl item content is empty.");
+
+    const skipWarnLogs = warnCalls.filter((call) => call.blockName === "PAGE_SKIPPED_EMPTY_CONTENT");
+    expect(skipWarnLogs).toHaveLength(1);
+
+    const pageErrorLogs = errorCalls.filter((call) => call.blockName === "PAGE_PROCESSING_ERROR");
+    expect(pageErrorLogs).toHaveLength(0);
   });
 });
 // END_BLOCK_ERROR_ISOLATION_TESTS_M_SITES_INGESTION_TEST_003

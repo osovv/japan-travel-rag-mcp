@@ -1,5 +1,5 @@
 // FILE: src/sites/parser/index.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Normalize Spider crawl payload items into canonical page records suitable for storage and chunking.
 //   SCOPE: URL normalization, title extraction, markdown text cleaning, SHA-256 hashing, and structured error handling.
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Warn only on explicit non-200 status codes to avoid false-positive logs when provider omits status_code.
+//   LAST_CHANGE: v1.2.0 - Add fallback content extraction from Spider item markdown/text/html fields when content is empty.
 // END_CHANGE_SUMMARY
 
 import type { SpiderCrawlItem } from "../../integrations/spider-cloud-client";
@@ -206,7 +206,18 @@ export function parseCrawlItem(
     });
   }
 
-  const rawContent = (item.content ?? "").trim();
+  const contentCandidates = [
+    item.content,
+    item.markdown,
+    item.text,
+    item.html,
+  ];
+
+  const rawContent = contentCandidates
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .find((value) => value.length > 0) ?? "";
+
   if (!rawContent) {
     throw new SitesParserError("Crawl item content is empty.", {
       sourceId,
@@ -228,8 +239,8 @@ export function parseCrawlItem(
 
   // START_BLOCK_BUILD_PARSED_PAGE_M_SITES_PARSER_009
   const normalizedUrl = normalizeUrl(rawUrl);
-  const title = extractTitle(item);
-  const cleanedText = cleanText(item.content);
+  const title = extractTitle({ ...item, content: rawContent });
+  const cleanedText = cleanText(rawContent);
   const textHash = computeTextHash(cleanedText);
 
   return {
