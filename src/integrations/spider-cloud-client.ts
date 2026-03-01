@@ -1,5 +1,5 @@
 // FILE: src/integrations/spider-cloud-client.ts
-// VERSION: 1.0.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Call Spider crawl API through a unified proxy for scheduled and targeted crawl jobs.
 //   SCOPE: Build proxy crawl URLs, execute authenticated HTTP calls with timeout policy, normalize errors, and return parsed crawl response objects.
@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Add exponential backoff retry to runCrawl for transient errors (5xx, timeout, network).
+//   LAST_CHANGE: v1.2.0 - Accept optional status_code in SpiderCrawlItem payloads to match provider/runtime variance.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -36,7 +36,7 @@ export type SpiderCrawlRequest = {
 export type SpiderCrawlItem = {
   url: string;
   content: string;
-  status_code: number;
+  status_code?: number;
   metadata?: {
     title?: string;
     description?: string;

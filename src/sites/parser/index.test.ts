@@ -1,5 +1,5 @@
 // FILE: src/sites/parser/index.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate deterministic parsing behavior for M-SITES-PARSER.
 //   SCOPE: Assert URL normalization, title extraction, text cleaning, SHA-256 hashing, error handling, and non-200 status warnings.
@@ -20,7 +20,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial test suite for M-SITES-PARSER.
+//   LAST_CHANGE: v1.1.0 - Added coverage that undefined status_code does not emit non-200 warning.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -396,6 +396,14 @@ describe("M-SITES-PARSER", () => {
     it("should not log a warning for 200 status", () => {
       const { logger, warns } = createWarnCapturingLogger();
       const item = makeCrawlItem({ status_code: 200 });
+      parseCrawlItem(item, TEST_SOURCE_ID, logger);
+      expect(warns.length).toBe(0);
+    });
+
+    it("should not log a warning when status_code is undefined", () => {
+      const { logger, warns } = createWarnCapturingLogger();
+      const item = makeCrawlItem();
+      (item as Record<string, unknown>).status_code = undefined;
       parseCrawlItem(item, TEST_SOURCE_ID, logger);
       expect(warns.length).toBe(0);
     });

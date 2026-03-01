@@ -1,8 +1,8 @@
 // FILE: src/db/sites-bootstrap.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap curated sites index schema and seed site_sources from frozen seed data.
-//   SCOPE: Enable pgvector extension, create all five site index tables via raw SQL, and upsert seed sources.
+//   SCOPE: Enable pgvector extension, create all five site index tables via raw SQL, ensure required unique indexes, and upsert seed sources.
 //   DEPENDS: M-DB, M-LOGGER, M-SITE-SOURCES
 //   LINKS: M-DB, M-SITE-SOURCES
 // END_MODULE_CONTRACT
@@ -13,7 +13,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial creation with pgvector extension, 5-table DDL, and seed upsert.
+//   LAST_CHANGE: v1.1.0 - Ensure unique index on site_pages(canonical_url) so repository ON CONFLICT upserts are valid in bootstrap-only environments.
 // END_CHANGE_SUMMARY
 
 import { sql } from "drizzle-orm";
@@ -33,10 +33,10 @@ export class SitesBootstrapError extends Error {
 // END_BLOCK_DEFINE_ERROR_CLASS_M_DB_SITES_BOOTSTRAP_001
 
 // START_CONTRACT: bootstrapSitesSchema
-//   PURPOSE: Enable pgvector, create all five curated-sites tables, and seed site_sources from frozen constant.
+//   PURPOSE: Enable pgvector, create all five curated-sites tables, ensure required indexes, and seed site_sources from frozen constant.
 //   INPUTS: { db: NodePgDatabase - Drizzle database handle, logger: Logger - Module logger }
 //   OUTPUTS: { Promise<void> }
-//   SIDE_EFFECTS: [Creates pgvector extension, creates 5 tables if not present, upserts seed data, logs progress]
+//   SIDE_EFFECTS: [Creates pgvector extension, creates 5 tables if not present, ensures unique index on site_pages(canonical_url), upserts seed data, logs progress]
 //   LINKS: [M-DB, M-SITE-SOURCES, M-LOGGER]
 // END_CONTRACT: bootstrapSitesSchema
 export async function bootstrapSitesSchema(db: NodePgDatabase, logger: Logger): Promise<void> {
@@ -92,6 +92,18 @@ export async function bootstrapSitesSchema(db: NodePgDatabase, logger: Logger): 
       "CREATE_SITE_PAGES_TABLE",
     );
     // END_BLOCK_CREATE_SITE_PAGES_TABLE_M_DB_SITES_BOOTSTRAP_004
+
+    // START_BLOCK_ENSURE_SITE_PAGES_CANONICAL_URL_UNIQUE_INDEX_M_DB_SITES_BOOTSTRAP_010
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS site_pages_canonical_url_unique_idx
+      ON site_pages (canonical_url)
+    `);
+    logger.info(
+      "site_pages canonical_url unique index ensured.",
+      "bootstrapSitesSchema",
+      "CREATE_SITE_PAGES_CANONICAL_URL_UNIQUE_INDEX",
+    );
+    // END_BLOCK_ENSURE_SITE_PAGES_CANONICAL_URL_UNIQUE_INDEX_M_DB_SITES_BOOTSTRAP_010
 
     // START_BLOCK_CREATE_SITE_CHUNKS_TABLE_M_DB_SITES_BOOTSTRAP_005
     await db.execute(sql`

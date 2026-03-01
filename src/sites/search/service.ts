@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Add bounded output enforcement: snippet max 500 chars, chunk_excerpt max 2000 chars, neighbor excerpts max 1000 chars.
+//   LAST_CHANGE: v1.2.0 - Tighten output bounds for copyright safety: snippet max 400 chars, chunk_excerpt max 500 chars, neighbor excerpts max 400 chars.
 // END_CHANGE_SUMMARY
 
 import type { VoyageProxyClient } from "../../integrations/voyage-proxy-client";
@@ -28,9 +28,9 @@ import type { Logger } from "../../logger/index";
 import { INDEX_VERSION } from "../ingestion/orchestrator";
 
 // START_BLOCK_DEFINE_OUTPUT_BOUNDS_M_SITES_SEARCH_000
-export const MAX_SNIPPET_LENGTH = 500;
-export const MAX_CHUNK_EXCERPT_LENGTH = 2000;
-export const MAX_NEIGHBOR_EXCERPT_LENGTH = 1000;
+export const MAX_SNIPPET_LENGTH = 400;
+export const MAX_CHUNK_EXCERPT_LENGTH = 500;
+export const MAX_NEIGHBOR_EXCERPT_LENGTH = 400;
 
 // START_CONTRACT: boundText
 //   PURPOSE: Truncate text to a maximum length, appending ellipsis if truncated.

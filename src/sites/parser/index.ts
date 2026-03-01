@@ -1,5 +1,5 @@
 // FILE: src/sites/parser/index.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Normalize Spider crawl payload items into canonical page records suitable for storage and chunking.
 //   SCOPE: URL normalization, title extraction, markdown text cleaning, SHA-256 hashing, and structured error handling.
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial implementation with URL normalization, text cleaning, and SHA-256 hashing.
+//   LAST_CHANGE: v1.1.0 - Warn only on explicit non-200 status codes to avoid false-positive logs when provider omits status_code.
 // END_CHANGE_SUMMARY
 
 import type { SpiderCrawlItem } from "../../integrations/spider-cloud-client";
@@ -187,7 +187,7 @@ function computeTextHash(text: string): string {
 //   PURPOSE: Parse and normalize a Spider crawl item into a canonical ParsedPage record.
 //   INPUTS: { item: SpiderCrawlItem - Raw crawl result, sourceId: string - Source identifier, logger: Logger - Module logger }
 //   OUTPUTS: { ParsedPage - Normalized page record }
-//   SIDE_EFFECTS: [Logs warnings for non-200 status codes, throws SitesParserError on invalid input]
+//   SIDE_EFFECTS: [Logs warnings for explicit non-200 status codes, throws SitesParserError on invalid input]
 //   LINKS: [M-SITES-PARSER, M-SPIDER-CLOUD-CLIENT, M-LOGGER]
 // END_CONTRACT: parseCrawlItem
 export function parseCrawlItem(
@@ -216,7 +216,7 @@ export function parseCrawlItem(
   // END_BLOCK_VALIDATE_CRAWL_ITEM_INPUTS_M_SITES_PARSER_007
 
   // START_BLOCK_WARN_ON_NON_200_STATUS_M_SITES_PARSER_008
-  if (item.status_code !== 200) {
+  if (typeof item.status_code === "number" && item.status_code !== 200) {
     logger.warn(
       `Crawl item has non-200 status code: ${item.status_code}.`,
       functionName,

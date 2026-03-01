@@ -1,5 +1,5 @@
 // FILE: src/db/schema.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Verify unified schema exports, table shapes, inferred types, and bootstrap logic.
 //   SCOPE: Unit test all table definitions and inferred types from src/db/schema.ts.
@@ -8,7 +8,7 @@
 // END_MODULE_CONTRACT
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Consolidated from sites-schema.test.ts; added apiKeysTable and usageCountersTable tests.
+//   LAST_CHANGE: v1.1.0 - Accounted for site_pages(canonical_url) unique index creation during schema bootstrap.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -324,8 +324,8 @@ describe("bootstrapSitesSchema", () => {
 
     await bootstrapSitesSchema(mock, logger);
 
-    // 1 extension + 5 tables + 12 seed inserts = 18 execute calls
-    const expectedCallCount = 1 + 5 + SITE_SOURCES_RESPONSE.sources.length;
+    // 1 extension + 5 tables + 1 unique index + 12 seed inserts = 19 execute calls
+    const expectedCallCount = 1 + 5 + 1 + SITE_SOURCES_RESPONSE.sources.length;
     expect(executeCalls.length).toBe(expectedCallCount);
   });
 
