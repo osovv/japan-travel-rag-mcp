@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:51:29.139Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.reddit.com/r/JapanTravel/comments/12qlz68/my_experience_with_a_medical_emergency_in_japan"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Reddit - The heart of the internet\n[\nSkip to main content\n](#main-content)\n[\n![r/JapanTravel icon](https://b.thumbs.redditmedia.com/KpNn8_Uu1kR6wlp8yGujNG5duDfxVX7MRJCK1V0T7hc.png)\nGo to JapanTravel\n](https://www.reddit.com/r/JapanTravel/)\n[r/JapanTravel](https://www.reddit.com/r/JapanTravel/)\n![A banner for the subreddit](https://styles.redditmedia.com/t5_2uylr/styles/bannerBackgroundImage_2z3c8vu0ihv01.png)\n![r/JapanTravel icon](https://b.thumbs.redditmedia.com/KpNn8_Uu1kR6wlp8yGujNG5duDfxVX7MRJCK1V0T7hc.png)\n[r/JapanTravel](https://www.reddit.com/r/JapanTravel/)\nGot questions? Need advice? Overwhelmed with your itinerary? Want to share your travel tips and experiences in Japan? Then this is the place for you! /r/JapanTravel is for any and all looking to visit Japan as a tourist — including those who have already been.\nWeekly visitors\nWeekly contributions\n•\n[JohnDoee94](https://www.reddit.com/user/JohnDoee94/)\n#\nMy experience with a medical emergency in Japan today.\n[\nTrip Report\n](https://www.reddit.com/r/JapanTravel/?f=flair_name:%22Trip%20Report%22)\nLet me start off by saying Japans healthcare system is a big 10/10.\nMy wife had a bad allergic reaction, terrible cramps, vomit, diarrhea, and shaking, from soba today in Kamakura. I walked her to a nearby pharmacy to see if they could help and they sent us to a doctor across the street. He and his assistant checked her out and gave her a steroid shot… after 15min he told me that he suggest we call an ambulance. I know they’re free but naturally that moment terrified us. I could tell my wife needed more help so they arrived shortly and were super helpful the whole ride, it was interesting using translation apps the entire ride to talk to them and answer questions. Then we get to the ER and the doctors and nurses were extremely nice and helpful. They gave my wife IV and did bloodwork to confirm the soba (buckwheat) allergy.\nThey had a translator who was with us most of the time and even explained how everything was going to work. He basically held our hand each step of the way. The total bill for ALL of this was $230 USD, I couldn’t believe how cheap it was.\nTo the pharmacy workers, the doctor/nurse, the Kamakura amubulance, and to the doctors/nurse/translator at shonan Kamakura general hospital, and Japans overall health care system I can’t thank you enough!! They turned our terrifying afternoon into a night of laughing about the whole situation. I wish the US had 1/4 the quality I experience here in Japan.\nMy lesson to anyone reading this would be to not hesitate to call an ambulance in Japan.\nArchived post. New comments cannot be posted and votes cannot be cast.\nShare\nNew to Reddit?\nCreate your account and connect with a world of communities.\nContinue with Email\nContinue With Phone Number\nBy continuing, you agree to our\n[User Agreement](https://www.redditinc.com/policies/user-agreement)\nand acknowledge that you understand the\n[Privacy Policy](https://www.redditinc.com/policies/privacy-policy).\nPublic\nAnyone can view, post, and comment to this community\n0\n0\n##\nTop Posts\n* [\nReddit\nreReddit: Top posts of April 18, 2023\n](https://www.reddit.com/posts/2023/april-18-1/global/)\n* [\nReddit\nreReddit: Top posts of April 2023\n](https://www.reddit.com/posts/2023/april/global/)\n* [\nReddit\nreReddit: Top posts of 2023\n](https://www.reddit.com/posts/2023/global/)\n[Reddit Rules](https://www.redditinc.com/policies/content-policy)\n[Privacy Policy](https://www.reddit.com/policies/privacy-policy)\n[User Agreement](https://www.redditinc.com/policies/user-agreement)\n[Accessibility](https://support.reddithelp.com/hc/sections/38303584022676-Accessibility)\n[Reddit, Inc. © 2026. All rights reserved.](https://redditinc.com)\nExpand Navigation\nCollapse Navigation\n![](https://id.rlcdn.com/472486.gif)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.000004992150000000001,
+        "bytes_transferred_cost_formatted": "0.0000049921500000000006035172",
+        "compute_cost": 0.0000037866666666666667,
+        "compute_cost_formatted": "0.0000037866666666666666529739",
+        "file_cost": 0.0007093140000000001,
+        "file_cost_formatted": "0.0007093140000000000444657644",
+        "total_cost": 0.0007280928166666668,
+        "total_cost_formatted": "0.0007280928166666667122773671",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 2374,
+      "error": null,
+      "status": 200,
+      "url": "https://www.reddit.com/r/JapanTravel/comments/12qlz68/my_experience_with_a_medical_emergency_in_japan/"
+    }
+  ]
+}

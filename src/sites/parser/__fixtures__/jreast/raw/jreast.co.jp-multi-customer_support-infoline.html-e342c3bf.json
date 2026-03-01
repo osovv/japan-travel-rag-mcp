@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:53:06.671Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.jreast.co.jp/multi/customer_support/infoline.html"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "JR East Infoline | Travel Service Centers &amp; Accessibility | JR-EAST\n# JR East Infoline\n![JR East Infoline](https://www.jreast.co.jp/multi/customer_support/img/renew/infoline_img_lead.jpg)\nThe JR East Infoline is a telephone-based service providing JR East transportation information for non-Japanese customers. Information is provided in English, Chinese and Korean. The Infoline also provides information about the newest JR East trains and lost and found assistance.\n[Frequently asked questions](https://www.jreast.co.jp/multi/faq/)\nTelephone Number :\n(050) 2016-1603\nNote: You can call JR East from overseas.\nOur international telephone number is +81 (50) 2016-1603.\nHours of Operation :\n10:00 to 18:00\nevery day of the year except during the year-end / new year holidays\n## Information services\nThe Infoline can assist with the information on the following topics:\n* Train arrival and departure times\n* Train fares\n* Locations of JR Ticket Offices (Midori-no-madoguchi)\n* Information about ticket types and how to purchase them\n* Details about passes, including the JR EAST PASS and JAPAN RAIL PASS\n* The facilities available at specific stations\n* The fastest route to travel between two points\n* Lost and found\n* Facts about the JR East Group\nNote: The Infoline is an information service and does not accept reservations.\nNotice on collection and protection of personal information\nWe will record the contents of the phone received from the customer, for the purpose to improve our service and keep security. We do not use customer’s personal information on the recording contents for other purposes. We ensure that the contents of the phone are secured pursuant to Japanese laws and regulations and are to be deleted after the passage of prescribed period.\n* [Home](https://www.jreast.co.jp/multi/)\n* [Travel Service Centers &amp; Accessibility](https://www.jreast.co.jp/multi/customer_support/)\n* JR East Infoline",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.0000019681500000000004,
+        "bytes_transferred_cost_formatted": "0.0000019681500000000002179090",
+        "compute_cost": 4.2166666666666667e-7,
+        "compute_cost_formatted": "0.0000004216666666666666306307",
+        "file_cost": 0.0000119685,
+        "file_cost_formatted": "0.0000119684999999999999720224",
+        "total_cost": 0.00002435831666666667,
+        "total_cost_formatted": "0.0000243583166666666673756736",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 255,
+      "error": null,
+      "status": 200,
+      "url": "https://www.jreast.co.jp/multi/customer_support/infoline.html"
+    }
+  ]
+}

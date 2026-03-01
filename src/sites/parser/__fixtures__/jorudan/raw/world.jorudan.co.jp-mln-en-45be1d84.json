@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:52:44.014Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://world.jorudan.co.jp/mln/en/?area=KNT&c=40&sub_lang=nosub"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "If the page does not move, please click. -&gt; [Move](https://world.jorudan.co.jp/)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 9.316499999999999e-7,
+        "bytes_transferred_cost_formatted": "0.0000009316499999999999062000",
+        "compute_cost": 2.6e-7,
+        "compute_cost_formatted": "0.0000002599999999999999880651",
+        "file_cost": 7.485000000000001e-7,
+        "file_cost_formatted": "0.0000007485000000000000767303",
+        "total_cost": 0.000011940150000000001,
+        "total_cost_formatted": "0.0000119401500000000005261069",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 157,
+      "error": null,
+      "status": 200,
+      "url": "https://world.jorudan.co.jp/mln/en/?area=KNT&c=40&sub_lang=nosub"
+    }
+  ]
+}

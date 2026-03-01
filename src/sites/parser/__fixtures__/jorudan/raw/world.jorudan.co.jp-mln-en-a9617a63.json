@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:52:38.288Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://world.jorudan.co.jp/mln/en/?c=40&sub_lang=en&area=HOK"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "If the page does not move, please click. -&gt; [Move](https://world.jorudan.co.jp/)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 9.2715e-7,
+        "bytes_transferred_cost_formatted": "0.0000009271499999999999594491",
+        "compute_cost": 2.8166666666666663e-7,
+        "compute_cost_formatted": "0.0000002816666666666666537372",
+        "file_cost": 7.44e-7,
+        "file_cost_formatted": "0.0000007439999999999999998751",
+        "total_cost": 0.000011952816666666667,
+        "total_cost_formatted": "0.0000119528166666666671681729",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 170,
+      "error": null,
+      "status": 200,
+      "url": "https://world.jorudan.co.jp/mln/en/?c=40&sub_lang=en&area=HOK"
+    }
+  ]
+}

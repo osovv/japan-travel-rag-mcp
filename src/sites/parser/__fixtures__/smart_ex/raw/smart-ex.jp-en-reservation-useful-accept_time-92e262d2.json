@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:53:24.880Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://smart-ex.jp/en/reservation/useful/accept_time/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Reception Times/Time-Periods | Reservation Guide | Tokaido Sanyo Kyushu Shinkansen Internet Reservation Service\n1. [Home](https://smart-ex.jp/en/)\n2. [Reservation Guide](https://smart-ex.jp/en/reservation/)\n3. Reception Times/Time-Periods\n#\nReception Times/Time-Periods\nCheck the time and time-periods when reservations, changes, and refunds are accepted.\n##\nReception Times/Time-Periods for Reservations\n|Reception hours|\n24hours\n* Excluding during system maintenance.\n* The use of the seat map is not avaulable between 11:30 pm to 5:30 am the next day (JST). Requests will be processed in order after 5:30 am.\n* A maximum of 3 people can be reserved in one reservation between 11:30 p.m. and 5:30 a.m. the next day (JST).\n* Payment will be made at the time of reservation.|\n|Time-period|\nFrom 5:30 am one year prior to boarding date (on the same day one year ago)\\* up to 4 minutes before the train departure time shown in the timetable for the boarding date.\n* The number of seats available for reservation is limited.\n* The number of seats that can be reserved is limited.\n(Hayatoku products, S Work seats, wheelchair-accessible seats, and oversized baggage seats are not eligible for one-year advance reservations.)\n|\n|Reservation|\nIf the reservation is approved, the reservation result will be displayed on the screen and the reservation details will be sent to your registered e-mail address.\n* If you make a reservation more than one year to one month in advance, the train and seat will not be confirmed. Train departure and arrival times shown on the reservation screen are subject to change. (In principle, seats are reserved for the number of passengers who have applied for a reservation when the reservation request is completed.)\n* Please confirm your train number, departure and arrival time, and seat number after 2:00 p.m. one month prior to the boarding date. Will be confirmed and sent to your registered e-mail address. If you wish to change your confirmed reservation, you may do so after 10:00 a.m. one month prior to the boarding date. If you make a reservation between 23:30 and 5:30, your confirmed seat will be sent to your registered e-mail address after 5:30 the following day.|\n##\nReception Times for Changes and Refunds\n|Times|\n24hours\n* Excluding during system maintenance.\n* The use of the seat map is not avaulable between 11:30 pm to 5:30 am the next day (JST). Requests will be processed in order after 5:30 am.\n* A maximum of 3 people can be reserved in one reservation between 11:30 p.m. and 5:30 a.m. the next day (JST).\n* Payment will be made at the time of reservation.|\n|Conditions|\nChanges and refunds can be made up to the departure time of your reserved train, if it is prior to picking up tickets or entering the ticket gate with QR-Ticket or an IC card.\n* Reservation for a train with a departure date within 1 month away cannot be changed to one for a train leaving more than one month ahead of the departure date.|\n|Changeable Train|\nAll trains up to 4 minutes before the train departure time\n|\n|Period of Change|\nYou can change within 3 months of the travel date of the initial purchased reservation.\n* A train leaving up to 1 month on from the date the change is processed can be reserved.\n* If you wish to change a reservation for a train with a departure date more than one month ahead, you can choose a train leaving up to 1 year from the date the change is processed.|\n* Reservations and changes etc. may not be accepted depending on the circumstances such as credit card usage limits,etc.\n[Change Reservations](https://smart-ex.jp/en/reservation/change/)\n[Refund Reservations](https://smart-ex.jp/en/reservation/guide/cancel/)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.0000014401499999999999,
+        "bytes_transferred_cost_formatted": "0.0000014401499999999998738509",
+        "compute_cost": 3.183333333333333e-7,
+        "compute_cost_formatted": "0.0000003183333333333333153847",
+        "file_cost": 0.0000390165,
+        "file_cost_formatted": "0.0000390165000000000011803891",
+        "total_cost": 0.00005077498333333334,
+        "total_cost_formatted": "0.0000507749833333333349247363",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 196,
+      "error": null,
+      "status": 200,
+      "url": "https://smart-ex.jp/en/reservation/useful/accept_time/"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:48:52.590Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://kansai-odyssey.com/fujii-dera/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Fujiidera Temple and the Goddess with 1,000 Arms | Kansai Odyssey\n### [Kansai Odyssey](https://kansai-odyssey.com/)\nAdventures in Kansai and Beyond\n![wisteria in Fujiidera Temple](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_9100ethumb.png)\n[Osaka Prefecture](https://kansai-odyssey.com/category/osaka-prefecture/)\n[ April 6, 2019](https://kansai-odyssey.com/fujii-dera/) [ KansaiOdyssey ](https://kansai-odyssey.com/author/kansaiodyssey16/) [Temples](https://kansai-odyssey.com/tag/temples/)\nFew would expect that one of the [Saigoku Pilgrimage ](https://kansai-odyssey.com/saigoku-kannon-pilgrimage/)temples would be at the end of a shopping street on the outskirts of Osaka. Home of beautiful wisteria gardens and a rare thousand-armed statue of Senju Kannon Bosatsu, Fujiidera Temple attracts visitors from all over Japan every year.\n## Fujiidera Temple\nBuilt in 725 on the orders of Emperor Shomu, Fujiidera Temple was a massive temple with two main halls and two three-story pagodas.\nIn 1096 a number of the temple’s buildings were worn down and in need of repairs. At this time, the nobleman **Fujii Yasumoto**donated substantial funds to the temple, allowing the necessary repairs to be made. **In a display of gratitude for these repairs, the temple renamed itself “Fujiidera”**\nThe west gate of Fujiidera Temple faces the shopping street from the Fujiidera Station and is the oldest structure in the entire temple grounds, and the main gate, the Niomon Gate, is a little further down.\n![Niomon gate of Fujii-dera ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_9083ko.jpg)Niomon gate, built in 1800![West gate of Fujii-dera ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_2834ko-1.jpg)West Gate: donated by Toyotomi Hideyori in 1601.\n![baseball board in Fujii-dera](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_3676ko-1.jpg)Yup, people in Kawachi and Senshu love baseball too much\nEvery year, the temple hosts a small wisteria festival, where guests can come and enjoy the beautiful draping vines of wisteria flowers that decorate the temple grounds. This is easily the best time to visit the temple.\n![wisteria ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_9105ko.jpg)sooo pretty!!![wisteria ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_9104ko.jpg)wisteria is called Fuji in Japan. and I like it so much!!![white wisteria ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_9099ko.jpg)There is white wisteria too.\n### **Hondo**\nThe main Buddha of this temple is **Senju Kannon Bosatsu**. The statue here, made at the time of the temple’s founding, is the only Buddha statue from the Nara Period left in Osaka, undoubtedly making it a national treasure.\n![chizuya in Fujii-dera ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_2815ko.jpg)Dragon in Chozuya is always really cool![Hondo of Fujii-dera ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_2817ko.jpg)Hondo was built in 1744.\nThere are many temples whose main Buddha is Senju Kanon. However, in general, it is much more common to see statues of Senju Kannon with forty arms, even though “senju” means one thousand arms.\nFujiidera’s Senju Kannon is a true *senju*, with two big arms folded in prayer, forty medium arms, and thousand-one small arms.\nYou can see the statue of Senju Kannon on the 18th of every month, so especially try to stop by then if you can.\n![replica of Senju Kannon in Fujii-dera ](https://kansai-odyssey.com/wp-content/uploads/2019/04/IMG_1766ko.jpg)Something like this. It is really beautiful!\n* [ Himeji Castle, the White Heron Castle](https://kansai-odyssey.com/himeji-castle-white-heron/)\n* [Anao-ji Temple, Temple of the Sleeping Buddha ](https://kansai-odyssey.com/anao-ji-temple-kyoto-kannon-pilgrimage/)\n### You May Also Like\n### Leave a Reply [Cancel reply](https://kansai-odyssey.com/fujii-dera/#respond)\n[**](#cm-masthead)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.0000017806500000000003,
+        "bytes_transferred_cost_formatted": "0.0000017806500000000000513756",
+        "compute_cost": 0.0000025316666666666673,
+        "compute_cost_formatted": "0.0000025316666666666667873109",
+        "file_cost": 0.0008644455000000001,
+        "file_cost_formatted": "0.0008644455000000000222115659",
+        "total_cost": 0.0008787578166666668,
+        "total_cost_formatted": "0.0008787578166666666896053639",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 1529,
+      "error": null,
+      "status": 200,
+      "url": "https://kansai-odyssey.com/fujii-dera/"
+    }
+  ]
+}

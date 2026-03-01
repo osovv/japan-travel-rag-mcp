@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:53:11.564Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://smart-ex.jp/en/reservation/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Reservation Guide | Tokaido Sanyo Kyushu Shinkansen Internet Reservation Service\n1. [Home](https://smart-ex.jp/en/)\n2. Reservation Guide\n![Reservation Guide](https://smart-ex.jp/en/common/images/reservation/sp_mv.jpg)\n# Reservation Guide\nBooking a seat for the Shinkansen will be easy and quick.\nHere we will explain the easy-to-use methods for our online service.\n## Make Reservation for the Shinkansen\n[How to Regiter](https://smart-ex.jp/en/beginner/entry/sp/)\n[About Tokaido Sanyo Kyushu Shinkansen](https://smart-ex.jp/en/reservation/equipment/)\n[Make Reservations](https://smart-ex.jp/en/reservation/reserve_smart/sp/)\n###\nUseful Features\n[Reception Times/Time-Periods](https://smart-ex.jp/en/reservation/useful/accept_time/)\n[Points to Note](https://smart-ex.jp/en/reservation/reserve_smart/attention/)\n[Taking Baggage Onboard](https://smart-ex.jp/en/entraining/oversized-baggage/)\n[Purchase History/Receipt](https://smart-ex.jp/en/reservation/reserve_smart/purchase_history/)\n##\nConfirm, change and refund reservations\n[Confirm Reservations](https://smart-ex.jp/en/reservation/guide/referral/)\n[Change Reservations](https://smart-ex.jp/en/reservation/change/)\n[Refund Reservations](https://smart-ex.jp/en/reservation/guide/cancel/)\n[How to change](https://smart-ex.jp/en/reservation/guide/cancel/howto_change/)\n[How to refund](https://smart-ex.jp/en/reservation/guide/cancel/howto_change/)\n##\nChange Membership Info. &amp; Other Conditions\n[Change Password](https://smart-ex.jp/en/reservation/other/change_pass/)\n[Change Membership Info.](https://smart-ex.jp/en/reservation/other/change_customer/)\n[Forgotten ID/Password?](https://smart-ex.jp/en/reservation/other/forget/)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.00000141165,
+        "bytes_transferred_cost_formatted": "0.0000014116499999999999942546",
+        "compute_cost": 3.583333333333334e-7,
+        "compute_cost_formatted": "0.0000003583333333333333335646",
+        "file_cost": 0.00003465,
+        "file_cost_formatted": "0.0000346499999999999974686915",
+        "total_cost": 0.00004641998333333333,
+        "total_cost_formatted": "0.0000464199833333333313516222",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 220,
+      "error": null,
+      "status": 200,
+      "url": "https://smart-ex.jp/en/reservation/"
+    }
+  ]
+}

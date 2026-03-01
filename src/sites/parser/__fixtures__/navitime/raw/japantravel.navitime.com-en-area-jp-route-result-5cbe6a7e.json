@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:52:21.297Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://japantravel.navitime.com/en/area/jp/route/result/?start=00000592&goal=00007599"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Page Not Found - Japan Travel by NAVITIME\n# Page Not Found\nWe're sorry, but the page you are looking for might have been moved, deleted, or is temporarily unavailable.\n※ Note: If you are accessing via VPN, your access may be restricted for security reasons. Please turn off your VPN and try again.",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 8.2215e-7,
+        "bytes_transferred_cost_formatted": "0.0000008221499999999999442529",
+        "compute_cost": 6.683333333333334e-7,
+        "compute_cost_formatted": "0.0000006683333333333333660387",
+        "file_cost": 0.0000049575,
+        "file_cost_formatted": "0.0000049575000000000004479750",
+        "total_cost": 0.000016447983333333336,
+        "total_cost_formatted": "0.0000164479833333333343133781",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 402,
+      "error": null,
+      "status": 404,
+      "url": "https://japantravel.navitime.com/en/area/jp/route/result/?start=00000592&goal=00007599"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:53:02.281Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.jreast.co.jp/e/t_i/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "\nJR East train status information official X | JR-EAST\n# JR East train status information official X\nThe JR East information will be distributed on X. If a delay of 30 minutes or more occurs or is expected within the JR East service area from 4 o'clock to 2 o'clock the next day, a “delay” notice will be given.\nThough the latest information will be distributed, please understand that there are cases when the actual operation status differs from the information distributed on X. Please note that it is for reference only.\n* [![](img/ico_shinkansen.svg)\nShinkansen\nTohoku Shinkansen, Jouetsu Shinkansen, Hokuriku Shinkansen, Yamagata Shinkansen, Akita Shinkansen\n](https://twitter.com/JRE_Super_Exp_E)\n* [![](img/ico_chyokyori.svg)\nExpress, Night train\nSleeper trains, Express trains\n](https://twitter.com/JRE_Lim_Exp_En)\n*\n![](img/ico_kanto.svg)\nKanto Area\nConventional line in Ibaraki, Tochigi, Gunma, Saitama, Tokyo, Chiba, Kanagawa and Yamanashi areas\n* [![](img/ico_train.png)\nBound for Tokaido\nTōkaidō Line, Keihin-Tōhoku Line, Yokosuka Line, Nambu Line, Yokohama Line, Itō Line, Sagami Line, Tsurumi Line, Yamanote Line, Ueno-Tōkyō Line, Shōnan-Shinjuku Line, Through service to Sōtetsu Line\n](https://twitter.com/JRE_Tokaido_E)\n* [![](img/ico_train.png)\nBound for Tohoku and Takasaki\nUtsunomiya Line, Takasaki Line, Keihin-Tōhoku Line, Saikyō Line, Kawagoe Line, Musashino Line, Jōetsu Line, Shin-etsu Line, Agatsuma Line, Karasuyama Line, Hachikō Line, Nikkō Line, Ryōmō Line, Yamanote Line, Ueno-Tōkyō Line, Shōnan-Shinjuku Line, Through service to Sōtetsu Line\n](https://twitter.com/JRE_Toho_Taka_E)\n* [![](img/ico_train.png)\nBound for Chuo\nChūō Line(Rapid Service), Chūō,Sōbu Line(Local), Chūō Line, Musashino Line, Itsukaichi Line, ōme Line, Hachikō Line, Koumi Line, Yamanote Line\n](https://twitter.com/JRE_Chuo_E)\n* [![](img/ico_train.png)\nBound for Joban\nJōban Line, Jōban Line(Rapid Service), Jōban Line(Local Train), Suigun Line, Mito Line, Yamanote Line, Ueno-Tōkyō Line\n](https://twitter.com/JRE_Joban_E)\n* [![](img/ico_train.png)\nBound for Sobu\nSōbu Line(Rapid Service), Sōbu Line, Chūō,Sōbu Line(Local), Keiyō Line, Musashino Line, Uchibō Line, Kashima Line, Kururi Line, Sotobō Line, Tōgane Line, Narita Line, Yamanote Line\n](https://twitter.com/JRE_Sobu_E)\n* [![](img/ico_tohoku.svg)\nTohoku Area\nConventional line in Aomori, Iwate, Akita, Miyagi, Yamagata, Fukushima areas\n](https://twitter.com/JRE_Tohoku_En)\n* [![](img/ico_shinetsu.svg)\nShinetsu Area\nConventional line in Niigata and Nagano areas\n](https://twitter.com/JRE_Shinetsu_E)\nAbout areas\n![About areas](img/img_secmap.png)\n[![](https://www.jreast.co.jp/material/img/ico_pagetop.svg)](#)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.00000193065,
+        "bytes_transferred_cost_formatted": "0.0000019306499999999999243938",
+        "compute_cost": 6.066666666666666e-7,
+        "compute_cost_formatted": "0.0000006066666666666666388186",
+        "file_cost": 0.000022101,
+        "file_cost_formatted": "0.0000221009999999999998121503",
+        "total_cost": 0.00003463831666666667,
+        "total_cost_formatted": "0.0000346383166666666669304742",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 368,
+      "error": null,
+      "status": 200,
+      "url": "https://www.jreast.co.jp/e/t_i/"
+    }
+  ]
+}

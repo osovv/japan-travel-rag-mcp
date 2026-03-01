@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:51:25.109Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.reddit.com/r/JapanTravel/comments/1kgzjet/first_time_in_japan_and_wow"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Reddit - The heart of the internet\n[\nSkip to main content\n](#main-content)\n[\n![r/JapanTravel icon](https://b.thumbs.redditmedia.com/KpNn8_Uu1kR6wlp8yGujNG5duDfxVX7MRJCK1V0T7hc.png)\nGo to JapanTravel\n](https://www.reddit.com/r/JapanTravel/)\n[r/JapanTravel](https://www.reddit.com/r/JapanTravel/)\n•\n[yourbrofessor](https://www.reddit.com/user/yourbrofessor/)\n#\nFirst time in Japan and wow.\nSorry for the rant.\nSo earlier today I left my backpack that held my MacBook on the train to the airport hotel and didn’t notice until many hours later. As in 6 hours later when I was trying to do homework. I looked on the find my app and saw my laptop gps was back in Osaka city while I was by Kansai airport, which is an hour away. It was already 8:30pm and I had to quickly get back on the train to get to where my laptop was. Once I got off the nearest train station, the ticket booth person said the lost and found is closed until 9am tomorrow and the people with the keys are already home. My morning flight was at 10am so I’m thinking I’m screwed. I didn’t want to accept my fate so I asked to speak to his boss. I knocked on a security door, went inside, gave them a description of my backpack, the contents, etc. At this point I thought I would have to miss my flight in the morning because they called around and nothing was turning up. They even called people who were already home. Well Japan has a network of different train/subway lines underground so this boss walked with me asking different workers from different lines, going up and down various stairs and through underground paths. After an hour of this wild goose chase, we finally found it! I tried to tip him cash and he flat out refused. I was so thankful and overwhelmed with relief. Keep in mind this whole time nobody spoke English and I was using Google translate with maybe 10% battery left on my phone. I thanked him profusely but he kept thanking me and bowing too. Our goodbye before we parted ways was like a battle of incessant bowing and saying arigato lol. These Japanese people are so polite, kind, honorable, and willing to help this total foreigner no matter how long it took. This culture is something else. I was blown away that nobody stole my laptop and how willing everyone was to help me with no expectation of a reward. I love Japan!\nRead more\nShare\n#\nRelated Answers Section\nRelated Answers\n[\nBest time to visit Japan\n](https://www.reddit.com/answers/093d0b9e-7fe3-4ef2-8257-8f2e55f2ae09/?q=Best+time+to+visit+Japan&amp;source=PDP)\n[\nTips for traveling in Japan\n](https://www.reddit.com/answers/bfb7502d-1ccb-454b-bd81-a99ddbd04955/?q=Tips+for+traveling+in+Japan&amp;source=PDP)\n[\nHow to handle lost items in Japan\n](https://www.reddit.com/answers/e5d1ae25-f3f7-47d3-92f3-6a0cd5c849f7/?q=How+to+handle+lost+items+in+Japan&amp;source=PDP)\n[\nBest practices for using Find My app in Japan\n](https://www.reddit.com/answers/e609cce4-17bb-46e4-8c7c-b7335f50c3b3/?q=Best+practices+for+using+Find+My+app+in+Japan&amp;source=PDP)\n[\nMust-try street foods in Osaka\n](https://www.reddit.com/answers/a7990beb-9663-4c1a-aff7-f9dc4eecaf09/?q=Must-try+street+foods+in+Osaka&amp;source=PDP)\nNew to Reddit?\nCreate your account and connect with a world of communities.\nContinue with Email\nContinue With Phone Number\nBy continuing, you agree to our\n[User Agreement](https://www.redditinc.com/policies/user-agreement)\nand acknowledge that you understand the\n[Privacy Policy](https://www.redditinc.com/policies/privacy-policy).\nPublic\nAnyone can view, post, and comment to this community\n0\n0\n##\nTop Posts\n* [\nReddit\nreReddit: Top posts of May 7, 2025\n](https://www.reddit.com/posts/2025/may-7-1/global/)\n* [\nReddit\nreReddit: Top posts of May 2025\n](https://www.reddit.com/posts/2025/may/global/)\n* [\nReddit\nreReddit: Top posts of 2025\n](https://www.reddit.com/posts/2025/global/)\n[Reddit Rules](https://www.redditinc.com/policies/content-policy)\n[Privacy Policy](https://www.reddit.com/policies/privacy-policy)\n[User Agreement](https://www.redditinc.com/policies/user-agreement)\n[Accessibility](https://support.reddithelp.com/hc/sections/38303584022676-Accessibility)\n[Reddit, Inc. © 2026. All rights reserved.](https://redditinc.com)\nExpand Navigation\nCollapse Navigation",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.00000494865,
+        "bytes_transferred_cost_formatted": "0.0000049486499999999997738476",
+        "compute_cost": 0.000003593333333333333,
+        "compute_cost_formatted": "0.0000035933333333333331016668",
+        "file_cost": 0.0007133955000000001,
+        "file_cost_formatted": "0.0007133955000000000712390147",
+        "total_cost": 0.0007319374833333335,
+        "total_cost_formatted": "0.0007319374833333334046696406",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 2261,
+      "error": null,
+      "status": 200,
+      "url": "https://www.reddit.com/r/JapanTravel/comments/1kgzjet/first_time_in_japan_and_wow/"
+    }
+  ]
+}

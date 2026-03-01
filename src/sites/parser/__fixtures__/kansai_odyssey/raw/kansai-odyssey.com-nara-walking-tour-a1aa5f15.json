@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:49:13.699Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://kansai-odyssey.com/nara-walking-tour/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Page not found | Kansai Odyssey\n### [Kansai Odyssey](https://kansai-odyssey.com/)\nAdventures in Kansai and Beyond\nWe are sorry for the inconvenience. The page you’re trying to access does not exist or has been removed.\n[ Back to Home ](https://kansai-odyssey.com/)\n[**](#cm-masthead)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.0000011881500000000002,
+        "bytes_transferred_cost_formatted": "0.0000011881499999999999935052",
+        "compute_cost": 0.000007893333333333333,
+        "compute_cost_formatted": "0.0000078933333333333327574977",
+        "file_cost": 0.000826893,
+        "file_cost_formatted": "0.0008268929999999998781134991",
+        "total_cost": 0.0008459744833333332,
+        "total_cost_formatted": "0.0008459744833333332114196135",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 4742,
+      "error": null,
+      "status": 404,
+      "url": "https://kansai-odyssey.com/nara-walking-tour/"
+    }
+  ]
+}

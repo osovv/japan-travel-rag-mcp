@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:49:44.665Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.theinvisibletourist.com/best-things-to-do-in-osaka/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.000001989,
+        "bytes_transferred_cost_formatted": "0.0000019889999999999999437950",
+        "compute_cost": 0.00000426,
+        "compute_cost_formatted": "0.0000042599999999999998978595",
+        "file_cost": 0,
+        "file_cost_formatted": "0",
+        "total_cost": 0.000006249,
+        "total_cost_formatted": "0.0000062489999999999998416544",
+        "transform_cost": 0,
+        "transform_cost_formatted": "0"
+      },
+      "duration_elasped_ms": 2556,
+      "error": null,
+      "status": 410,
+      "url": "https://www.theinvisibletourist.com/best-things-to-do-in-osaka/"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:52:34.254Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://world.jorudan.co.jp/mln/en/lp/out.html"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Paid login - Japan Transit Planner\n## Functions of Japan Transit Planner are available after paid login.\nJapan Transit Plannerのこちらの機能は有料登録してご利用いただけます。\n* [For account holders\nアカウントをお持ちの方はこちら](https://world.jorudan.co.jp/mln/en/?c=100)\n## Route Options\n検索条件設定\n![vehicles close](https://world.jorudan.co.jp/mln/img/lp/LP_NEXT3.png)\nYou can customize the search condition. Functions of Airplane, Prefer to Use Local Train and Preferred Trains are available.\n検索時の条件設定でカスタマイズできます・「飛行機利用設定(Airplane)」・「各駅停車優先検索（Prefer to Use Local Train）」・「優先列車設定(Preferred Trains)」上記機能が使えます。\n## Search Result\n検索結果\n![vehicles close](https://world.jorudan.co.jp/mln/img/lp/LP_NEXT2.png)\nInformation of boarding position and track number is available. Easy-to-understand information will be displayed in the search results for your transfer, making your travel smoother and more convenient!\n乗車位置・発着ホーム番線がわかります。検索結果に乗換時に便利な情報を表示します。次の移動がスムーズになります。\n![Timetable of way stations](https://world.jorudan.co.jp/mln/img/lp/mln_72.png)\nTimetable of way stations is available.\n途中駅の時刻表がわかります。\n## Information Fee\n情報料\nTicket purchase is required as an information fee to use The Service.\n本サービスのご利用には、情報料としてチケット購入が必要となります。\n|\nPurchase Ticket\n|\n(Tax Included)\n|\n購入チケット\n|\n(税込)\n|\n|\nMonthly Fare\n|\n330 yen\n|\n月額\n|\n330円\n|\n|\n90 Days Ticket\n|\n990 yen\n|\n90日間\n|\n990円\n|\n|\n365 Days Ticket\n|\n3740 yen\n|\n365日間\n|\n3740円\n|\n[Paid login](https://world.jorudan.co.jp/mln/en/?c=110)\n* [For account holders\nアカウントをお持ちの方はこちら](https://world.jorudan.co.jp/mln/en/?c=100)\n* [Terms of Use\n利用規約](https://world.jorudan.co.jp/mln/en/agree/)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 7.831500000000002e-7,
+        "bytes_transferred_cost_formatted": "0.0000007831500000000001021683",
+        "compute_cost": 2.55e-7,
+        "compute_cost_formatted": "0.0000002550000000000000183187",
+        "file_cost": 0.000014449500000000003,
+        "file_cost_formatted": "0.0000144495000000000019257929",
+        "total_cost": 0.000025487650000000003,
+        "total_cost_formatted": "0.0000254876500000000026013913",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 156,
+      "error": null,
+      "status": 200,
+      "url": "https://world.jorudan.co.jp/mln/en/lp/out.html"
+    }
+  ]
+}

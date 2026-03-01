@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:51:19.366Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.reddit.com/r/JapanTravel/comments/17y4i6q/i_just_went_into_a_taxi_in_morioka_and_told_the"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Reddit - The heart of the internet\n[\nSkip to main content\n](#main-content)\n[\n![r/JapanTravel icon](https://b.thumbs.redditmedia.com/KpNn8_Uu1kR6wlp8yGujNG5duDfxVX7MRJCK1V0T7hc.png)\nGo to JapanTravel\n](https://www.reddit.com/r/JapanTravel/)\n[r/JapanTravel](https://www.reddit.com/r/JapanTravel/)\n•\n[Clipsterman](https://www.reddit.com/user/Clipsterman/)\n#\nI just went into a taxi in Morioka and told the driver \"Omakase\"\nTL;DR at the bottom.\nFor those who don't know, Omakase means \"I'll leave it up to you\" and is used in restaurants to tell the chef to just give you whatever he thinks is best.\nI am on a trip in Japan, currently in Morioka, and after finishing dinner at 18.30 they decided to go back to the hotel and do nothing for the rest of the evening.\nNot me.\nSince learning about Omakase, I have wanted to try doing it in a taxi, and just see where I'll end up. So I did just that. The driver was initially very confused, but after insisting I was serious, he asked me for a budget, and I told him 5000 yen, which he said would give 30 minutes. We went around Morioka, I told him what we saw earlier, and he ended up taking me to Mitsuishi shrine, a shrine where a demon is supposedly sealed in the three giant rocks next to enough the shrine us built. He not only drive me there, but jumped out of the taxi to tell me about it.\nThen he took me to Kaminohashi bridge, showed me the Giboshi pillars which are apparently 400 years old, and viewed as a local treasure.\nThen he drove me around a bit, just talking about local sights without getting out of the taxi, before deciding that although the time was up, he would show me Hachimangu shrine, free of charge.\nAll through this, Sashi-san, my 70 year old amazing taxi driver, is fighting to translate the things he wants to say into English, while I am just doing my best to put my terrible Japanese to good use. The ban was super passionate, and did his best to give me a great tour of the city despite the fact that I am going sightseeing at night (although many of the Shriners look super cool at night, so I have no regrets about it).\nAll in all an amazing experience, and it only cost me 5000 yen like he promised, although I was so happy about how it went that I tipped him a 1000 yen extra.\nTL;DR: went into a taxi, told him to take me wherever he wanted, and got an amazing guided trip through Morioka, as well as plenty of opportunity to try using my terrible Japanese. 10/10, would Omakase in taxi again.\nRead more\nShare\nNew to Reddit?\nCreate your account and connect with a world of communities.\nContinue with Email\nContinue With Phone Number\nBy continuing, you agree to our\n[User Agreement](https://www.redditinc.com/policies/user-agreement)\nand acknowledge that you understand the\n[Privacy Policy](https://www.redditinc.com/policies/privacy-policy).\nPublic\nAnyone can view, post, and comment to this community\n0\n0\n##\nTop Posts\n* [\nReddit\nreReddit: Top posts of November 18, 2023\n](https://www.reddit.com/posts/2023/november-18-1/global/)\n* [\nReddit\nreReddit: Top posts of November 2023\n](https://www.reddit.com/posts/2023/november/global/)\n* [\nReddit\nreReddit: Top posts of 2023\n](https://www.reddit.com/posts/2023/global/)\n[Reddit Rules](https://www.redditinc.com/policies/content-policy)\n[Privacy Policy](https://www.reddit.com/policies/privacy-policy)\n[User Agreement](https://www.redditinc.com/policies/user-agreement)\n[Accessibility](https://support.reddithelp.com/hc/sections/38303584022676-Accessibility)\n[Reddit, Inc. © 2026. All rights reserved.](https://redditinc.com)\nExpand Navigation\nCollapse Navigation",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.000004992150000000001,
+        "bytes_transferred_cost_formatted": "0.0000049921500000000006035172",
+        "compute_cost": 0.0000025,
+        "compute_cost_formatted": "0.0000025000000000000001387779",
+        "file_cost": 0.0006920595,
+        "file_cost_formatted": "0.0006920595000000000496243047",
+        "total_cost": 0.00070955165,
+        "total_cost_formatted": "0.0007095516500000000509217113",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 1602,
+      "error": null,
+      "status": 200,
+      "url": "https://www.reddit.com/r/JapanTravel/comments/17y4i6q/i_just_went_into_a_taxi_in_morioka_and_told_the/"
+    }
+  ]
+}

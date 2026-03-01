@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:52:49.677Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.jreast.co.jp/en/multi/customer_support/information_center.html"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "JR East Information Center | Travel Service Centers &amp; Accessibility | JR-EAST\n# JR East Information Center\n![JR East Information Center](https://www.jreast.co.jp/multi/customer_support/img/renew/ic_img_lead.jpg)\nFor a more pleasant travel experience, JR East Information Centers are located in many stations to provide assistance to passengers. Our staff provides friendly assistance in English for non-Japanese passengers all year-round.\nThis is a convenient way to get assistance with train schedules, travel guidance and other information about JR. We look forward to serving you.\n## Locations and Hours of Operation\n![JR East Information Center Landmark](https://www.jreast.co.jp/multi/customer_support/img/renew/icon_ic.png)\nThis sign is the landmark of the JR East Information Center.\n* ### [TokyoOpens in a new window](https://www.jreast.co.jp/en/e/stations/e1039.html)\n1F\nCentral Passage\n10:00 - 18:00\n1F\nMarunouchi Central Exit\n10:00 - 18:00\nB1\nMarunouchi Underground Central Exit\n\\* Inside the ticket gates\n10:00 - 18:00\n* ### [ShinjukuOpens in a new window](https://www.jreast.co.jp/en/e/stations/e866.html)\n2F\nSouth Gate\n\\* Inside the ticket gates\n10:00 - 18:00\n2F\nSouth Gate\n\\* Outside the ticket gates\n10:00 - 17:00\nB1\nWest Gate\n\\* Inside the ticket gates\n10:00 - 17:00\n* ### [UenoOpens in a new window](https://www.jreast.co.jp/en/e/stations/e204.html)\n1F\nCentral Gate\n\\* Outside the ticket gates\n10:00 - 18:00\nOffice hours are subject to change and offices are subject to close without notice.\n* [Station maps\n](https://www.jreast.co.jp/en/multi/stations/)\n* [JR East Railway Major Route: Metropolitan AreaOpens in a new window\n](https://www.jreast.co.jp/e/info/map_a4ol.pdf)\n* [Major railway and Subway Route Map: Metropolitan AreaOpen in new window\n](https://www.jreast.co.jp/e/routemaps/pdf/RouteMap_majorrailsub.pdf)\n## Available at the Center\nWe assist you with train time schedules, travel guidance and other information about JR.",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.00000217065,
+        "bytes_transferred_cost_formatted": "0.0000021706500000000000334732",
+        "compute_cost": 0.000002625,
+        "compute_cost_formatted": "0.0000026249999999999999028555",
+        "file_cost": 0.000020305499999999997,
+        "file_cost_formatted": "0.0000203054999999999985504928",
+        "total_cost": 0.00003510115,
+        "total_cost_formatted": "0.0000351011499999999990419330",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 1578,
+      "error": null,
+      "status": 200,
+      "url": "https://www.jreast.co.jp/en/multi/customer_support/information_center.html"
+    }
+  ]
+}

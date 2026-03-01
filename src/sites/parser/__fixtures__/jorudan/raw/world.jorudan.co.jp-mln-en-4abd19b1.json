@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:52:32.443Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://world.jorudan.co.jp/mln/en/?c=100"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "If the page does not move, please click. -&gt; [Move](https://world.jorudan.co.jp/)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 8.971500000000001e-7,
+        "bytes_transferred_cost_formatted": "0.0000008971500000000000108663",
+        "compute_cost": 2.6666666666666667e-7,
+        "compute_cost_formatted": "0.0000002666666666666666577618",
+        "file_cost": 7.14e-7,
+        "file_cost_formatted": "0.0000007139999999999999211880",
+        "total_cost": 0.000011877816666666668,
+        "total_cost_formatted": "0.0000118778166666666671449276",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 161,
+      "error": null,
+      "status": 200,
+      "url": "https://world.jorudan.co.jp/mln/en/?c=100"
+    }
+  ]
+}

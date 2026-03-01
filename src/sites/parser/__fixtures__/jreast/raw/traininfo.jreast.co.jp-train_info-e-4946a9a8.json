@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:53:04.750Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://traininfo.jreast.co.jp/train_info/e/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Train Status Information | JR-EAST\n# Train Status Information\n* [Update](#)\n* [Delay certificate](https://traininfo.jreast.co.jp/delay_certificate/e/)\nThis screen does not update automatically.\n[Ticket Exchange Refund Policy](https://www.jreast.co.jp/multi/ticket/changes.html)\nFrom 4 am until 2 am the following day, this page will report train information regarding anticipated and actual delays in excess of 30 minutes of trains operated by JR-EAST, including the Tohoku, Joetsu, Hokuriku, Yamagata and Akita Shinkansen. Although we update this page regularly, actual train operations may differ from information shown here. Use this information as a guide only.\nWe are not responsible for any damages that may result by you, the customer, taking action based on this information.\nAI translation service is used in a part of this page. Therefore, there is a possibility that the result of translation provided by this automatic AI translation service may contain some inaccurate information not reflecting the original intention in Japanese language. We disclaims any guarantees for results of those translation.\n* [![](https://traininfo.jreast.co.jp/train_info/img/ico_kanto.svg)\nKanto Area\nIbaraki, Tochigi, Gunma, Saitama, Tokyo, Chiba, Kanagawa, and Yamanashi area\n](https://traininfo.jreast.co.jp/train_info/e/kanto.aspx)\n* [![](https://traininfo.jreast.co.jp/train_info/img/ico_tohoku.svg)\nTohoku Area\nConventional lines in Aomori, Iwate, Akita, Miyagi, Yamagata, and Fukushima area\n](https://traininfo.jreast.co.jp/train_info/e/tohoku.aspx)\n* [![](https://traininfo.jreast.co.jp/train_info/img/ico_shinetsu.svg)\nShinetsu Area\nNiigata and Nagano area\n](https://traininfo.jreast.co.jp/train_info/e/shinetsu.aspx)\n* [![](https://traininfo.jreast.co.jp/train_info/img/ico_chyokyori.svg)\nExpress, Night train\nNight train, sleeping car\n](https://traininfo.jreast.co.jp/train_info/e/chyokyori.aspx)\n* [![](https://traininfo.jreast.co.jp/train_info/img/ico_shinkansen.svg)\nShinkansen\nTohoku Shinkansen Jouetsu Shinkansen Hokuriku Shinkansen Yamagata Shinkansen Akita Shinkansen\n](https://traininfo.jreast.co.jp/train_info/e/shinkansen.aspx)\nAbout areas\n![](https://traininfo.jreast.co.jp/train_info/e/img/img_secmap.png)\n[\n![Get Adobe Reader(Opens in a new window.)](https://traininfo.jreast.co.jp/material/img/bnr-adobereader.png)\n](https://get.adobe.com/reader/)\n[Download Adobe Reader to view PDF files.Opens in a new window.](https://get.adobe.com/reader/)\n[\n![](https://traininfo.jreast.co.jp/material/img/ico_multi_pagetop.svg)\n](#)",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 7.2765e-7,
+        "bytes_transferred_cost_formatted": "0.0000007276500000000000216493",
+        "compute_cost": 0.0000013350000000000001,
+        "compute_cost_formatted": "0.0000013350000000000000754952",
+        "file_cost": 0.000017275499999999997,
+        "file_cost_formatted": "0.0000172754999999999991899813",
+        "total_cost": 0.00002933815,
+        "total_cost_formatted": "0.0000293381499999999998422373",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 803,
+      "error": null,
+      "status": 200,
+      "url": "https://traininfo.jreast.co.jp/train_info/e/"
+    }
+  ]
+}

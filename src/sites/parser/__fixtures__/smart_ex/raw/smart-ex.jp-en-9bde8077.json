@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:53:09.700Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://smart-ex.jp/en/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Tokaido Sanyo Kyushu Shinkansen Online Reservation Service!",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 5.6265e-7,
+        "bytes_transferred_cost_formatted": "0.0000005626500000000000442354",
+        "compute_cost": 0.0000021350000000000003,
+        "compute_cost_formatted": "0.0000021350000000000000921485",
+        "file_cost": 0.0000023925,
+        "file_cost_formatted": "0.0000023924999999999998351319",
+        "total_cost": 0.000015090150000000002,
+        "total_cost_formatted": "0.0000150901500000000005266274",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 1282,
+      "error": null,
+      "status": 200,
+      "url": "https://smart-ex.jp/en/"
+    }
+  ]
+}

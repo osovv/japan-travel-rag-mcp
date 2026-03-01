@@ -1,0 +1,33 @@
+{
+  "fetched_at": "2026-03-01T13:52:55.385Z",
+  "endpoint": "https://api.spider.cloud/scrape",
+  "request": {
+    "return_format": "markdown",
+    "url": "https://www.jreast.co.jp/en/multi/traininformation/"
+  },
+  "response_status": 200,
+  "ok": true,
+  "body": [
+    {
+      "content": "Trains &amp; Routes | JR-EAST\n# Trains &amp; Routes\nA variety of trains run through the JR EAST area.\nThere are three main types. See the video below to learn more.\n![Video thumbnail](https://www.jreast.co.jp/multi/traininformation/img/movie_thumb_types_of_train.png)\n[![Embedded YouTube video](https://img.youtube.com/vi/O5lldOcRiE4/0.jpg)](https://www.youtube.com/watch?v=O5lldOcRiE4)\n## Recommended trains\n* [![nex Image](https://www.jreast.co.jp/multi/img/top/img_rtrain_nex.jpg)\n### Narita Express\n](https://www.jreast.co.jp/en/multi/nex/)\n* [![Joyful Train Image](https://www.jreast.co.jp/multi/img/top/img_rtrain_joyful.jpg)\n### Joyful Trains\n](https://www.jreast.co.jp/en/multi/joyful/)\n## Shinkansen\n* [\nTokyo ⇔ Shin-Aomori\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_shinkansen_tohoku.jpg)\n### Tōhoku Shinkansen\n](https://www.jreast.co.jp/en/multi/routemaps/tohokushinkansen.html)\n* [\nTokyo ⇔ Akita\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_shinkansen_akita.jpg)\n### Akita Shinkansen\n](https://www.jreast.co.jp/en/multi/routemaps/akitashinkansen.html)\n* [\nTokyo⇔Yamagata / Shinjo\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_shinkansen_yamagata.jpg)\n### Yamagata Shinkansen\n](https://www.jreast.co.jp/en/multi/routemaps/yamagatashinkansen.html)\n* [\nTokyo⇔Nagano / Kanazawa / Tsuruga\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_shinkansen_hokuriku.jpg)\n### Hokuriku Shinkansen\n](https://www.jreast.co.jp/en/multi/routemaps/hokurikushinkansen.html)\n* [\nTokyo ⇔ Niigata\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_shinkansen_joetsu.jpg)\n### Jōetsu Shinkansen\n](https://www.jreast.co.jp/en/multi/routemaps/joetsushinkansen.html)\n## Limited express / other trains\n* [\nShinagawa / Tokyo / Ueno ⇔\nMito / Iwaki / Sendai\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_hitachi_tokiwa.jpg)\n### HITACHI / TOKIWA\n](https://www.jreast.co.jp/en/multi/traininformation/hitachi/index.html)\n* [\nChiba, Tokyo, Shinjuku⇔\nKofu, Matsumoto, Kawaguchiko\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_azusa.jpg)\n### Azusa, Kaiji and FUJI EXCURSION\n](https://www.jreast.co.jp/en/multi/traininformation/azusa_kaiji/index.html)\n* [\nShinjuku⇔\nTōbu-nikkō / Kinugawa-onsen\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_nikko_kinugawa.jpg)\n### Nikko and Kinugawa\n](https://www.jreast.co.jp/en/multi/traininformation/nikko_kinugawa/index.html)\n* [\nTokyo / Shinjuku ⇔ Izukyu-Shimoda\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_saphir.jpg)\n### SAPPHIRE ODORIKO\n](https://www.jreast.co.jp/en/multi/traininformation/saphir/)\n* [\nTokyo / Shinjuku ⇔\nIzukyu-Shimoda / Shuzenji\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_odoriko.jpg)\n### Odoriko\n](https://www.jreast.co.jp/en/multi/traininformation/odoriko/)\n* [\nTokyo ⇔\nAwa-Kamogawa / Kimitsu / Choshi\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_sazanami_wakashio.jpg)\n### Wakashio, Sazanami and Shiosai\n](https://www.jreast.co.jp/en/multi/traininformation/sazanami_wakashio/index.html)\n* [\nTokyo / Ueno⇔\nNaganohara Kusatsuguchi\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_kusatsu.jpg)\n### Kusatsu-Shima\n](https://www.jreast.co.jp/en/multi/traininformation/kusatsu_shima/)\n* [\nNiigata⇔Sakata / Akita\n![](https://www.jreast.co.jp/multi/traininformation/img/top/img_express_inaho.jpg)\n### Inaho and Shirayuki\n](https://www.jreast.co.jp/en/multi/traininformation/inaho/index.html)\nBuy tickets and passes here\n[\n![](https://www.jreast.co.jp/multi/common/img/logo_tr02.svg)\nReserve Today!\nJR-East Train Reservation\nOpens in a new window\n](https://www.eki-net.com/en/jreast-train-reservation/Top/Index)\n* [Home](https://www.jreast.co.jp/en/multi/)&gt;\n* Train &amp; Routes",
+      "costs": {
+        "ai_cost": 0,
+        "ai_cost_formatted": "0",
+        "bytes_transferred_cost": 0.0000021361500000000003,
+        "bytes_transferred_cost_formatted": "0.0000021361500000000001381395",
+        "compute_cost": 4.3499999999999996e-7,
+        "compute_cost_formatted": "0.0000004349999999999999700240",
+        "file_cost": 0.00003383700000000001,
+        "file_cost_formatted": "0.0000338370000000000004103384",
+        "total_cost": 0.000046408150000000004,
+        "total_cost_formatted": "0.0000464081500000000010736134",
+        "transform_cost": 0.00001,
+        "transform_cost_formatted": "0.0000100000000000000005551115"
+      },
+      "duration_elasped_ms": 265,
+      "error": null,
+      "status": 200,
+      "url": "https://www.jreast.co.jp/en/multi/traininformation/"
+    }
+  ]
+}
