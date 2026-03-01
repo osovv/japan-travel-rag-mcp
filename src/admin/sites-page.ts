@@ -1,5 +1,5 @@
 // FILE: src/admin/sites-page.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Query curated site source data with per-source index statistics and recent crawl job summaries for the Sites Management admin page, and render HTML views for the sites list and source create/edit forms.
 //   SCOPE: Define page data types (SiteSourceRow, CrawlJobRow, SitesPageData), fetch aggregated stats via Drizzle raw SQL, return structured page model, and render server-side HTML for sites management UI.
@@ -18,6 +18,7 @@
 //   handleCreateSource - Validate input and INSERT a new site source row.
 //   handleUpdateSource - Validate input and UPDATE an existing site source row.
 //   handleDeleteSource - CASCADE delete a source and all dependent rows in FK order.
+//   handlePurgeSourceIndex - Delete embeddings and chunks for a source while keeping pages and source row.
 //   handleToggleSourceStatus - Toggle a source status between active and paused.
 //   escapeHtml - Escape user-controlled text for safe HTML rendering (XSS prevention).
 //   renderSitesContent - Render the main sites management page with sources table, actions, and recent crawl jobs.
@@ -25,7 +26,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Add escapeHtml, renderSitesContent, and renderSourceForm HTML rendering functions for sites management UI.
+//   LAST_CHANGE: v1.3.0 - Add handlePurgeSourceIndex function and Purge & Recrawl button to sites management UI.
 //   v1.1.0 - Add CRUD operations (handleCreateSource, handleUpdateSource, handleDeleteSource, handleToggleSourceStatus) with Zod validation schemas.
 //   v1.0.0 - Initial creation with data layer types and fetchSitesPageData for M-ADMIN-SITES.
 // END_CHANGE_SUMMARY
@@ -718,6 +719,76 @@ export async function handleDeleteSource(
   // END_BLOCK_CASCADE_DELETE_SOURCE_M_ADMIN_SITES_018
 }
 
+// START_CONTRACT: handlePurgeSourceIndex
+//   PURPOSE: Delete all embeddings and chunks for a source while keeping pages and the source row intact. Used before a recrawl to purge stale index data.
+//   INPUTS: { db: NodePgDatabase - Drizzle database handle, logger: Logger - Structured logger, sourceId: string - Source to purge }
+//   OUTPUTS: { Promise<void> }
+//   SIDE_EFFECTS: [DELETE rows from site_chunk_embeddings and site_chunks for the given source; emits structured logs]
+//   LINKS: [M-ADMIN-SITES, M-DB, M-LOGGER]
+// END_CONTRACT: handlePurgeSourceIndex
+export async function handlePurgeSourceIndex(
+  db: NodePgDatabase,
+  logger: Logger,
+  sourceId: string,
+): Promise<void> {
+  // START_BLOCK_PURGE_SOURCE_INDEX_M_ADMIN_SITES_025
+  try {
+    logger.info(
+      "Starting index purge for source.",
+      "handlePurgeSourceIndex",
+      "PURGE_SOURCE_INDEX",
+      { sourceId },
+    );
+
+    // Step 1: Delete embeddings (references chunks -> pages -> source)
+    await db.execute(sql`
+      DELETE FROM site_chunk_embeddings
+      WHERE chunk_id IN (
+        SELECT sc.chunk_id FROM site_chunks sc
+        INNER JOIN site_pages sp ON sp.page_id = sc.page_id
+        WHERE sp.source_id = ${sourceId}
+      )
+    `);
+    logger.info(
+      "Deleted site_chunk_embeddings for source.",
+      "handlePurgeSourceIndex",
+      "PURGE_SOURCE_INDEX",
+      { sourceId, step: "site_chunk_embeddings" },
+    );
+
+    // Step 2: Delete chunks (references pages -> source)
+    await db.execute(sql`
+      DELETE FROM site_chunks
+      WHERE page_id IN (
+        SELECT sp.page_id FROM site_pages sp
+        WHERE sp.source_id = ${sourceId}
+      )
+    `);
+    logger.info(
+      "Deleted site_chunks for source. Purge complete.",
+      "handlePurgeSourceIndex",
+      "PURGE_SOURCE_INDEX",
+      { sourceId, step: "site_chunks" },
+    );
+  } catch (error: unknown) {
+    const sitesError = toAdminSitesError(
+      error,
+      "Failed to purge source index.",
+      { operation: "handlePurgeSourceIndex", sourceId },
+    );
+
+    logger.error(
+      "Failed to purge source index.",
+      "handlePurgeSourceIndex",
+      "PURGE_SOURCE_INDEX",
+      { code: sitesError.code, cause: sitesError.details?.cause ?? sitesError.message },
+    );
+
+    throw sitesError;
+  }
+  // END_BLOCK_PURGE_SOURCE_INDEX_M_ADMIN_SITES_025
+}
+
 // START_CONTRACT: handleToggleSourceStatus
 //   PURPOSE: Toggle a site source status between "active" and "paused".
 //   INPUTS: { db: NodePgDatabase - Drizzle database handle, logger: Logger - Structured logger, sourceId: string - Source to update, newStatus: "active" | "paused" - Target status }
@@ -857,6 +928,9 @@ export function renderSitesContent(data: SitesPageData): string {
         `<form method="post" action="/admin/sites/${sid}/toggle">`,
         `<input type="hidden" name="status" value="${escapeHtml(toggleTarget)}" />`,
         `<button type="submit" class="btn btn-warning btn-sm">${escapeHtml(toggleLabel)}</button>`,
+        `</form>`,
+        `<form method="post" action="/admin/sites/${sid}/purge" onsubmit="return confirm('Purge all chunks and embeddings for ${sid}? The worker will re-crawl on next tick.')">`,
+        `<button type="submit" class="btn btn-warning btn-sm">Purge &amp; Recrawl</button>`,
         `</form>`,
         `<form method="post" action="/admin/sites/${sid}/delete" onsubmit="return confirm('Delete source ${sid} and ALL its pages, chunks, and embeddings? This cannot be undone.')">`,
         `<button type="submit" class="btn btn-danger btn-sm">Delete</button>`,

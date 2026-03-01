@@ -1,5 +1,5 @@
 // FILE: src/integrations/spider-cloud-client.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Call Spider crawl API through a unified proxy for scheduled and targeted crawl jobs.
 //   SCOPE: Build proxy crawl URLs, execute authenticated HTTP calls with timeout policy, normalize errors, and return parsed crawl response objects.
@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Accept optional status_code in SpiderCrawlItem payloads to match provider/runtime variance.
+//   LAST_CHANGE: v1.3.0 - Add readability, filter_output_main_only, filter_output_images, filter_output_svg to SpiderCrawlRequest and pass through in runCrawl body.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -31,6 +31,10 @@ export type SpiderCrawlRequest = {
   limit?: number;
   depth?: number;
   return_format?: string;
+  readability?: boolean;
+  filter_output_main_only?: boolean;
+  filter_output_images?: boolean;
+  filter_output_svg?: boolean;
 };
 
 export type SpiderCrawlItem = {
@@ -390,6 +394,18 @@ export async function runCrawl(
     body.depth = request.depth;
   }
   body.return_format = request.return_format ?? "markdown";
+  if (request.readability !== undefined) {
+    body.readability = request.readability;
+  }
+  if (request.filter_output_main_only !== undefined) {
+    body.filter_output_main_only = request.filter_output_main_only;
+  }
+  if (request.filter_output_images !== undefined) {
+    body.filter_output_images = request.filter_output_images;
+  }
+  if (request.filter_output_svg !== undefined) {
+    body.filter_output_svg = request.filter_output_svg;
+  }
   // END_BLOCK_BUILD_REQUEST_URL_AND_HEADERS_M_SPIDER_CLOUD_CLIENT_010
 
   // START_BLOCK_EXECUTE_FETCH_WITH_RETRY_AND_LOGGING_M_SPIDER_CLOUD_CLIENT_011

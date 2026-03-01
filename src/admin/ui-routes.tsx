@@ -1,5 +1,5 @@
 // FILE: src/admin/ui-routes.tsx
-// VERSION: 2.4.0
+// VERSION: 2.5.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Render admin login, operator diagnostics, and Sites Management surfaces with session-protected routing.
 //   SCOPE: Route /admin/login, /admin/ops, and /admin/sites/* requests, enforce admin session checks, render safe HTML diagnostics and sites CRUD UI from runtime config and database.
@@ -16,7 +16,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.4.0 - Extend admin routes with Sites Management pages (list, create, edit, toggle, delete) and sidebar navigation; add db dependency for sites routes.
+//   LAST_CHANGE: v2.5.0 - Add purge route handler for Purge & Recrawl admin action.
 //   v2.3.0 - Rebased ops diagnostics on AppConfig.logto fields, removed legacy config.oauth references, and masked Logto client secret in rendered status output.
 // END_CHANGE_SUMMARY
 
@@ -33,6 +33,7 @@ import {
   handleCreateSource,
   handleUpdateSource,
   handleDeleteSource,
+  handlePurgeSourceIndex,
   handleToggleSourceStatus,
   renderSitesContent,
   renderSourceForm,
@@ -718,7 +719,7 @@ export async function handleAdminRequest(
     }
 
     // Routes with :id parameter — /admin/sites/:id/(edit|toggle|delete)
-    const sitesMatch = pathname.match(/^\/admin\/sites\/([^/]+)\/(edit|toggle|delete)$/);
+    const sitesMatch = pathname.match(/^\/admin\/sites\/([^/]+)\/(edit|toggle|delete|purge)$/);
     if (sitesMatch && sitesMatch[1] && sitesMatch[2]) {
       const sourceId = decodeURIComponent(sitesMatch[1]);
       const action = sitesMatch[2];
@@ -798,6 +799,14 @@ export async function handleAdminRequest(
         await handleDeleteSource(db, logger, sourceId);
         return buildRedirectResponse("/admin/sites");
         // END_BLOCK_HANDLE_SITES_DELETE_ROUTE_M_ADMIN_UI_137
+      }
+
+      // POST /admin/sites/:id/purge — Purge chunks/embeddings for recrawl
+      if (action === "purge" && method === "POST") {
+        // START_BLOCK_HANDLE_SITES_PURGE_ROUTE_M_ADMIN_UI_138
+        await handlePurgeSourceIndex(db, logger, sourceId);
+        return buildRedirectResponse("/admin/sites");
+        // END_BLOCK_HANDLE_SITES_PURGE_ROUTE_M_ADMIN_UI_138
       }
     }
 

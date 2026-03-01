@@ -1,5 +1,5 @@
 // FILE: src/sites/ingestion/orchestrator.ts
-// VERSION: 1.0.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Coordinate the crawl-parse-chunk-embed-upsert pipeline for curated sites ingestion.
 //   SCOPE: Orchestrate Spider crawl, page parsing, text chunking, Voyage embedding, and repository upsert for scheduled and targeted recrawl jobs.
@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Add provider outage detection (skipOnProviderOutage), pauseSource/resumeSource controls, per-source observability logging, and tick summary.
+//   LAST_CHANGE: v1.2.0 - Enable Spider readability and content filtering via SPIDER_EXTRACTION_DEFAULTS in both processSource and runTargetedRecrawl crawl calls.
 // END_CHANGE_SUMMARY
 
 import type { SpiderCloudClient } from "../../integrations/spider-cloud-client";
@@ -87,6 +87,14 @@ export class SitesIngestionError extends Error {
 // START_BLOCK_DEFINE_INDEX_VERSION_M_SITES_INGESTION_003
 export const INDEX_VERSION = "v1" as const;
 export const PROVIDER_OUTAGE_THRESHOLD = 3;
+
+const SPIDER_EXTRACTION_DEFAULTS = {
+  return_format: "markdown" as const,
+  readability: true,
+  filter_output_main_only: true,
+  filter_output_images: true,
+  filter_output_svg: true,
+};
 // END_BLOCK_DEFINE_INDEX_VERSION_M_SITES_INGESTION_003
 
 // START_BLOCK_DEFINE_SOURCE_CONTROLS_M_SITES_INGESTION_003B
@@ -175,7 +183,7 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
     const crawlResponse = await spiderClient.runCrawl({
       url: `https://${source.domain}`,
       limit: source.max_pages,
-      return_format: "markdown",
+      ...SPIDER_EXTRACTION_DEFAULTS,
     });
 
     const crawlItems = crawlResponse.data;
@@ -515,7 +523,7 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
       const crawlResponse = await spiderClient.runCrawl({
         url,
         limit: 1,
-        return_format: "markdown",
+        ...SPIDER_EXTRACTION_DEFAULTS,
       });
 
       const crawlItems = crawlResponse.data;
