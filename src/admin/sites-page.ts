@@ -263,10 +263,9 @@ export async function fetchSitesPageData(
         WHERE sp3.source_id = ss.source_id
       ) emb_stats ON true
       LEFT JOIN LATERAL (
-        SELECT MAX(scj.finished_at) AS last_crawl_at
-        FROM site_crawl_jobs scj
-        WHERE scj.source_id = ss.source_id
-          AND scj.status = 'completed'
+        SELECT MAX(sp4.fetched_at) AS last_crawl_at
+        FROM site_pages sp4
+        WHERE sp4.source_id = ss.source_id
       ) crawl_stats ON true
       ORDER BY ss.tier ASC, ss.name ASC
     `);
