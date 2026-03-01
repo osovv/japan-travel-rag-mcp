@@ -1,26 +1,32 @@
 // FILE: src/tools/site-sources.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Serve curated source registry as a static MCP tool response with typed output contract and frozen seed data.
-//   SCOPE: Provide frozen seed data constant, empty input schema, and typed interfaces for the get_site_sources local tool.
-//   DEPENDS: (none)
+//   PURPOSE: Serve curated source registry via DB-backed read path with frozen seed data as bootstrap/fallback.
+//   SCOPE: Provide frozen seed data constant, empty input schema, typed interfaces, and DB query function for the get_site_sources tool.
+//   DEPENDS: M-DB, M-LOGGER
 //   LINKS: M-SITE-SOURCES
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   TierDescription - Shape for a single tier entry (tier number, name, focus).
 //   DescriptionAndTiers - Shape for the description text and tier array.
-//   SiteSource - Shape for a single curated source entry.
+//   SiteSource - Shape for a single curated source entry (with optional crawl_interval_minutes, max_pages).
 //   SiteSourcesResponse - Full response type: description_and_tiers + sources[].
 //   GetSiteSourcesInputSchema - Empty z.object({}) schema for FastMCP tool registration.
 //   SITE_SOURCES_RESPONSE - Frozen seed data constant containing curated source registry.
+//   getSiteSources - Query site_sources DB table and return SiteSourcesResponse; falls back to seed constant.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial creation with frozen seed data, empty input schema, and typed response contract.
+//   v1.1.0 - Add DB-backed getSiteSources read path with fallback to seed constant; extend SiteSource with crawl_interval_minutes and max_pages.
+//   v1.0.0 - Initial creation with frozen seed data, empty input schema, and typed response contract.
 // END_CHANGE_SUMMARY
 
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
+
+import type { Logger } from "../logger/index";
+import { siteSourcesTable } from "../db/sites-schema";
 
 // START_CONTRACT: TierDescription
 //   PURPOSE: Describe a single tier in the source priority hierarchy.
@@ -50,7 +56,7 @@ export type DescriptionAndTiers = {
 // START_CONTRACT: SiteSource
 //   PURPOSE: Represent a single curated source in the registry.
 //   INPUTS: (none — type definition)
-//   OUTPUTS: { source_id: string; name: string; domain: string; tier: number; language: string; focus: string; status: "active" | "paused" }
+//   OUTPUTS: { source_id: string; name: string; domain: string; tier: number; language: string; focus: string; status: "active" | "paused"; crawl_interval_minutes?: number; max_pages?: number }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-SITE-SOURCES]
 // END_CONTRACT: SiteSource
@@ -62,6 +68,8 @@ export type SiteSource = {
   readonly language: string;
   readonly focus: string;
   readonly status: "active" | "paused";
+  readonly crawl_interval_minutes?: number;
+  readonly max_pages?: number;
 };
 
 // START_CONTRACT: SiteSourcesResponse
@@ -229,3 +237,73 @@ export const SITE_SOURCES_RESPONSE: SiteSourcesResponse = Object.freeze({
   ] as const),
 });
 // END_BLOCK_FROZEN_SEED_DATA_M_SITE_SOURCES_002
+
+// START_CONTRACT: getSiteSources
+//   PURPOSE: Query site_sources table and return SiteSourcesResponse with live DB data; falls back to seed constant if DB is empty.
+//   INPUTS: { db: NodePgDatabase - Drizzle database handle, logger: Logger - Module logger }
+//   OUTPUTS: { Promise<SiteSourcesResponse> }
+//   SIDE_EFFECTS: [Reads from site_sources table, logs query result]
+//   LINKS: [M-SITE-SOURCES, M-DB, M-LOGGER]
+// END_CONTRACT: getSiteSources
+// START_BLOCK_GET_SITE_SOURCES_FROM_DB_M_SITE_SOURCES_003
+export async function getSiteSources(
+  db: NodePgDatabase,
+  logger: Logger,
+): Promise<SiteSourcesResponse> {
+  try {
+    const rows = await db
+      .select({
+        sourceId: siteSourcesTable.sourceId,
+        name: siteSourcesTable.name,
+        domain: siteSourcesTable.domain,
+        tier: siteSourcesTable.tier,
+        language: siteSourcesTable.language,
+        focus: siteSourcesTable.focus,
+        status: siteSourcesTable.status,
+        crawlIntervalMinutes: siteSourcesTable.crawlIntervalMinutes,
+        maxPages: siteSourcesTable.maxPages,
+      })
+      .from(siteSourcesTable);
+
+    if (rows.length === 0) {
+      logger.info(
+        "No rows in site_sources table; returning seed constant as fallback.",
+        "getSiteSources",
+        "DB_EMPTY_FALLBACK",
+      );
+      return SITE_SOURCES_RESPONSE;
+    }
+
+    const sources: SiteSource[] = rows.map((row) => ({
+      source_id: row.sourceId,
+      name: row.name,
+      domain: row.domain,
+      tier: row.tier,
+      language: row.language,
+      focus: row.focus,
+      status: row.status as "active" | "paused",
+      crawl_interval_minutes: row.crawlIntervalMinutes,
+      max_pages: row.maxPages,
+    }));
+
+    logger.info(
+      `Loaded ${sources.length} site sources from database.`,
+      "getSiteSources",
+      "DB_READ_SUCCESS",
+    );
+
+    return {
+      description_and_tiers: SITE_SOURCES_RESPONSE.description_and_tiers,
+      sources,
+    };
+  } catch (error: unknown) {
+    const cause = error instanceof Error ? error.message : String(error);
+    logger.warn(
+      `Failed to query site_sources table; returning seed constant as fallback. Cause: ${cause}`,
+      "getSiteSources",
+      "DB_READ_FALLBACK_ON_ERROR",
+    );
+    return SITE_SOURCES_RESPONSE;
+  }
+}
+// END_BLOCK_GET_SITE_SOURCES_FROM_DB_M_SITE_SOURCES_003

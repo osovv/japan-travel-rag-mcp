@@ -1,8 +1,8 @@
 // FILE: src/tools/site-sources.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Verify M-SITE-SOURCES contract: seed data integrity, output shape, and input schema emptiness.
-//   SCOPE: Unit test SITE_SOURCES_RESPONSE structure, GetSiteSourcesInputSchema behavior, and frozen immutability.
+//   PURPOSE: Verify M-SITE-SOURCES contract: seed data integrity, output shape, input schema emptiness, and DB-backed getSiteSources.
+//   SCOPE: Unit test SITE_SOURCES_RESPONSE structure, GetSiteSourcesInputSchema behavior, frozen immutability, and getSiteSources with mock DB.
 //   DEPENDS: M-SITE-SOURCES
 //   LINKS: M-SITE-SOURCES
 // END_MODULE_CONTRACT
@@ -11,21 +11,57 @@
 //   SiteSourcesSeedDataTests - Verify seed data counts, shapes, and exact values.
 //   GetSiteSourcesInputSchemaTests - Verify empty input schema accepts {} and rejects unknown keys.
 //   FrozenImmutabilityTests - Verify seed data cannot be mutated at runtime.
+//   GetSiteSourcesDBTests - Verify getSiteSources returns DB data or falls back to seed constant.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation for M-SITE-SOURCES contract tests.
+//   v1.1.0 - Add getSiteSources DB-backed read path tests with mock DB and logger.
+//   v1.0.0 - Initial generation for M-SITE-SOURCES contract tests.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { Logger } from "../logger/index";
 import {
   SITE_SOURCES_RESPONSE,
   GetSiteSourcesInputSchema,
+  getSiteSources,
   type SiteSourcesResponse,
   type SiteSource,
   type TierDescription,
   type DescriptionAndTiers,
 } from "./site-sources";
+
+// START_BLOCK_TEST_HELPERS_M_SITE_SOURCES_TEST_000
+const noop = () => {};
+function createMockLogger(): Logger {
+  return {
+    debug: noop,
+    info: noop,
+    warn: noop,
+    error: noop,
+    child: () => createMockLogger(),
+  };
+}
+
+type SelectChain = { from: (table: unknown) => Promise<unknown[]> };
+
+function createMockDb(rows: unknown[]): NodePgDatabase {
+  return {
+    select: () => ({
+      from: () => Promise.resolve(rows),
+    }),
+  } as unknown as NodePgDatabase;
+}
+
+function createThrowingDb(error: Error): NodePgDatabase {
+  return {
+    select: () => ({
+      from: () => Promise.reject(error),
+    }),
+  } as unknown as NodePgDatabase;
+}
+// END_BLOCK_TEST_HELPERS_M_SITE_SOURCES_TEST_000
 
 // START_BLOCK_SEED_DATA_INTEGRITY_TESTS_M_SITE_SOURCES_TEST_001
 describe("SITE_SOURCES_RESPONSE seed data", () => {
@@ -190,3 +226,124 @@ describe("SiteSourcesResponse type conformance", () => {
   });
 });
 // END_BLOCK_TYPE_CONFORMANCE_TESTS_M_SITE_SOURCES_TEST_004
+
+// START_BLOCK_GET_SITE_SOURCES_DB_TESTS_M_SITE_SOURCES_TEST_005
+describe("getSiteSources", () => {
+  const mockLogger = createMockLogger();
+
+  it("returns seed constant when DB returns empty rows", async () => {
+    const db = createMockDb([]);
+    const result = await getSiteSources(db, mockLogger);
+    expect(result).toBe(SITE_SOURCES_RESPONSE);
+  });
+
+  it("returns DB data when rows exist", async () => {
+    const dbRows = [
+      {
+        sourceId: "test_source",
+        name: "Test Source",
+        domain: "test.com",
+        tier: 1,
+        language: "en",
+        focus: "Testing",
+        status: "active",
+        crawlIntervalMinutes: 4320,
+        maxPages: 150,
+      },
+    ];
+    const db = createMockDb(dbRows);
+    const result = await getSiteSources(db, mockLogger);
+
+    expect(result.sources).toHaveLength(1);
+    expect(result.sources[0]!.source_id).toBe("test_source");
+    expect(result.sources[0]!.name).toBe("Test Source");
+    expect(result.sources[0]!.domain).toBe("test.com");
+    expect(result.sources[0]!.tier).toBe(1);
+    expect(result.sources[0]!.language).toBe("en");
+    expect(result.sources[0]!.focus).toBe("Testing");
+    expect(result.sources[0]!.status).toBe("active");
+    expect(result.sources[0]!.crawl_interval_minutes).toBe(4320);
+    expect(result.sources[0]!.max_pages).toBe(150);
+  });
+
+  it("uses description_and_tiers from seed constant even with DB data", async () => {
+    const dbRows = [
+      {
+        sourceId: "test_source",
+        name: "Test Source",
+        domain: "test.com",
+        tier: 1,
+        language: "en",
+        focus: "Testing",
+        status: "active",
+        crawlIntervalMinutes: 4320,
+        maxPages: 150,
+      },
+    ];
+    const db = createMockDb(dbRows);
+    const result = await getSiteSources(db, mockLogger);
+
+    expect(result.description_and_tiers).toBe(SITE_SOURCES_RESPONSE.description_and_tiers);
+  });
+
+  it("maps DB columns to SiteSource shape correctly", async () => {
+    const dbRows = [
+      {
+        sourceId: "wrenjapan",
+        name: "WrenJapan",
+        domain: "wrenjapan.com",
+        tier: 0,
+        language: "ru",
+        focus: "Visa, money",
+        status: "paused",
+        crawlIntervalMinutes: 1440,
+        maxPages: 200,
+      },
+      {
+        sourceId: "insidekyoto",
+        name: "InsideKyoto",
+        domain: "insidekyoto.com",
+        tier: 1,
+        language: "en",
+        focus: "Kyoto districts",
+        status: "active",
+        crawlIntervalMinutes: 4320,
+        maxPages: 150,
+      },
+    ];
+    const db = createMockDb(dbRows);
+    const result = await getSiteSources(db, mockLogger);
+
+    expect(result.sources).toHaveLength(2);
+    expect(result.sources[0]!.status).toBe("paused");
+    expect(result.sources[1]!.status).toBe("active");
+  });
+
+  it("returns seed constant as fallback when DB throws", async () => {
+    const db = createThrowingDb(new Error("connection refused"));
+    const result = await getSiteSources(db, mockLogger);
+    expect(result).toBe(SITE_SOURCES_RESPONSE);
+  });
+
+  it("result satisfies SiteSourcesResponse type with DB data", async () => {
+    const dbRows = [
+      {
+        sourceId: "test_source",
+        name: "Test",
+        domain: "test.com",
+        tier: 0,
+        language: "en",
+        focus: "Test",
+        status: "active",
+        crawlIntervalMinutes: 1440,
+        maxPages: 200,
+      },
+    ];
+    const db = createMockDb(dbRows);
+    const result = await getSiteSources(db, mockLogger);
+    const _typed: SiteSourcesResponse = result;
+    expect(_typed.description_and_tiers).toBeDefined();
+    expect(_typed.sources).toBeDefined();
+  });
+});
+// END_BLOCK_GET_SITE_SOURCES_DB_TESTS_M_SITE_SOURCES_TEST_005
