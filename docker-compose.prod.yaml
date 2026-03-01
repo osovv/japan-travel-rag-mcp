@@ -1,16 +1,15 @@
 # FILE: docker-compose.prod.yaml
-# VERSION: 1.2.0
+# VERSION: 2.0.0
 # START_MODULE_CONTRACT
-#   PURPOSE: Production compose stack for a single MCP HTTP service
-#   SCOPE: Runs the Bun-based MCP server with explicit required env vars on external coolify network
+#   PURPOSE: Production compose stack for API server and worker processes
+#   SCOPE: Runs the Bun-based MCP API server and curated-sites ingestion worker with explicit required env vars on external coolify network
 #   DEPENDS: (none - standalone orchestration)
-#   LINKS: M-DOCKER-PROD -> M-DOCKER-IMAGE, M-DOCKER-PROD -> M-SERVER, M-DOCKER-PROD -> M-CONFIG
+#   LINKS: M-DOCKER-PROD -> M-DOCKER-IMAGE, M-DOCKER-PROD -> M-SERVER, M-DOCKER-PROD -> M-WORKER-ENTRYPOINT, M-DOCKER-PROD -> M-CONFIG
 # END_MODULE_CONTRACT
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: [v1.2.0 - Add required ROOT_AUTH_TOKEN and DATABASE_URL env bindings for post-Phase-4 config contract]
-#   PREVIOUS: [v1.1.0 - Switch mcp service to build-based image to ensure index.ts is present at runtime]
-#   PREVIOUS: [v1.0.0 - Initial production compose definition for single mcp service]
+#   LAST_CHANGE: [v2.0.0 - Rename mcp service to japan-travel-rag-api, add japan-travel-rag-worker service, add proxy env vars for Spider/Voyage API access, add Logto/portal env vars]
+#   PREVIOUS: [v1.2.0 - Add required ROOT_AUTH_TOKEN and DATABASE_URL env bindings for post-Phase-4 config contract]
 # END_CHANGE_SUMMARY
 
 x-shared-env: &shared-env
@@ -22,12 +21,27 @@ x-shared-env: &shared-env
     DATABASE_URL: ${DATABASE_URL:?}
     PORT: ${PORT:-3000}
     TG_CHAT_RAG_TIMEOUT_MS: ${TG_CHAT_RAG_TIMEOUT_MS:-15000}
+    PUBLIC_URL: ${PUBLIC_URL:?}
+    LOGTO_TENANT_URL: ${LOGTO_TENANT_URL:?}
+    LOGTO_CLIENT_ID: ${LOGTO_CLIENT_ID:?}
+    LOGTO_CLIENT_SECRET: ${LOGTO_CLIENT_SECRET:?}
+    PORTAL_SESSION_SECRET: ${PORTAL_SESSION_SECRET:?}
+    PORTAL_LOGTO_APP_ID: ${PORTAL_LOGTO_APP_ID:?}
+    PORTAL_LOGTO_APP_SECRET: ${PORTAL_LOGTO_APP_SECRET:?}
+    PORTAL_LOGTO_M2M_APP_ID: ${PORTAL_LOGTO_M2M_APP_ID:?}
+    PORTAL_LOGTO_M2M_APP_SECRET: ${PORTAL_LOGTO_M2M_APP_SECRET:?}
+    PORTAL_LOGTO_MANAGEMENT_API_RESOURCE: ${PORTAL_LOGTO_MANAGEMENT_API_RESOURCE:?}
+    PORTAL_MCP_USER_ROLE_ID: ${PORTAL_MCP_USER_ROLE_ID:?}
+    PROXY_BASE_URL: ${PROXY_BASE_URL:?}
+    PROXY_SECRET: ${PROXY_SECRET:?}
+    VOYAGE_API_KEY: ${VOYAGE_API_KEY:?}
+    SPIDER_API_KEY: ${SPIDER_API_KEY:?}
   networks:
     - coolify
 
 services:
-  # START_BLOCK_MCP_SERVICE
-  mcp:
+  # START_BLOCK_API_SERVICE
+  japan-travel-rag-api:
     build:
       context: .
       dockerfile: Dockerfile
@@ -48,7 +62,18 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
-  # END_BLOCK_MCP_SERVICE
+  # END_BLOCK_API_SERVICE
+
+  # START_BLOCK_WORKER_SERVICE
+  japan-travel-rag-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: ["bun", "run", "src/worker-main.ts"]
+    <<: *shared-env
+    restart: unless-stopped
+  # END_BLOCK_WORKER_SERVICE
 
 networks:
   coolify:
