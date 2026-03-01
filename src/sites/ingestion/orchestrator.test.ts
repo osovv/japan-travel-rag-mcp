@@ -27,9 +27,13 @@ import type { Logger } from "../../logger/index";
 import type { SpiderCloudClient, SpiderCrawlItem, SpiderCrawlResponse } from "../../integrations/spider-cloud-client";
 import type { VoyageProxyClient } from "../../integrations/voyage-proxy-client";
 import type { SitesIndexRepository, UpsertChunkInput, UpsertEmbeddingInput, UpsertPageInput } from "../search/repository";
+import { SpiderProxyError } from "../../integrations/spider-cloud-client";
 import {
   createIngestionOrchestrator,
   INDEX_VERSION,
+  PROVIDER_OUTAGE_THRESHOLD,
+  pauseSource,
+  resumeSource,
   SitesIngestionError,
   type IngestionDeps,
   type IngestionResult,
@@ -654,6 +658,10 @@ describe("constants", () => {
     expect(INDEX_VERSION).toBe("v1");
   });
 
+  it("PROVIDER_OUTAGE_THRESHOLD is 3", () => {
+    expect(PROVIDER_OUTAGE_THRESHOLD).toBe(3);
+  });
+
   it("SitesIngestionError has correct code", () => {
     const error = new SitesIngestionError("test error", { key: "value" });
     expect(error.code).toBe("SITES_INGESTION_ERROR");
@@ -664,3 +672,247 @@ describe("constants", () => {
   });
 });
 // END_BLOCK_CONSTANTS_TESTS_M_SITES_INGESTION_TEST_006
+
+// START_BLOCK_PROVIDER_OUTAGE_TESTS_M_SITES_INGESTION_TEST_007
+describe("provider outage detection (skipOnProviderOutage)", () => {
+  it("skips remaining sources after 3 consecutive Spider 5xx errors", async () => {
+    let crawlCallCount = 0;
+    const spiderClient: SpiderCloudClient = {
+      runCrawl: async () => {
+        crawlCallCount++;
+        throw new SpiderProxyError("Spider 5xx", 502, { status: 502 });
+      },
+    };
+
+    const voyageClient = createMockVoyageClient();
+    const { repository } = createMockRepository();
+    const logger = createNoopLogger();
+
+    const orchestrator = createIngestionOrchestrator({
+      spiderClient,
+      voyageClient,
+      repository,
+      logger,
+    });
+
+    const sources = [
+      makeSource({ source_id: "src-001" }),
+      makeSource({ source_id: "src-002" }),
+      makeSource({ source_id: "src-003" }),
+      makeSource({ source_id: "src-004" }),
+      makeSource({ source_id: "src-005" }),
+    ];
+
+    const result = await orchestrator.runScheduledIngestion(sources);
+
+    // All 5 sources are counted as processed
+    expect(result.sources_processed).toBe(5);
+    // Spider was only called 3 times (the threshold); sources 4 and 5 were skipped
+    expect(crawlCallCount).toBe(3);
+    // 3 Spider errors + 2 skipped = 5 errors
+    expect(result.errors).toHaveLength(5);
+    // The 4th and 5th errors should have PROVIDER_OUTAGE code
+    expect(result.errors[3].code).toBe("PROVIDER_OUTAGE");
+    expect(result.errors[4].code).toBe("PROVIDER_OUTAGE");
+    expect(result.errors[3].source_id).toBe("src-004");
+    expect(result.errors[4].source_id).toBe("src-005");
+  });
+
+  it("resets consecutive 5xx counter on successful crawl", async () => {
+    let crawlCallCount = 0;
+    const spiderClient: SpiderCloudClient = {
+      runCrawl: async () => {
+        crawlCallCount++;
+        // Fail for sources 1 and 2, succeed for source 3, fail for sources 4 and 5
+        if (crawlCallCount <= 2 || crawlCallCount >= 4) {
+          throw new SpiderProxyError("Spider 5xx", 500, { status: 500 });
+        }
+        return { data: [makeCrawlItem()], status: "ok" };
+      },
+    };
+
+    const voyageClient = createMockVoyageClient();
+    const { repository } = createMockRepository();
+    const logger = createNoopLogger();
+
+    const orchestrator = createIngestionOrchestrator({
+      spiderClient,
+      voyageClient,
+      repository,
+      logger,
+    });
+
+    const sources = [
+      makeSource({ source_id: "src-001" }),
+      makeSource({ source_id: "src-002" }),
+      makeSource({ source_id: "src-003" }),
+      makeSource({ source_id: "src-004" }),
+      makeSource({ source_id: "src-005" }),
+    ];
+
+    const result = await orchestrator.runScheduledIngestion(sources);
+
+    // All 5 are processed since the counter resets after src-003 succeeds
+    expect(result.sources_processed).toBe(5);
+    // All 5 sources attempted crawl (2 fail, 1 success, 2 fail = 4 errors)
+    expect(crawlCallCount).toBe(5);
+    expect(result.errors).toHaveLength(4);
+    // No PROVIDER_OUTAGE errors since counter never reached 3 consecutive
+    expect(result.errors.every(e => e.code !== "PROVIDER_OUTAGE")).toBe(true);
+  });
+
+  it("resets consecutive 5xx counter on non-5xx error", async () => {
+    let crawlCallCount = 0;
+    const spiderClient: SpiderCloudClient = {
+      runCrawl: async () => {
+        crawlCallCount++;
+        if (crawlCallCount === 1 || crawlCallCount === 2) {
+          throw new SpiderProxyError("Spider 5xx", 500, { status: 500 });
+        }
+        if (crawlCallCount === 3) {
+          // Non-Spider error (e.g., generic runtime error)
+          throw new Error("some non-spider error");
+        }
+        if (crawlCallCount === 4 || crawlCallCount === 5) {
+          throw new SpiderProxyError("Spider 5xx", 500, { status: 500 });
+        }
+        return { data: [makeCrawlItem()], status: "ok" };
+      },
+    };
+
+    const voyageClient = createMockVoyageClient();
+    const { repository } = createMockRepository();
+    const logger = createNoopLogger();
+
+    const orchestrator = createIngestionOrchestrator({
+      spiderClient,
+      voyageClient,
+      repository,
+      logger,
+    });
+
+    const sources = [
+      makeSource({ source_id: "src-001" }),
+      makeSource({ source_id: "src-002" }),
+      makeSource({ source_id: "src-003" }),
+      makeSource({ source_id: "src-004" }),
+      makeSource({ source_id: "src-005" }),
+      makeSource({ source_id: "src-006" }),
+    ];
+
+    const result = await orchestrator.runScheduledIngestion(sources);
+
+    // All 6 attempted, no outage triggered (counter resets after non-5xx src-003)
+    expect(result.sources_processed).toBe(6);
+    expect(crawlCallCount).toBe(6);
+    expect(result.errors.every(e => e.code !== "PROVIDER_OUTAGE")).toBe(true);
+  });
+});
+// END_BLOCK_PROVIDER_OUTAGE_TESTS_M_SITES_INGESTION_TEST_007
+
+// START_BLOCK_SOURCE_CONTROLS_TESTS_M_SITES_INGESTION_TEST_008
+describe("pauseSource / resumeSource", () => {
+  it("pauseSource calls db.query with correct SQL", async () => {
+    const queryCalls: { sql: string; params: unknown[] }[] = [];
+    const mockDb = {
+      query: async (sql: string, params: unknown[]) => {
+        queryCalls.push({ sql, params });
+      },
+    };
+
+    await pauseSource(mockDb, "src-001");
+
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0].sql).toContain("UPDATE site_sources SET status");
+    expect(queryCalls[0].params).toEqual(["paused", "src-001"]);
+  });
+
+  it("resumeSource calls db.query with correct SQL", async () => {
+    const queryCalls: { sql: string; params: unknown[] }[] = [];
+    const mockDb = {
+      query: async (sql: string, params: unknown[]) => {
+        queryCalls.push({ sql, params });
+      },
+    };
+
+    await resumeSource(mockDb, "src-002");
+
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0].sql).toContain("UPDATE site_sources SET status");
+    expect(queryCalls[0].params).toEqual(["active", "src-002"]);
+  });
+});
+// END_BLOCK_SOURCE_CONTROLS_TESTS_M_SITES_INGESTION_TEST_008
+
+// START_BLOCK_OBSERVABILITY_TESTS_M_SITES_INGESTION_TEST_009
+describe("ingestion observability logging", () => {
+  it("logs per-source ingestion summary after each source", async () => {
+    const infoCalls: { message: string; blockName: string; extra?: Record<string, unknown> }[] = [];
+    const captureLogger: Logger = {
+      debug: () => {},
+      info: (message, _fn, blockName, extra) => {
+        infoCalls.push({ message, blockName, extra });
+      },
+      warn: () => {},
+      error: () => {},
+      child: function () { return this; },
+    };
+
+    const spiderClient = createMockSpiderClient({ items: [makeCrawlItem()] });
+    const voyageClient = createMockVoyageClient();
+    const { repository } = createMockRepository();
+
+    const orchestrator = createIngestionOrchestrator({
+      spiderClient,
+      voyageClient,
+      repository,
+      logger: captureLogger,
+    });
+
+    await orchestrator.runScheduledIngestion([makeSource({ source_id: "src-log-test" })]);
+
+    const summaryLogs = infoCalls.filter(c => c.blockName === "SOURCE_INGESTION_SUMMARY");
+    expect(summaryLogs).toHaveLength(1);
+    expect(summaryLogs[0].extra?.source_id).toBe("src-log-test");
+    expect(typeof summaryLogs[0].extra?.pages_fetched).toBe("number");
+    expect(typeof summaryLogs[0].extra?.chunks_created).toBe("number");
+    expect(typeof summaryLogs[0].extra?.embeddings_created).toBe("number");
+    expect(typeof summaryLogs[0].extra?.duration_ms).toBe("number");
+  });
+
+  it("logs tick summary after full ingestion run", async () => {
+    const infoCalls: { message: string; blockName: string; extra?: Record<string, unknown> }[] = [];
+    const captureLogger: Logger = {
+      debug: () => {},
+      info: (message, _fn, blockName, extra) => {
+        infoCalls.push({ message, blockName, extra });
+      },
+      warn: () => {},
+      error: () => {},
+      child: function () { return this; },
+    };
+
+    const spiderClient = createMockSpiderClient({ items: [makeCrawlItem()] });
+    const voyageClient = createMockVoyageClient();
+    const { repository } = createMockRepository();
+
+    const orchestrator = createIngestionOrchestrator({
+      spiderClient,
+      voyageClient,
+      repository,
+      logger: captureLogger,
+    });
+
+    await orchestrator.runScheduledIngestion([makeSource(), makeSource({ source_id: "src-002" })]);
+
+    const tickLogs = infoCalls.filter(c => c.blockName === "INGESTION_TICK_SUMMARY");
+    expect(tickLogs).toHaveLength(1);
+    expect(tickLogs[0].extra?.total_sources).toBe(2);
+    expect(typeof tickLogs[0].extra?.total_pages).toBe("number");
+    expect(typeof tickLogs[0].extra?.total_chunks).toBe("number");
+    expect(typeof tickLogs[0].extra?.total_embeddings).toBe("number");
+    expect(typeof tickLogs[0].extra?.total_duration_ms).toBe("number");
+    expect(typeof tickLogs[0].extra?.errors_count).toBe("number");
+  });
+});
+// END_BLOCK_OBSERVABILITY_TESTS_M_SITES_INGESTION_TEST_009

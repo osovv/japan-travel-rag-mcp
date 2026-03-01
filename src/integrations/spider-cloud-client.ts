@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial implementation of Spider proxy crawl client with timeout and error mapping.
+//   LAST_CHANGE: v1.1.0 - Add exponential backoff retry to runCrawl for transient errors (5xx, timeout, network).
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -91,6 +91,9 @@ export type SpiderCloudClient = {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const SPIDER_CRAWL_PATH = "api.spider.cloud/v1/crawl";
+const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1_000;
+const RETRY_JITTER_MAX_MS = 500;
 
 type TimeoutControl = {
   signal: AbortSignal;
@@ -274,6 +277,45 @@ function normalizeSpiderError(
   // END_BLOCK_NORMALIZE_SPIDER_ERRORS_M_SPIDER_CLOUD_CLIENT_007
 }
 
+// START_CONTRACT: isTransientSpiderError
+//   PURPOSE: Determine if a Spider error is transient and eligible for retry.
+//   INPUTS: { error: SpiderProxyError | SpiderTimeoutError - Normalized error }
+//   OUTPUTS: { boolean - True if the error is transient (5xx, timeout, network) }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SPIDER-CLOUD-CLIENT]
+// END_CONTRACT: isTransientSpiderError
+export function isTransientSpiderError(error: SpiderProxyError | SpiderTimeoutError): boolean {
+  // START_BLOCK_IS_TRANSIENT_SPIDER_ERROR_M_SPIDER_CLOUD_CLIENT_012
+  if (error instanceof SpiderTimeoutError) {
+    return true;
+  }
+  if (error instanceof SpiderProxyError) {
+    // No status means network-level failure (no response received)
+    if (error.status === undefined) {
+      return true;
+    }
+    // 5xx server errors are transient
+    return error.status >= 500 && error.status < 600;
+  }
+  return false;
+  // END_BLOCK_IS_TRANSIENT_SPIDER_ERROR_M_SPIDER_CLOUD_CLIENT_012
+}
+
+// START_CONTRACT: computeRetryDelay
+//   PURPOSE: Compute exponential backoff delay with jitter for retry attempts.
+//   INPUTS: { attempt: number - Zero-based retry attempt index }
+//   OUTPUTS: { number - Delay in milliseconds }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SPIDER-CLOUD-CLIENT]
+// END_CONTRACT: computeRetryDelay
+export function computeRetryDelay(attempt: number): number {
+  // START_BLOCK_COMPUTE_RETRY_DELAY_M_SPIDER_CLOUD_CLIENT_013
+  const exponentialDelay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+  const jitter = Math.random() * RETRY_JITTER_MAX_MS;
+  return exponentialDelay + jitter;
+  // END_BLOCK_COMPUTE_RETRY_DELAY_M_SPIDER_CLOUD_CLIENT_013
+}
+
 // START_CONTRACT: createSpiderCloudClient
 //   PURPOSE: Create a reusable Spider crawl client bound to config and logger.
 //   INPUTS: { config: AppConfig - Runtime configuration, logger: Logger - Module logger }
@@ -345,69 +387,110 @@ export async function runCrawl(
   body.return_format = request.return_format ?? "markdown";
   // END_BLOCK_BUILD_REQUEST_URL_AND_HEADERS_M_SPIDER_CLOUD_CLIENT_010
 
-  // START_BLOCK_EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING_M_SPIDER_CLOUD_CLIENT_011
-  const startedAt = Date.now();
-  const timeoutControl = createTimeoutControl(timeoutMs);
+  // START_BLOCK_EXECUTE_FETCH_WITH_RETRY_AND_LOGGING_M_SPIDER_CLOUD_CLIENT_011
   logger.info(
     "Starting Spider proxy crawl request.",
     functionName,
-    "EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING",
+    "EXECUTE_FETCH_WITH_RETRY_AND_LOGGING",
     { seedUrl, timeoutMs },
   );
 
-  try {
-    const response = await fetch(requestUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: timeoutControl.signal,
-    });
+  let lastError: SpiderProxyError | SpiderTimeoutError | undefined;
 
-    const durationMs = Date.now() - startedAt;
-    logger.info(
-      "Received Spider proxy response status.",
-      functionName,
-      "EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING",
-      { seedUrl, status: response.status, durationMs },
-    );
-
-    if (!response.ok) {
-      const bodyPreview = await readResponsePreview(response);
-      throw new SpiderProxyError(
-        `Spider proxy returned non-success status ${response.status}.`,
-        response.status,
-        {
-          seedUrl,
-          status: response.status,
-          durationMs,
-          bodyPreview,
-        },
+  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      const delayMs = computeRetryDelay(attempt - 1);
+      logger.warn(
+        `Retrying Spider crawl (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS}) after ${Math.round(delayMs)}ms delay.`,
+        functionName,
+        "SPIDER_RETRY",
+        { seedUrl, attempt: attempt + 1, maxAttempts: RETRY_MAX_ATTEMPTS, delayMs: Math.round(delayMs) },
       );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
 
-    return await parseSpiderCrawlResponse(response);
-  } catch (error: unknown) {
-    const durationMs = Date.now() - startedAt;
-    const normalizedError = normalizeSpiderError(
-      error,
-      timeoutControl.didTimeout(),
-      durationMs,
-    );
-    const logMethod = normalizedError instanceof SpiderProxyError ? logger.warn : logger.error;
-    logMethod(
-      "Spider proxy call failed.",
-      functionName,
-      "NORMALIZE_SPIDER_FAILURE",
-      {
-        code: normalizedError.code,
-        seedUrl,
-        status: normalizedError instanceof SpiderProxyError ? normalizedError.status : undefined,
+    const startedAt = Date.now();
+    const timeoutControl = createTimeoutControl(timeoutMs);
+
+    try {
+      const response = await fetch(requestUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: timeoutControl.signal,
+      });
+
+      const durationMs = Date.now() - startedAt;
+      logger.info(
+        "Received Spider proxy response status.",
+        functionName,
+        "EXECUTE_FETCH_WITH_RETRY_AND_LOGGING",
+        { seedUrl, status: response.status, durationMs, attempt: attempt + 1 },
+      );
+
+      if (!response.ok) {
+        const bodyPreview = await readResponsePreview(response);
+        throw new SpiderProxyError(
+          `Spider proxy returned non-success status ${response.status}.`,
+          response.status,
+          {
+            seedUrl,
+            status: response.status,
+            durationMs,
+            bodyPreview,
+          },
+        );
+      }
+
+      return await parseSpiderCrawlResponse(response);
+    } catch (error: unknown) {
+      const durationMs = Date.now() - startedAt;
+      const normalizedError = normalizeSpiderError(
+        error,
+        timeoutControl.didTimeout(),
         durationMs,
-      },
-    );
-    throw normalizedError;
-  } finally {
-    timeoutControl.cleanup();
+      );
+
+      lastError = normalizedError;
+
+      // Only retry on transient errors; throw immediately on non-transient
+      if (!isTransientSpiderError(normalizedError) || attempt === RETRY_MAX_ATTEMPTS - 1) {
+        const logMethod = normalizedError instanceof SpiderProxyError ? logger.warn : logger.error;
+        logMethod(
+          "Spider proxy call failed.",
+          functionName,
+          "NORMALIZE_SPIDER_FAILURE",
+          {
+            code: normalizedError.code,
+            seedUrl,
+            status: normalizedError instanceof SpiderProxyError ? normalizedError.status : undefined,
+            durationMs,
+            attempt: attempt + 1,
+            retriesExhausted: attempt === RETRY_MAX_ATTEMPTS - 1,
+          },
+        );
+        throw normalizedError;
+      }
+
+      // Transient error: log and continue to next attempt
+      logger.warn(
+        `Spider proxy call failed with transient error (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS}).`,
+        functionName,
+        "SPIDER_TRANSIENT_ERROR",
+        {
+          code: normalizedError.code,
+          seedUrl,
+          status: normalizedError instanceof SpiderProxyError ? normalizedError.status : undefined,
+          durationMs,
+          attempt: attempt + 1,
+        },
+      );
+    } finally {
+      timeoutControl.cleanup();
+    }
   }
-  // END_BLOCK_EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING_M_SPIDER_CLOUD_CLIENT_011
+
+  // Should not reach here, but satisfy TypeScript
+  throw lastError ?? new SpiderProxyError("Spider proxy call failed after all retries.", undefined, { seedUrl });
+  // END_BLOCK_EXECUTE_FETCH_WITH_RETRY_AND_LOGGING_M_SPIDER_CLOUD_CLIENT_011
 }

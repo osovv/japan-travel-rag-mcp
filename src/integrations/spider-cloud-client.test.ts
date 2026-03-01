@@ -25,7 +25,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import {
+  computeRetryDelay,
   createSpiderCloudClient,
+  isTransientSpiderError,
   runCrawl,
   SpiderProxyError,
   SpiderTimeoutError,
@@ -444,3 +446,130 @@ describe("M-SPIDER-CLOUD-CLIENT deterministic crawl contract", () => {
     expect(result.data[0].content).toBe("Hello");
   });
 });
+
+// START_BLOCK_RETRY_TESTS_M_SPIDER_CLOUD_CLIENT_TEST_007
+describe("M-SPIDER-CLOUD-CLIENT retry/backoff", () => {
+  it("retries on 5xx and succeeds on second attempt", async () => {
+    let fetchCallCount = 0;
+    installFetchMock(async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        return new Response("server error", { status: 502 });
+      }
+      return new Response(
+        JSON.stringify({ data: [], status: "completed" }),
+        { status: 200 },
+      );
+    });
+
+    const result = await runCrawl(createTestConfig(), createNoopLogger(), { url: "https://example.com" });
+
+    expect(result.status).toBe("completed");
+    expect(fetchCallCount).toBe(2);
+  });
+
+  it("does NOT retry on 4xx client errors", async () => {
+    let fetchCallCount = 0;
+    installFetchMock(async () => {
+      fetchCallCount++;
+      return new Response("bad request", { status: 400 });
+    });
+
+    const error = await assertSpiderProxyError(() =>
+      runCrawl(createTestConfig(), createNoopLogger(), { url: "https://example.com" }),
+    );
+
+    expect(error.status).toBe(400);
+    expect(fetchCallCount).toBe(1);
+  });
+
+  it("exhausts all retries on persistent 5xx and throws", async () => {
+    let fetchCallCount = 0;
+    installFetchMock(async () => {
+      fetchCallCount++;
+      return new Response("server error", { status: 503 });
+    });
+
+    const error = await assertSpiderProxyError(() =>
+      runCrawl(createTestConfig(), createNoopLogger(), { url: "https://example.com" }),
+    );
+
+    expect(error.status).toBe(503);
+    expect(fetchCallCount).toBe(3); // 3 attempts total
+  });
+
+  it("retries on network error (no status) and succeeds", async () => {
+    let fetchCallCount = 0;
+    installFetchMock(async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        throw new Error("ECONNRESET");
+      }
+      return new Response(
+        JSON.stringify({ data: [], status: "completed" }),
+        { status: 200 },
+      );
+    });
+
+    const result = await runCrawl(createTestConfig(), createNoopLogger(), { url: "https://example.com" });
+
+    expect(result.status).toBe("completed");
+    expect(fetchCallCount).toBe(2);
+  });
+});
+// END_BLOCK_RETRY_TESTS_M_SPIDER_CLOUD_CLIENT_TEST_007
+
+// START_BLOCK_IS_TRANSIENT_TESTS_M_SPIDER_CLOUD_CLIENT_TEST_008
+describe("isTransientSpiderError", () => {
+  it("returns true for SpiderTimeoutError", () => {
+    const error = new SpiderTimeoutError("timeout");
+    expect(isTransientSpiderError(error)).toBe(true);
+  });
+
+  it("returns true for 5xx SpiderProxyError", () => {
+    const error = new SpiderProxyError("server error", 500);
+    expect(isTransientSpiderError(error)).toBe(true);
+
+    const error503 = new SpiderProxyError("service unavailable", 503);
+    expect(isTransientSpiderError(error503)).toBe(true);
+  });
+
+  it("returns true for network error (no status)", () => {
+    const error = new SpiderProxyError("network error", undefined);
+    expect(isTransientSpiderError(error)).toBe(true);
+  });
+
+  it("returns false for 4xx SpiderProxyError", () => {
+    const error400 = new SpiderProxyError("bad request", 400);
+    expect(isTransientSpiderError(error400)).toBe(false);
+
+    const error429 = new SpiderProxyError("rate limited", 429);
+    expect(isTransientSpiderError(error429)).toBe(false);
+
+    const error404 = new SpiderProxyError("not found", 404);
+    expect(isTransientSpiderError(error404)).toBe(false);
+  });
+});
+// END_BLOCK_IS_TRANSIENT_TESTS_M_SPIDER_CLOUD_CLIENT_TEST_008
+
+// START_BLOCK_COMPUTE_RETRY_DELAY_TESTS_M_SPIDER_CLOUD_CLIENT_TEST_009
+describe("computeRetryDelay", () => {
+  it("returns delay >= base for attempt 0", () => {
+    const delay = computeRetryDelay(0);
+    expect(delay).toBeGreaterThanOrEqual(1000);
+    expect(delay).toBeLessThanOrEqual(1500); // 1000 + 500 jitter max
+  });
+
+  it("returns delay >= 2*base for attempt 1", () => {
+    const delay = computeRetryDelay(1);
+    expect(delay).toBeGreaterThanOrEqual(2000);
+    expect(delay).toBeLessThanOrEqual(2500);
+  });
+
+  it("returns delay >= 4*base for attempt 2", () => {
+    const delay = computeRetryDelay(2);
+    expect(delay).toBeGreaterThanOrEqual(4000);
+    expect(delay).toBeLessThanOrEqual(4500);
+  });
+});
+// END_BLOCK_COMPUTE_RETRY_DELAY_TESTS_M_SPIDER_CLOUD_CLIENT_TEST_009

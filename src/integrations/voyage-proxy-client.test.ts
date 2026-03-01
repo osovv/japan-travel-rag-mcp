@@ -26,7 +26,9 @@ import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import {
   callEmbeddingEndpoint,
+  computeVoyageRetryDelay,
   createVoyageProxyClient,
+  isTransientVoyageError,
   VoyageProxyError,
   VoyageTimeoutError,
   type VoyageEmbeddingRequest,
@@ -570,3 +572,150 @@ describe("M-VOYAGE-PROXY-CLIENT deterministic embedding contract", () => {
     expect(parsedBody.model).toBe("voyage-3");
   });
 });
+
+// START_BLOCK_RETRY_TESTS_M_VOYAGE_PROXY_CLIENT_TEST_007
+describe("M-VOYAGE-PROXY-CLIENT retry/backoff", () => {
+  it("retries on 5xx and succeeds on second attempt", async () => {
+    let fetchCallCount = 0;
+    const mockResponse = createMockEmbeddingResponse([[0.1]], "voyage-4", 5);
+
+    installFetchMock(async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        return new Response("server error", { status: 502 });
+      }
+      return new Response(JSON.stringify(mockResponse), { status: 200 });
+    });
+
+    const result = await callEmbeddingEndpoint(createTestConfig(), createNoopLogger(), {
+      input: ["test"],
+      input_type: "document",
+    });
+
+    expect(result.data).toHaveLength(1);
+    expect(fetchCallCount).toBe(2);
+  });
+
+  it("retries on 429 rate limit and succeeds", async () => {
+    let fetchCallCount = 0;
+    const mockResponse = createMockEmbeddingResponse([[0.1]], "voyage-4", 5);
+
+    installFetchMock(async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        return new Response("rate limited", { status: 429 });
+      }
+      return new Response(JSON.stringify(mockResponse), { status: 200 });
+    });
+
+    const result = await callEmbeddingEndpoint(createTestConfig(), createNoopLogger(), {
+      input: ["test"],
+      input_type: "document",
+    });
+
+    expect(result.data).toHaveLength(1);
+    expect(fetchCallCount).toBe(2);
+  });
+
+  it("does NOT retry on 4xx client errors (except 429)", async () => {
+    let fetchCallCount = 0;
+    installFetchMock(async () => {
+      fetchCallCount++;
+      return new Response("bad request", { status: 400 });
+    });
+
+    const error = await assertVoyageProxyError(() =>
+      callEmbeddingEndpoint(createTestConfig(), createNoopLogger(), {
+        input: ["test"],
+        input_type: "document",
+      }),
+    );
+
+    expect(error.status).toBe(400);
+    expect(fetchCallCount).toBe(1);
+  });
+
+  it("exhausts all retries on persistent 5xx and throws", async () => {
+    let fetchCallCount = 0;
+    installFetchMock(async () => {
+      fetchCallCount++;
+      return new Response("server error", { status: 503 });
+    });
+
+    const error = await assertVoyageProxyError(() =>
+      callEmbeddingEndpoint(createTestConfig(), createNoopLogger(), {
+        input: ["test"],
+        input_type: "document",
+      }),
+    );
+
+    expect(error.status).toBe(503);
+    expect(fetchCallCount).toBe(3);
+  });
+
+  it("retries on network error and succeeds", async () => {
+    let fetchCallCount = 0;
+    const mockResponse = createMockEmbeddingResponse([[0.1]], "voyage-4", 5);
+
+    installFetchMock(async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        throw new Error("ECONNRESET");
+      }
+      return new Response(JSON.stringify(mockResponse), { status: 200 });
+    });
+
+    const result = await callEmbeddingEndpoint(createTestConfig(), createNoopLogger(), {
+      input: ["test"],
+      input_type: "document",
+    });
+
+    expect(result.data).toHaveLength(1);
+    expect(fetchCallCount).toBe(2);
+  });
+});
+// END_BLOCK_RETRY_TESTS_M_VOYAGE_PROXY_CLIENT_TEST_007
+
+// START_BLOCK_IS_TRANSIENT_TESTS_M_VOYAGE_PROXY_CLIENT_TEST_008
+describe("isTransientVoyageError", () => {
+  it("returns true for VoyageTimeoutError", () => {
+    const error = new VoyageTimeoutError("timeout");
+    expect(isTransientVoyageError(error)).toBe(true);
+  });
+
+  it("returns true for 5xx VoyageProxyError", () => {
+    expect(isTransientVoyageError(new VoyageProxyError("err", 500))).toBe(true);
+    expect(isTransientVoyageError(new VoyageProxyError("err", 503))).toBe(true);
+  });
+
+  it("returns true for 429 VoyageProxyError", () => {
+    expect(isTransientVoyageError(new VoyageProxyError("rate limited", 429))).toBe(true);
+  });
+
+  it("returns true for network error (no status)", () => {
+    expect(isTransientVoyageError(new VoyageProxyError("network error", undefined))).toBe(true);
+  });
+
+  it("returns false for 4xx VoyageProxyError (except 429)", () => {
+    expect(isTransientVoyageError(new VoyageProxyError("bad request", 400))).toBe(false);
+    expect(isTransientVoyageError(new VoyageProxyError("not found", 404))).toBe(false);
+    expect(isTransientVoyageError(new VoyageProxyError("forbidden", 403))).toBe(false);
+  });
+});
+// END_BLOCK_IS_TRANSIENT_TESTS_M_VOYAGE_PROXY_CLIENT_TEST_008
+
+// START_BLOCK_COMPUTE_RETRY_DELAY_TESTS_M_VOYAGE_PROXY_CLIENT_TEST_009
+describe("computeVoyageRetryDelay", () => {
+  it("returns delay >= base for attempt 0", () => {
+    const delay = computeVoyageRetryDelay(0);
+    expect(delay).toBeGreaterThanOrEqual(1000);
+    expect(delay).toBeLessThanOrEqual(1500);
+  });
+
+  it("returns delay >= 2*base for attempt 1", () => {
+    const delay = computeVoyageRetryDelay(1);
+    expect(delay).toBeGreaterThanOrEqual(2000);
+    expect(delay).toBeLessThanOrEqual(2500);
+  });
+});
+// END_BLOCK_COMPUTE_RETRY_DELAY_TESTS_M_VOYAGE_PROXY_CLIENT_TEST_009

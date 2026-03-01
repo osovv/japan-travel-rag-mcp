@@ -25,7 +25,11 @@ import type { Logger } from "../../logger/index";
 import type { VoyageProxyClient } from "../../integrations/voyage-proxy-client";
 import type { SitesIndexRepository, SearchResult, ChunkWithNeighbors } from "./repository";
 import {
+  boundText,
   createSitesSearchService,
+  MAX_CHUNK_EXCERPT_LENGTH,
+  MAX_NEIGHBOR_EXCERPT_LENGTH,
+  MAX_SNIPPET_LENGTH,
   SitesSearchError,
   type SitesSearchService,
   type SearchSitesParams,
@@ -408,4 +412,133 @@ describe("SitesSearchService", () => {
     });
   });
   // END_BLOCK_ERROR_CLASS_TESTS_M_SITES_SEARCH_TEST_007
+
+  // START_BLOCK_BOUNDED_OUTPUT_TESTS_M_SITES_SEARCH_TEST_008
+  describe("bounded output enforcement", () => {
+    it("should truncate snippet to MAX_SNIPPET_LENGTH in searchSites", async () => {
+      const longSnippet = "x".repeat(1000);
+      const searchResults: SearchResult[] = [
+        {
+          chunk_id: "chunk-long",
+          source_id: "src-001",
+          page_url: "https://example.com/long",
+          title: "Long Page",
+          snippet: longSnippet,
+          score: 0.9,
+        },
+      ];
+      const mockSearchHybrid = mock(async () => searchResults);
+      const repository = createMockRepository({ searchHybrid: mockSearchHybrid });
+      const service = createSitesSearchService({
+        voyageClient: createMockVoyageClient(),
+        repository,
+        logger: createNoopLogger(),
+      });
+
+      const result = await service.searchSites({ query: "test", top_k: 5 });
+
+      expect(result.results[0].snippet.length).toBeLessThanOrEqual(MAX_SNIPPET_LENGTH);
+      expect(result.results[0].snippet.length).toBe(MAX_SNIPPET_LENGTH);
+    });
+
+    it("should not truncate snippet shorter than MAX_SNIPPET_LENGTH", async () => {
+      const shortSnippet = "short snippet";
+      const searchResults: SearchResult[] = [
+        {
+          chunk_id: "chunk-short",
+          source_id: "src-001",
+          page_url: "https://example.com/short",
+          title: "Short Page",
+          snippet: shortSnippet,
+          score: 0.9,
+        },
+      ];
+      const mockSearchHybrid = mock(async () => searchResults);
+      const repository = createMockRepository({ searchHybrid: mockSearchHybrid });
+      const service = createSitesSearchService({
+        voyageClient: createMockVoyageClient(),
+        repository,
+        logger: createNoopLogger(),
+      });
+
+      const result = await service.searchSites({ query: "test", top_k: 5 });
+
+      expect(result.results[0].snippet).toBe(shortSnippet);
+    });
+
+    it("should truncate chunk_excerpt to MAX_CHUNK_EXCERPT_LENGTH in getPageChunk", async () => {
+      const longText = "y".repeat(3000);
+      const chunkData: ChunkWithNeighbors = {
+        chunk_id: "chunk-long",
+        source_id: "src-001",
+        page_url: "https://example.com/long",
+        title: "Long Page",
+        chunk_text: longText,
+        chunk_index: 0,
+      };
+      const mockGetChunk = mock(async () => chunkData);
+      const repository = createMockRepository({ getChunkWithNeighbors: mockGetChunk });
+      const service = createSitesSearchService({
+        voyageClient: createMockVoyageClient(),
+        repository,
+        logger: createNoopLogger(),
+      });
+
+      const result = await service.getPageChunk({ chunk_id: "chunk-long", include_neighbors: false });
+
+      expect(result.chunk_excerpt.length).toBeLessThanOrEqual(MAX_CHUNK_EXCERPT_LENGTH);
+      expect(result.chunk_excerpt.length).toBe(MAX_CHUNK_EXCERPT_LENGTH);
+    });
+
+    it("should truncate neighbor excerpts to MAX_NEIGHBOR_EXCERPT_LENGTH", async () => {
+      const longNeighbor = "z".repeat(2000);
+      const chunkData: ChunkWithNeighbors = {
+        chunk_id: "chunk-neigh",
+        source_id: "src-001",
+        page_url: "https://example.com/neigh",
+        title: "Neighbor Page",
+        chunk_text: "Short main text",
+        chunk_index: 1,
+        neighbor_before: longNeighbor,
+        neighbor_after: longNeighbor,
+      };
+      const mockGetChunk = mock(async () => chunkData);
+      const repository = createMockRepository({ getChunkWithNeighbors: mockGetChunk });
+      const service = createSitesSearchService({
+        voyageClient: createMockVoyageClient(),
+        repository,
+        logger: createNoopLogger(),
+      });
+
+      const result = await service.getPageChunk({ chunk_id: "chunk-neigh", include_neighbors: true });
+
+      expect(result.neighbor_excerpt_before!.length).toBeLessThanOrEqual(MAX_NEIGHBOR_EXCERPT_LENGTH);
+      expect(result.neighbor_excerpt_before!.length).toBe(MAX_NEIGHBOR_EXCERPT_LENGTH);
+      expect(result.neighbor_excerpt_after!.length).toBeLessThanOrEqual(MAX_NEIGHBOR_EXCERPT_LENGTH);
+      expect(result.neighbor_excerpt_after!.length).toBe(MAX_NEIGHBOR_EXCERPT_LENGTH);
+    });
+  });
+  // END_BLOCK_BOUNDED_OUTPUT_TESTS_M_SITES_SEARCH_TEST_008
+
+  // START_BLOCK_BOUND_TEXT_TESTS_M_SITES_SEARCH_TEST_009
+  describe("boundText", () => {
+    it("returns undefined for undefined input", () => {
+      expect(boundText(undefined, 100)).toBeUndefined();
+    });
+
+    it("returns original text if within limit", () => {
+      expect(boundText("hello", 100)).toBe("hello");
+    });
+
+    it("truncates text exceeding limit", () => {
+      const text = "abcdefghij";
+      expect(boundText(text, 5)).toBe("abcde");
+    });
+
+    it("returns original text if exactly at limit", () => {
+      const text = "abcde";
+      expect(boundText(text, 5)).toBe("abcde");
+    });
+  });
+  // END_BLOCK_BOUND_TEXT_TESTS_M_SITES_SEARCH_TEST_009
 });

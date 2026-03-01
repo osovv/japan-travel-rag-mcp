@@ -19,10 +19,11 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial implementation of ingestion orchestrator with crawl-parse-chunk-embed-upsert pipeline.
+//   LAST_CHANGE: v1.1.0 - Add provider outage detection (skipOnProviderOutage), pauseSource/resumeSource controls, per-source observability logging, and tick summary.
 // END_CHANGE_SUMMARY
 
 import type { SpiderCloudClient } from "../../integrations/spider-cloud-client";
+import { SpiderProxyError } from "../../integrations/spider-cloud-client";
 import type { VoyageProxyClient } from "../../integrations/voyage-proxy-client";
 import type {
   SitesIndexRepository,
@@ -85,7 +86,44 @@ export class SitesIngestionError extends Error {
 
 // START_BLOCK_DEFINE_INDEX_VERSION_M_SITES_INGESTION_003
 export const INDEX_VERSION = "v1" as const;
+export const PROVIDER_OUTAGE_THRESHOLD = 3;
 // END_BLOCK_DEFINE_INDEX_VERSION_M_SITES_INGESTION_003
+
+// START_BLOCK_DEFINE_SOURCE_CONTROLS_M_SITES_INGESTION_003B
+// START_CONTRACT: pauseSource
+//   PURPOSE: Set a source's status to 'paused' in the site_sources table. Admin-only operation.
+//   INPUTS: { db: { query: (sql: string, params: unknown[]) => unknown } - Database handle, sourceId: string - Source to pause }
+//   OUTPUTS: { Promise<void> }
+//   SIDE_EFFECTS: [Updates site_sources row]
+//   LINKS: [M-SITES-INGESTION, M-DB]
+// END_CONTRACT: pauseSource
+export async function pauseSource(
+  db: { query: (sql: string, params: unknown[]) => Promise<unknown> | unknown },
+  sourceId: string,
+): Promise<void> {
+  await db.query(
+    "UPDATE site_sources SET status = $1 WHERE source_id = $2",
+    ["paused", sourceId],
+  );
+}
+
+// START_CONTRACT: resumeSource
+//   PURPOSE: Set a source's status to 'active' in the site_sources table. Admin-only operation.
+//   INPUTS: { db: { query: (sql: string, params: unknown[]) => unknown } - Database handle, sourceId: string - Source to resume }
+//   OUTPUTS: { Promise<void> }
+//   SIDE_EFFECTS: [Updates site_sources row]
+//   LINKS: [M-SITES-INGESTION, M-DB]
+// END_CONTRACT: resumeSource
+export async function resumeSource(
+  db: { query: (sql: string, params: unknown[]) => Promise<unknown> | unknown },
+  sourceId: string,
+): Promise<void> {
+  await db.query(
+    "UPDATE site_sources SET status = $1 WHERE source_id = $2",
+    ["active", sourceId],
+  );
+}
+// END_BLOCK_DEFINE_SOURCE_CONTROLS_M_SITES_INGESTION_003B
 
 // START_CONTRACT: computeChunkContentHash
 //   PURPOSE: Compute SHA-256 hex digest of chunk text for content deduplication.
@@ -289,6 +327,7 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
   // END_CONTRACT: runScheduledIngestion
   async function runScheduledIngestion(sources: SourceForIngestion[]): Promise<IngestionResult> {
     const functionName = "runScheduledIngestion";
+    const tickStartedAt = Date.now();
 
     const result: IngestionResult = {
       sources_processed: 0,
@@ -305,10 +344,37 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
       { sourceCount: sources.length },
     );
 
+    let consecutiveSpider5xx = 0;
+    let providerOutage = false;
+
     for (const source of sources) {
+      // Provider outage circuit breaker
+      if (providerOutage) {
+        logger.warn(
+          `Skipping source ${source.source_id} due to provider outage (${consecutiveSpider5xx} consecutive 5xx errors).`,
+          functionName,
+          "PROVIDER_OUTAGE_SKIP",
+          { sourceId: source.source_id, consecutiveSpider5xx },
+        );
+        result.errors.push({
+          source_id: source.source_id,
+          error: `Skipped due to provider outage (${consecutiveSpider5xx} consecutive Spider 5xx errors).`,
+          code: "PROVIDER_OUTAGE",
+        });
+        result.sources_processed += 1;
+        continue;
+      }
+
+      const sourceStartedAt = Date.now();
+      const pagesBefore = result.pages_fetched;
+      const chunksBefore = result.chunks_created;
+      const embeddingsBefore = result.embeddings_created;
+
       try {
         await processSource(source, result);
         result.sources_processed += 1;
+        // Successful crawl resets the consecutive 5xx counter
+        consecutiveSpider5xx = 0;
       } catch (sourceError: unknown) {
         const errorMessage = sourceError instanceof Error ? sourceError.message : String(sourceError);
         const errorCode = sourceError instanceof SitesIngestionError
@@ -330,8 +396,61 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
 
         // Count the source as processed even if it failed
         result.sources_processed += 1;
+
+        // Track consecutive Spider 5xx errors for provider outage detection
+        if (
+          sourceError instanceof SpiderProxyError &&
+          sourceError.status !== undefined &&
+          sourceError.status >= 500 &&
+          sourceError.status < 600
+        ) {
+          consecutiveSpider5xx += 1;
+          if (consecutiveSpider5xx >= PROVIDER_OUTAGE_THRESHOLD) {
+            providerOutage = true;
+            logger.error(
+              `Provider outage detected: Spider returned 5xx for ${consecutiveSpider5xx} consecutive sources. Skipping remaining sources.`,
+              functionName,
+              "PROVIDER_OUTAGE_DETECTED",
+              { consecutiveSpider5xx, threshold: PROVIDER_OUTAGE_THRESHOLD },
+            );
+          }
+        } else {
+          // Non-Spider-5xx error resets the counter
+          consecutiveSpider5xx = 0;
+        }
       }
+
+      // Per-source observability logging
+      const sourceDurationMs = Date.now() - sourceStartedAt;
+      logger.info(
+        `Source ${source.source_id} ingestion summary.`,
+        functionName,
+        "SOURCE_INGESTION_SUMMARY",
+        {
+          source_id: source.source_id,
+          pages_fetched: result.pages_fetched - pagesBefore,
+          chunks_created: result.chunks_created - chunksBefore,
+          embeddings_created: result.embeddings_created - embeddingsBefore,
+          duration_ms: sourceDurationMs,
+        },
+      );
     }
+
+    // Tick summary observability logging
+    const tickDurationMs = Date.now() - tickStartedAt;
+    logger.info(
+      `Scheduled ingestion tick complete.`,
+      functionName,
+      "INGESTION_TICK_SUMMARY",
+      {
+        total_sources: result.sources_processed,
+        total_pages: result.pages_fetched,
+        total_chunks: result.chunks_created,
+        total_embeddings: result.embeddings_created,
+        total_duration_ms: tickDurationMs,
+        errors_count: result.errors.length,
+      },
+    );
 
     logger.info(
       `Scheduled ingestion complete. Processed ${result.sources_processed} sources, fetched ${result.pages_fetched} pages, created ${result.chunks_created} chunks, ${result.embeddings_created} embeddings, ${result.errors.length} errors.`,

@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial implementation of Voyage proxy embedding client with timeout and error mapping.
+//   LAST_CHANGE: v1.1.0 - Add exponential backoff retry to callEmbeddingEndpoint for transient errors (5xx, 429, timeout, network).
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -89,6 +89,9 @@ export type VoyageProxyClient = {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = "voyage-4";
 const VOYAGE_EMBEDDINGS_PATH = "api.voyageai.com/v1/embeddings";
+const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1_000;
+const RETRY_JITTER_MAX_MS = 500;
 
 type TimeoutControl = {
   signal: AbortSignal;
@@ -282,8 +285,51 @@ function normalizeVoyageError(
   // END_BLOCK_NORMALIZE_VOYAGE_ERRORS_M_VOYAGE_PROXY_CLIENT_007
 }
 
+// START_CONTRACT: isTransientVoyageError
+//   PURPOSE: Determine if a Voyage error is transient and eligible for retry.
+//   INPUTS: { error: VoyageProxyError | VoyageTimeoutError - Normalized error }
+//   OUTPUTS: { boolean - True if the error is transient (5xx, 429, timeout, network) }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-VOYAGE-PROXY-CLIENT]
+// END_CONTRACT: isTransientVoyageError
+export function isTransientVoyageError(error: VoyageProxyError | VoyageTimeoutError): boolean {
+  // START_BLOCK_IS_TRANSIENT_VOYAGE_ERROR_M_VOYAGE_PROXY_CLIENT_012
+  if (error instanceof VoyageTimeoutError) {
+    return true;
+  }
+  if (error instanceof VoyageProxyError) {
+    // No status means network-level failure (no response received)
+    if (error.status === undefined) {
+      return true;
+    }
+    // 429 rate limit is transient
+    if (error.status === 429) {
+      return true;
+    }
+    // 5xx server errors are transient
+    return error.status >= 500 && error.status < 600;
+  }
+  return false;
+  // END_BLOCK_IS_TRANSIENT_VOYAGE_ERROR_M_VOYAGE_PROXY_CLIENT_012
+}
+
+// START_CONTRACT: computeVoyageRetryDelay
+//   PURPOSE: Compute exponential backoff delay with jitter for Voyage retry attempts.
+//   INPUTS: { attempt: number - Zero-based retry attempt index }
+//   OUTPUTS: { number - Delay in milliseconds }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-VOYAGE-PROXY-CLIENT]
+// END_CONTRACT: computeVoyageRetryDelay
+export function computeVoyageRetryDelay(attempt: number): number {
+  // START_BLOCK_COMPUTE_VOYAGE_RETRY_DELAY_M_VOYAGE_PROXY_CLIENT_013
+  const exponentialDelay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+  const jitter = Math.random() * RETRY_JITTER_MAX_MS;
+  return exponentialDelay + jitter;
+  // END_BLOCK_COMPUTE_VOYAGE_RETRY_DELAY_M_VOYAGE_PROXY_CLIENT_013
+}
+
 // START_CONTRACT: callEmbeddingEndpoint
-//   PURPOSE: Execute a Voyage proxy embedding call with auth, timeout, logging, and normalized errors.
+//   PURPOSE: Execute a Voyage proxy embedding call with auth, timeout, logging, normalized errors, and retry on transient failures.
 //   INPUTS: { config: AppConfig - Runtime configuration, logger: Logger - Module logger, request: VoyageEmbeddingRequest - Embedding parameters, timeoutMs: number | undefined - Optional timeout override }
 //   OUTPUTS: { Promise<VoyageEmbeddingResponse> - Parsed embedding response }
 //   SIDE_EFFECTS: [Performs HTTP request and emits logs]
@@ -331,83 +377,124 @@ export async function callEmbeddingEndpoint(
   };
   // END_BLOCK_BUILD_REQUEST_URL_AND_HEADERS_M_VOYAGE_PROXY_CLIENT_009
 
-  // START_BLOCK_EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING_M_VOYAGE_PROXY_CLIENT_010
-  const startedAt = Date.now();
-  const timeoutControl = createTimeoutControl(timeoutMs);
+  // START_BLOCK_EXECUTE_FETCH_WITH_RETRY_AND_LOGGING_M_VOYAGE_PROXY_CLIENT_010
   logger.info(
     "Starting Voyage proxy embedding request.",
     functionName,
-    "EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING",
+    "EXECUTE_FETCH_WITH_RETRY_AND_LOGGING",
     { inputCount: request.input.length, inputType: request.input_type, model, timeoutMs },
   );
 
-  try {
-    const response = await fetch(requestUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: timeoutControl.signal,
-    });
+  let lastError: VoyageProxyError | VoyageTimeoutError | undefined;
 
-    const durationMs = Date.now() - startedAt;
-    logger.info(
-      "Received Voyage proxy response status.",
-      functionName,
-      "EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING",
-      { status: response.status, durationMs },
-    );
-
-    if (!response.ok) {
-      const bodyPreview = await readResponsePreview(response);
-      throw new VoyageProxyError(
-        `Voyage proxy returned non-success status ${response.status}.`,
-        response.status,
-        {
-          status: response.status,
-          durationMs,
-          bodyPreview,
-        },
+  for (let attempt = 0; attempt < RETRY_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      const delayMs = computeVoyageRetryDelay(attempt - 1);
+      logger.warn(
+        `Retrying Voyage embedding (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS}) after ${Math.round(delayMs)}ms delay.`,
+        functionName,
+        "VOYAGE_RETRY",
+        { attempt: attempt + 1, maxAttempts: RETRY_MAX_ATTEMPTS, delayMs: Math.round(delayMs) },
       );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
 
-    const parsed = await parseVoyageEmbeddingResponse(response);
+    const startedAt = Date.now();
+    const timeoutControl = createTimeoutControl(timeoutMs);
 
-    logger.info(
-      "Voyage embedding call succeeded.",
-      functionName,
-      "LOG_TOKEN_USAGE",
-      {
-        model: parsed.model,
-        totalTokens: parsed.usage.total_tokens,
-        embeddingCount: parsed.data.length,
-        durationMs,
-      },
-    );
+    try {
+      const response = await fetch(requestUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: timeoutControl.signal,
+      });
 
-    return parsed;
-  } catch (error: unknown) {
-    const durationMs = Date.now() - startedAt;
-    const normalizedError = normalizeVoyageError(
-      error,
-      timeoutControl.didTimeout(),
-      durationMs,
-    );
-    const logMethod = normalizedError instanceof VoyageProxyError ? logger.warn : logger.error;
-    logMethod(
-      "Voyage proxy call failed.",
-      functionName,
-      "NORMALIZE_VOYAGE_FAILURE",
-      {
-        code: normalizedError.code,
-        status: normalizedError instanceof VoyageProxyError ? normalizedError.status : undefined,
+      const durationMs = Date.now() - startedAt;
+      logger.info(
+        "Received Voyage proxy response status.",
+        functionName,
+        "EXECUTE_FETCH_WITH_RETRY_AND_LOGGING",
+        { status: response.status, durationMs, attempt: attempt + 1 },
+      );
+
+      if (!response.ok) {
+        const bodyPreview = await readResponsePreview(response);
+        throw new VoyageProxyError(
+          `Voyage proxy returned non-success status ${response.status}.`,
+          response.status,
+          {
+            status: response.status,
+            durationMs,
+            bodyPreview,
+          },
+        );
+      }
+
+      const parsed = await parseVoyageEmbeddingResponse(response);
+
+      logger.info(
+        "Voyage embedding call succeeded.",
+        functionName,
+        "LOG_TOKEN_USAGE",
+        {
+          model: parsed.model,
+          totalTokens: parsed.usage.total_tokens,
+          embeddingCount: parsed.data.length,
+          durationMs,
+          attempt: attempt + 1,
+        },
+      );
+
+      return parsed;
+    } catch (error: unknown) {
+      const durationMs = Date.now() - startedAt;
+      const normalizedError = normalizeVoyageError(
+        error,
+        timeoutControl.didTimeout(),
         durationMs,
-      },
-    );
-    throw normalizedError;
-  } finally {
-    timeoutControl.cleanup();
+      );
+
+      lastError = normalizedError;
+
+      // Only retry on transient errors; throw immediately on non-transient
+      if (!isTransientVoyageError(normalizedError) || attempt === RETRY_MAX_ATTEMPTS - 1) {
+        const logMethod = normalizedError instanceof VoyageProxyError ? logger.warn : logger.error;
+        logMethod(
+          "Voyage proxy call failed.",
+          functionName,
+          "NORMALIZE_VOYAGE_FAILURE",
+          {
+            code: normalizedError.code,
+            status: normalizedError instanceof VoyageProxyError ? normalizedError.status : undefined,
+            durationMs,
+            attempt: attempt + 1,
+            retriesExhausted: attempt === RETRY_MAX_ATTEMPTS - 1,
+          },
+        );
+        throw normalizedError;
+      }
+
+      // Transient error: log and continue to next attempt
+      logger.warn(
+        `Voyage proxy call failed with transient error (attempt ${attempt + 1}/${RETRY_MAX_ATTEMPTS}).`,
+        functionName,
+        "VOYAGE_TRANSIENT_ERROR",
+        {
+          code: normalizedError.code,
+          status: normalizedError instanceof VoyageProxyError ? normalizedError.status : undefined,
+          durationMs,
+          attempt: attempt + 1,
+        },
+      );
+    } finally {
+      timeoutControl.cleanup();
+    }
   }
-  // END_BLOCK_EXECUTE_FETCH_WITH_TIMEOUT_AND_LOGGING_M_VOYAGE_PROXY_CLIENT_010
+
+  // Should not reach here, but satisfy TypeScript
+  throw lastError ?? new VoyageProxyError("Voyage proxy call failed after all retries.");
+  // END_BLOCK_EXECUTE_FETCH_WITH_RETRY_AND_LOGGING_M_VOYAGE_PROXY_CLIENT_010
 }
 
 // START_CONTRACT: createVoyageProxyClient

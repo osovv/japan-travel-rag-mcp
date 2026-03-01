@@ -19,13 +19,36 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial implementation of hybrid search service with search_sites and get_page_chunk.
+//   LAST_CHANGE: v1.1.0 - Add bounded output enforcement: snippet max 500 chars, chunk_excerpt max 2000 chars, neighbor excerpts max 1000 chars.
 // END_CHANGE_SUMMARY
 
 import type { VoyageProxyClient } from "../../integrations/voyage-proxy-client";
 import type { SitesIndexRepository } from "./repository";
 import type { Logger } from "../../logger/index";
 import { INDEX_VERSION } from "../ingestion/orchestrator";
+
+// START_BLOCK_DEFINE_OUTPUT_BOUNDS_M_SITES_SEARCH_000
+export const MAX_SNIPPET_LENGTH = 500;
+export const MAX_CHUNK_EXCERPT_LENGTH = 2000;
+export const MAX_NEIGHBOR_EXCERPT_LENGTH = 1000;
+
+// START_CONTRACT: boundText
+//   PURPOSE: Truncate text to a maximum length, appending ellipsis if truncated.
+//   INPUTS: { text: string | undefined, maxLength: number }
+//   OUTPUTS: { string | undefined - Truncated text or undefined if input is undefined }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-SITES-SEARCH]
+// END_CONTRACT: boundText
+export function boundText(text: string | undefined, maxLength: number): string | undefined {
+  if (text === undefined) {
+    return undefined;
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return text.slice(0, maxLength);
+}
+// END_BLOCK_DEFINE_OUTPUT_BOUNDS_M_SITES_SEARCH_000
 
 // START_BLOCK_DEFINE_ERROR_CLASS_M_SITES_SEARCH_001
 export class SitesSearchError extends Error {
@@ -136,7 +159,7 @@ export function createSitesSearchService(deps: SitesSearchDeps): SitesSearchServ
         source_ids: params.source_ids,
       });
 
-      // Step 3: Map to SearchSitesResult
+      // Step 3: Map to SearchSitesResult with bounded output
       const results = searchResults.map((sr) => ({
         result_id: `sr:${sr.chunk_id}`,
         source_id: sr.source_id,
@@ -144,7 +167,7 @@ export function createSitesSearchService(deps: SitesSearchDeps): SitesSearchServ
         domain: sr.domain,
         original_page_url: sr.page_url,
         title: sr.title,
-        snippet: sr.snippet,
+        snippet: boundText(sr.snippet, MAX_SNIPPET_LENGTH) ?? "",
         chunk_id: sr.chunk_id,
         score: sr.score,
       }));
@@ -203,15 +226,15 @@ export function createSitesSearchService(deps: SitesSearchDeps): SitesSearchServ
         );
       }
 
-      // Step 3: Map to GetPageChunkResult
+      // Step 3: Map to GetPageChunkResult with bounded output
       const result: GetPageChunkResult = {
         chunk_id: chunkData.chunk_id,
         source_id: chunkData.source_id,
         original_page_url: chunkData.page_url,
         title: chunkData.title,
-        chunk_excerpt: chunkData.chunk_text,
-        neighbor_excerpt_before: chunkData.neighbor_before,
-        neighbor_excerpt_after: chunkData.neighbor_after,
+        chunk_excerpt: boundText(chunkData.chunk_text, MAX_CHUNK_EXCERPT_LENGTH) ?? "",
+        neighbor_excerpt_before: boundText(chunkData.neighbor_before, MAX_NEIGHBOR_EXCERPT_LENGTH),
+        neighbor_excerpt_after: boundText(chunkData.neighbor_after, MAX_NEIGHBOR_EXCERPT_LENGTH),
       };
 
       logger.info(
