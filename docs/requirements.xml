@@ -160,6 +160,12 @@
       <Goal>Manage curated site source registry through admin UI without direct database access</Goal>
       <AcceptanceCriteria>Admin sites page lists all sources with per-source stats (page count, chunk count, last crawl); operator can create new sources with validated fields (source_id, name, domain, tier, language, focus, crawl_interval, max_pages); operator can edit existing source metadata; operator can pause/resume sources; operator can delete sources with full cascade (embeddings, chunks, pages, crawl jobs); all actions require valid admin session; page supports HTMX progressive enhancement</AcceptanceCriteria>
     </UC-023>
+    <UC-024>
+      <Actor>System Worker Runtime</Actor>
+      <Action>Applies layered per-source content cleanup (global rules + source adapter + quality gate) during crawl ingestion before chunking and embedding</Action>
+      <Goal>Remove domain-specific crawl noise (navigation, social widgets, newsletter promos, image placeholders) to improve chunk quality and retrieval relevance without changing MCP tool contracts</Goal>
+      <AcceptanceCriteria>Cleanup pipeline runs deterministically and rule-based in parser stage; source adapters are selected by `source_id`; quality gate skips low-value pages as structured non-fatal outcomes with reason codes; `pages_skipped` counter is tracked in IngestionResult separately from `errors[]`; first adapter covers `wrenjapan`; existing MCP tool inputs/outputs remain unchanged</AcceptanceCriteria>
+    </UC-024>
   </UseCases>
 
   <DeferredUseCases>

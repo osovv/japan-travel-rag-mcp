@@ -1,7 +1,7 @@
-<DevelopmentPlan VERSION="1.3.0">
+<DevelopmentPlan VERSION="1.4.0">
   <Context>
     <purpose>Deliver a shareable end-to-end onboarding flow plus curated-site retrieval: portal onboarding, fixed MCP tool surface (4 proxied + 3 local), worker-based crawl/index pipeline, and attributed evidence retrieval for travel agents.</purpose>
-    <scope>Keep existing proxied tg-chat tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), keep `/admin/*` root-token protected, keep portal-first onboarding on `/` and `/portal/*`, and add local curated-site tools (`get_site_sources`, `search_sites`, `get_page_chunk`) backed by PostgreSQL index refreshed by worker crawl/index jobs.</scope>
+    <scope>Keep existing proxied tg-chat tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), keep `/admin/*` root-token protected, keep portal-first onboarding on `/` and `/portal/*`, add local curated-site tools (`get_site_sources`, `search_sites`, `get_page_chunk`) backed by PostgreSQL index refreshed by worker crawl/index jobs, and improve indexing quality with layered per-source cleanup pipeline and quality gating in the parser stage.</scope>
     <constraints>
       <constraint-1>Public MCP surface remains exactly seven tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources` (proxied to upstream), and `get_site_sources`, `search_sites`, `get_page_chunk` (local).</constraint-1>
       <constraint-2>`search_context`, `validate_google_map_link`, and `verify_tabelog` are removed from active and deferred implementation plans.</constraint-2>
@@ -20,6 +20,7 @@
       <constraint-15>All Spider and Voyage calls must go through unified proxy (`PROXY_BASE_URL` + `PROXY_SECRET`) with service keys.</constraint-15>
       <constraint-16>Runtime is split into dedicated API and Worker entrypoints; no single-binary `APP_ROLE` toggle.</constraint-16>
       <constraint-17>Curated crawling in v1 is crawl-only (scheduled + internal targeted recrawl), with no public manual-refresh endpoint.</constraint-17>
+      <constraint-18>Parser cleanup is deterministic and rule-based, runs before chunking/embedding, and uses layered pipeline (global → source adapter → quality gate); cleanup results are discriminated union (accepted vs skipped) with structured skip reasons.</constraint-18>
     </constraints>
   </Context>
 
@@ -418,21 +419,40 @@
 
     <M-SITES-PARSER NAME="SitesParser" TYPE="CORE_LOGIC" LAYER="3" ORDER="5">
       <contract>
-        <purpose>Normalize Spider payload into canonical URL/title/text records suitable for deterministic chunking.</purpose>
+        <purpose>Normalize Spider payload into canonical page records with layered content cleanup (global → source adapter → quality gate) and discriminated union output (accepted vs skipped).</purpose>
         <inputs>
-          <param-1 name="crawlPayload" type="object" />
+          <param-1 name="crawlPayload" type="SpiderCrawlItem" />
+          <param-2 name="sourceId" type="string" />
+          <param-3 name="logger" type="Logger" />
         </inputs>
         <outputs>
-          <param-1 name="parsedPage" type="object" />
+          <param-1 name="ParserResult" type="{ status: 'accepted', page: ParsedPage } | { status: 'skipped', reason: SkipReason, source_id: string, url: string, metrics?: CleanupMetrics }" />
         </outputs>
         <errors>
-          <error-SITES_PARSER_ERROR code="SITES_PARSER_ERROR" />
+          <error-SITES_PARSER_ERROR code="SITES_PARSER_ERROR" description="Thrown only for truly invalid inputs (malformed URL, malformed crawl payload). Empty/low-quality content returns structured skip instead." />
         </errors>
       </contract>
       <interface>
-        <export-parseCrawlItem PURPOSE="Extract canonical URL, title, clean text, and fetch metadata." />
+        <export-parseCrawlItem PURPOSE="Parse crawl item through layered cleanup pipeline and return discriminated union (accepted page or structured skip with reason code)." />
+        <export-runCleanupPipeline PURPOSE="Orchestrate Layer A (global cleanup) → Layer B (source adapter) → Layer C (quality gate) and return CleanupResult." />
+        <export-globalCleanup PURPOSE="Apply universal noise removal: data-URI images, empty formatting fragments, social-share rows, whitespace normalization." />
+        <export-qualityGate PURPOSE="Compute post-cleanup metrics and decide accept vs skip with reason code (EMPTY_AFTER_CLEANUP, TOO_SHORT_AFTER_CLEANUP)." />
+        <export-wrenjapanAdapter PURPOSE="Source-specific cleanup for wrenjapan: strip nav/menu blocks, newsletter promos, image placeholders, footer navigation." />
+        <type-ParsedPage PURPOSE="Canonical page record: source_id, url, canonical_url, title, clean_text, text_hash, http_status, fetched_at." />
+        <type-ParserResult PURPOSE="Discriminated union of accepted page or structured skip." />
+        <type-SkipReason PURPOSE="String enum: EMPTY_CONTENT, EMPTY_AFTER_CLEANUP, TOO_SHORT_AFTER_CLEANUP." />
+        <type-CleanupMetrics PURPOSE="Post-cleanup quality metrics: clean_char_count." />
+        <type-SourceAdapter PURPOSE="Interface: { sourceId: string; clean(text: string): string }." />
+        <const-MIN_CLEAN_CHARS PURPOSE="Quality gate threshold (v1 default: 80 chars)." />
       </interface>
       <depends>M-LOGGER</depends>
+      <notes>
+        <note-1>Cleanup code is extracted into `src/sites/parser/cleanup/` subdirectory: index.ts (orchestration), global.ts, quality-gate.ts, types.ts, adapters/wrenjapan.ts.</note-1>
+        <note-2>Source adapter selection in v1 is by source_id only. Adapter interface is intentionally simple (string → string).</note-2>
+        <note-3>Title extraction runs on post-cleanup text (Layer A+B) with fallback to raw content, then URL-derived title.</note-3>
+        <note-4>Empty source content becomes structured skip (EMPTY_CONTENT) instead of thrown SitesParserError.</note-4>
+        <note-5>Quality gate thresholds are intentionally soft in v1 to avoid over-skipping; tuned via fixture-based analysis.</note-5>
+      </notes>
     </M-SITES-PARSER>
 
     <M-SITES-CHUNKER NAME="SitesChunker" TYPE="CORE_LOGIC" LAYER="3" ORDER="6">
@@ -459,22 +479,28 @@
 
     <M-SITES-INGESTION NAME="SitesIngestionOrchestrator" TYPE="CORE_LOGIC" LAYER="4" ORDER="3">
       <contract>
-        <purpose>Run scheduled and targeted crawl-only ingestion jobs and persist parsed/chunked/embedded index artifacts.</purpose>
+        <purpose>Run scheduled and targeted crawl-only ingestion jobs, handle parser quality-skip results as non-fatal structured outcomes, and persist parsed/chunked/embedded index artifacts.</purpose>
         <inputs>
           <param-1 name="ingestionJob" type="object" />
         </inputs>
         <outputs>
-          <param-1 name="ingestionResult" type="object" />
+          <param-1 name="ingestionResult" type="IngestionResult" description="Includes pages_skipped counter; errors[] contains only true failures, not quality skips." />
         </outputs>
         <errors>
           <error-SITES_INGESTION_ERROR code="SITES_INGESTION_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-runScheduledIngestion PURPOSE="Select due sources by interval and execute crawl ingestion." />
-        <export-runTargetedRecrawl PURPOSE="Execute internal single-URL recrawl via crawl endpoint with strict cap." />
+        <export-runScheduledIngestion PURPOSE="Select due sources by interval and execute crawl ingestion; accumulates pages_skipped for quality-gated pages." />
+        <export-runTargetedRecrawl PURPOSE="Execute internal single-URL recrawl via crawl endpoint with strict cap; handles parser skip results." />
+        <type-IngestionResult PURPOSE="Aggregated counters: sources_processed, pages_fetched, pages_skipped, chunks_created, embeddings_created, errors[]." />
+        <type-IngestionError PURPOSE="Typed error record for true failures only; quality skips are tracked via pages_skipped counter." />
       </interface>
       <depends>M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
+      <notes>
+        <note-1>Parser skip decisions (EMPTY_CONTENT, EMPTY_AFTER_CLEANUP, TOO_SHORT_AFTER_CLEANUP) do not populate errors[]; they increment pages_skipped and are logged as info/warn with reason code.</note-1>
+        <note-2>Both runScheduledIngestion and runTargetedRecrawl handle the parser discriminated union; only accepted pages proceed to chunking/embedding.</note-2>
+      </notes>
     </M-SITES-INGESTION>
 
     <M-SITES-SEARCH NAME="SitesSearchService" TYPE="CORE_LOGIC" LAYER="4" ORDER="4">
@@ -757,9 +783,10 @@
     <DF-SITES-INGESTION NAME="curated sites crawl ingestion flow">
       <step-1>Worker scheduler selects due sources from `site_sources` by `crawl_interval_minutes`.</step-1>
       <step-2>M-SITES-INGESTION calls M-SPIDER-CLOUD-CLIENT crawl endpoint through unified proxy with source limits.</step-2>
-      <step-3>M-SITES-PARSER normalizes payload into canonical page records.</step-3>
-      <step-4>M-SITES-CHUNKER applies deterministic chunking and M-VOYAGE-PROXY-CLIENT embeds chunks.</step-4>
-      <step-5>M-SITES-INDEX-REPOSITORY upserts pages/chunks/embeddings for active `index_version`.</step-5>
+      <step-3>M-SITES-PARSER applies layered cleanup (global → source adapter → quality gate) and returns accepted pages or structured skips with reason codes.</step-3>
+      <step-4>M-SITES-INGESTION increments `pages_skipped` for quality-gated pages (non-fatal, logged as info/warn); only accepted pages proceed.</step-4>
+      <step-5>M-SITES-CHUNKER applies deterministic chunking and M-VOYAGE-PROXY-CLIENT embeds chunks for accepted pages.</step-5>
+      <step-6>M-SITES-INDEX-REPOSITORY upserts pages/chunks/embeddings for active `index_version`.</step-6>
     </DF-SITES-INGESTION>
 
     <DF-SITES-SEARCH NAME="search_sites local tool flow">
@@ -890,6 +917,26 @@
       <step-4>Same page works with JavaScript disabled (full page navigation).</step-4>
       <result>Pass when page works with both HTMX fragment swap and full page load.</result>
     </MT-13>
+
+    <MT-14 NAME="per-source cleanup pipeline e2e test">
+      <step-1>Feed a noisy wrenjapan fixture (containing nav blocks, newsletter promos, image placeholders) to parseCrawlItem with sourceId="wrenjapan".</step-1>
+      <step-2>Global cleanup (Layer A) removes data-URI images and social-share rows.</step-2>
+      <step-3>wrenjapan adapter (Layer B) strips nav/menu blocks, newsletter promos, footer navigation.</step-3>
+      <step-4>Quality gate (Layer C) computes clean_char_count; page passes MIN_CLEAN_CHARS threshold.</step-4>
+      <step-5>parseCrawlItem returns { status: "accepted", page: ParsedPage } with clean article text and correct title.</step-5>
+      <step-6>Feed same fixture without sourceId adapter match (e.g., sourceId="unknown"); only global cleanup applies, adapter is skipped.</step-6>
+      <result>Pass when wrenjapan adapter removes source-specific noise, global cleanup handles universal patterns, and non-matching sources still get global cleanup only.</result>
+    </MT-14>
+
+    <MT-15 NAME="quality gate skip handling test">
+      <step-1>Feed a near-empty crawl item (e.g., page with only nav/footer and no article body) to parseCrawlItem.</step-1>
+      <step-2>After cleanup, clean_char_count falls below MIN_CLEAN_CHARS threshold.</step-2>
+      <step-3>parseCrawlItem returns { status: "skipped", reason: "TOO_SHORT_AFTER_CLEANUP", source_id, url, metrics }.</step-3>
+      <step-4>Ingestion orchestrator receives skip result, increments pages_skipped, logs info/warn with reason code.</step-4>
+      <step-5>pages_skipped counter appears in IngestionResult; errors[] is NOT populated for this skip.</step-5>
+      <step-6>Source ingestion continues processing remaining crawl items without aborting.</step-6>
+      <result>Pass when quality-gated pages become structured non-fatal skips with reason codes, never pollute errors[], and don't interrupt ingestion flow.</result>
+    </MT-15>
   </MentalTests>
 
   <ImplementationOrder>
@@ -971,6 +1018,21 @@
       <step-6>Add tests for M-ADMIN-SITES: data queries return correct aggregates, CRUD operations work, cascade delete removes all related records, Zod validation rejects invalid inputs, rendering produces expected HTML structure.</step-6>
       <justification>Admin sites management enables operators to add/edit/remove curated sources and monitor index health without direct database access.</justification>
     </Phase-10>
+
+    <Phase-11 name="PerSourceCleanupAndQualityGate" status="planned">
+      <step-1>Define cleanup types and contracts: SkipReason enum, CleanupMetrics, SourceAdapter interface, ParserResult discriminated union, quality gate constants in `src/sites/parser/cleanup/types.ts`.</step-1>
+      <step-2>Implement global cleanup rules (Layer A) in `src/sites/parser/cleanup/global.ts`: data-URI image removal, empty formatting fragment removal, social-share row stripping, whitespace normalization.</step-2>
+      <step-3>Implement `wrenjapan` source adapter (Layer B) in `src/sites/parser/cleanup/adapters/wrenjapan.ts`: nav/menu block stripping, newsletter promo removal, image placeholder removal, footer navigation stripping.</step-3>
+      <step-4>Implement quality gate (Layer C) in `src/sites/parser/cleanup/quality-gate.ts`: compute clean_char_count, apply MIN_CLEAN_CHARS threshold, return accept/skip decision with reason code.</step-4>
+      <step-5>Implement cleanup pipeline orchestrator in `src/sites/parser/cleanup/index.ts`: wire Layer A → B → C, select source adapter by source_id, return CleanupResult.</step-5>
+      <step-6>Refactor `parseCrawlItem` in `src/sites/parser/index.ts`: integrate cleanup pipeline, change return type to discriminated union (ParserResult), convert empty-content throw to structured skip, run title extraction on post-cleanup text with raw fallback.</step-6>
+      <step-7>Update M-SITES-INGESTION `processSource`/`processPage`: handle ParserResult discriminated union, add `pages_skipped` counter to IngestionResult, remove empty-content error hack, log skips as info/warn with reason code and source metadata.</step-7>
+      <step-8>Add parser unit tests: global cleanup rules against fixture snippets, wrenjapan adapter against `__fixtures__/wrenjapan/raw/` corpus, quality gate threshold decisions, discriminated union output for accepted and skipped pages.</step-8>
+      <step-9>Add ingestion integration tests: verify skip handling does not populate errors[], verify pages_skipped counter increments, verify both scheduled and targeted recrawl paths handle parser skips.</step-9>
+      <step-10>Validate with dry-run: compare before/after cleanup stats for wrenjapan fixtures, tune MIN_CLEAN_CHARS threshold based on fixture corpus analysis.</step-10>
+      <step-11>Execute rollout: purge + recrawl for wrenjapan source to refresh index with cleanup pipeline output.</step-11>
+      <justification>Per-source cleanup removes domain-specific crawl noise from indexed content, improving chunk quality and retrieval relevance for search_sites and get_page_chunk without changing MCP tool contracts. Discriminated union output and structured skip handling replaces the current error-based empty-content hack with clean non-fatal ingestion semantics.</justification>
+    </Phase-11>
   </ImplementationOrder>
 
   <RiskAssessment>
@@ -986,6 +1048,9 @@
     <risk-10 severity="medium">Improper crawl limits or missing jitter can cause bursty load and unstable ingestion latency.</risk-10>
     <risk-11 severity="medium">Index-version misconfiguration can mix old/new embeddings and degrade ranking consistency.</risk-11>
     <risk-12 severity="low">Bounded excerpt policy regressions in get_page_chunk can accidentally expose oversized content.</risk-12>
+    <risk-13 severity="medium">Over-aggressive cleanup rules remove semantically useful content (article links, inline references) along with noise. Mitigation: conservative initial rules, fixture-based regression tests, per-source skip rate monitoring.</risk-13>
+    <risk-14 severity="medium">Source website layout changes break source adapter pattern rules (wrenjapan nav structure changes). Mitigation: composable rules, raw-content fallback, adapter versioning strategy.</risk-14>
+    <risk-15 severity="low">Quality gate false positives skip legitimate short-form pages (e.g., glossary entries, FAQ items). Mitigation: reason-coded logs enable threshold tuning with sampled page review.</risk-15>
   </RiskAssessment>
 
   <DeprecatedModules>

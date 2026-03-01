@@ -4,6 +4,14 @@ Date: 2026-03-01
 Project: `japan-travel-rag-mcp`
 Status: Draft implementation plan
 
+## 0. Current Progress Snapshot
+
+Completed baseline (already in repository):
+1. Raw fixture corpus is present under `src/sites/parser/__fixtures__/`.
+2. Fixtures are grouped by source/domain folders with `raw/*.json` artifacts.
+3. `wrenjapan` fixture set is available for initial per-source cleanup rollout.
+4. Additional curated sources are also represented, enabling cross-source regression checks.
+
 ## 1. Goal
 
 Improve curated-sites indexing quality by removing domain-specific crawl noise before chunking/embedding, starting with `wrenjapan.com`.
@@ -28,7 +36,7 @@ As a result, chunking quality degrades and retrieval ranks noise.
 In scope:
 1. Add layered cleanup pipeline: global rules + per-source rules + quality gate.
 2. Introduce first source profile for `wrenjapan`.
-3. Add parser tests with noisy real-world fixture patterns.
+3. Add parser tests with noisy real-world fixture patterns using the existing fixture corpus in `src/sites/parser/__fixtures__/`.
 4. Add ingestion observability for cleanup effect.
 
 Out of scope (this phase):
@@ -56,7 +64,7 @@ Out of scope (this phase):
 ### 5.1 Layered cleanup pipeline
 
 1. Layer A (`global`): normalize universal noise for all sources.
-2. Layer B (`source adapter`): apply source-specific cleanup profile by `source_id` and/or domain.
+2. Layer B (`source adapter`): apply source-specific cleanup profile by `source_id`.
 3. Layer C (`quality gate`): compute post-cleanup quality metrics and skip/flag low-value pages.
 
 Pipeline order:
@@ -74,6 +82,14 @@ Pipeline order:
 4. `src/sites/parser/cleanup/quality-gate.ts` — metrics computation + accept/skip decision.
 5. `src/sites/parser/cleanup/types.ts` — cleanup contracts and decision/result types.
 6. `src/sites/parser/index.ts` remains thin: parse input, call cleanup pipeline, return parser union result.
+
+### 5.1.2 Fixture corpus usage model
+
+1. Canonical fixture root: `src/sites/parser/__fixtures__/`.
+2. Raw Spider responses are stored as: `<source_or_domain>/raw/*.json`.
+3. Parser tests consume this corpus for realistic noise regression cases.
+4. `wrenjapan` fixtures are mandatory coverage for adapter behavior and quality gate tuning.
+5. Non-`wrenjapan` fixtures are used as guard rails against cleanup regressions.
 
 ### 5.2 Global cleanup baseline (Layer A)
 
@@ -100,17 +116,11 @@ Selection rule:
 
 Post-cleanup metrics:
 1. `clean_char_count`
-2. `link_density` (ratio of link-only/URL-heavy lines)
-3. `boilerplate_line_ratio`
-4. `heading_count`
 
 Default gating policy (v1 draft):
 1. `MIN_CLEAN_CHARS = 80`
-2. `MAX_LINK_DENSITY = 0.85`
-3. `MAX_BOILERPLATE_RATIO = 0.75`
-4. `MIN_BODY_SIGNALS = 1`
-5. Skip if thresholds indicate likely non-article/noise-heavy page.
-6. Log skip reason code for observability.
+2. Skip when post-cleanup text is below threshold (`EMPTY_AFTER_CLEANUP` / `TOO_SHORT_AFTER_CLEANUP`).
+3. Log skip reason code for observability.
 
 ### 5.5 Parser output contract (accepted vs skipped)
 
@@ -119,6 +129,22 @@ Default gating policy (v1 draft):
    - `{ status: "skipped", reason: SkipReason, source_id: string, url: string, metrics?: CleanupMetrics }`
 2. `ParsedPage` represents accepted content only.
 3. Skip reasons are deterministic string enums (for logs/counters/tests).
+
+### 5.6 Error vs skip boundary (explicit contract)
+
+1. `invalid URL` and malformed crawl payload remain parser errors (`throw`).
+2. Empty source content becomes structured skip (`EMPTY_CONTENT`) instead of parser exception.
+3. Content that becomes empty after cleanup is structured skip (`EMPTY_AFTER_CLEANUP`).
+4. Content below minimum length threshold is structured skip (`TOO_SHORT_AFTER_CLEANUP`).
+5. Ingestion treats structured skip as non-fatal and increments `pages_skipped`.
+6. Ingestion pushes only real failures to `errors[]`.
+
+### 5.7 Title extraction order
+
+1. Use `metadata.title` when present and non-empty.
+2. Else extract heading from cleaned content (post Layer A+B).
+3. Else fallback to heading from raw content.
+4. Else fallback to URL-derived title.
 
 ## 6. Integration Points
 
@@ -144,6 +170,7 @@ Deliverables:
 2. Define source adapter interface and rule registry structure.
 3. Define deterministic skip reason codes.
 4. Define parser discriminated-union output contract and orchestrator handling contract.
+5. Update `M-SITES-PARSER` annotation in `docs/knowledge-graph.xml` to reflect union return type and skip semantics.
 
 Exit criteria:
 1. Contract clearly describes inputs/outputs and skip behavior.
@@ -153,7 +180,7 @@ Exit criteria:
 
 Deliverables:
 1. Implement global cleanup rules for `data:image`, empty formatting rows, share-link garbage.
-2. Add regression tests for noisy markdown snippets.
+2. Add regression tests for noisy markdown snippets using fixtures from `src/sites/parser/__fixtures__/`.
 
 Exit criteria:
 1. Existing parser tests pass.
@@ -163,7 +190,7 @@ Exit criteria:
 
 Deliverables:
 1. Implement `wrenjapan` adapter with deterministic pattern rules.
-2. Add fixture tests from representative Wren pages.
+2. Add fixture tests from representative Wren pages in `src/sites/parser/__fixtures__/wrenjapan/raw/`.
 
 Exit criteria:
 1. Wren fixture output removes nav/share/footer noise while preserving article body.
@@ -203,7 +230,7 @@ Minimum logging and counters:
 Testing strategy:
 1. Unit tests for global cleanup rules.
 2. Unit tests for `wrenjapan` profile rules.
-3. Parser integration tests for quality gate decisions.
+3. Parser integration tests for quality gate decisions using repository fixture corpus.
 4. Ingestion test assertions for skip handling.
 
 ## 9. Risks and Mitigations

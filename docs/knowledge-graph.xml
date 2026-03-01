@@ -1,7 +1,7 @@
 <KnowledgeGraph>
   <Project NAME="japan-travel-rag-mcp" VERSION="1.10.0">
-    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management</keywords>
-    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, worker-driven curated-sites crawl/index pipeline with attributed local retrieval, admin sites management CRUD, and persistent OAuth token storage.</annotation>
+    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management, per-source-cleanup, quality-gate, source-adapter</keywords>
+    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, worker-driven curated-sites crawl/index pipeline with layered per-source cleanup and quality gating, attributed local retrieval, admin sites management CRUD, and persistent OAuth token storage.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
       <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
@@ -87,11 +87,28 @@
     </M-SITES-INDEX-REPOSITORY>
 
     <M-SITES-PARSER NAME="SitesParser" TYPE="CORE_LOGIC" STATUS="active">
-      <purpose>Parse Spider crawl payload into canonical URL/title/clean-text records.</purpose>
+      <purpose>Parse Spider crawl payload into canonical page records with layered content cleanup (global → source adapter → quality gate) and discriminated union output (accepted vs skipped).</purpose>
       <path>src/sites/parser/index.ts</path>
+      <paths>
+        <path-cleanup-orchestrator>src/sites/parser/cleanup/index.ts</path-cleanup-orchestrator>
+        <path-cleanup-global>src/sites/parser/cleanup/global.ts</path-cleanup-global>
+        <path-cleanup-quality-gate>src/sites/parser/cleanup/quality-gate.ts</path-cleanup-quality-gate>
+        <path-cleanup-types>src/sites/parser/cleanup/types.ts</path-cleanup-types>
+        <path-adapter-wrenjapan>src/sites/parser/cleanup/adapters/wrenjapan.ts</path-adapter-wrenjapan>
+      </paths>
       <depends>M-LOGGER</depends>
       <annotations>
-        <fn-parseCrawlItem description="Normalize crawl item to deterministic page representation." />
+        <fn-parseCrawlItem description="Normalize crawl item to deterministic page representation; returns discriminated union { status: 'accepted', page: ParsedPage } | { status: 'skipped', reason: SkipReason, ... }." />
+        <fn-runCleanupPipeline description="Orchestrate Layer A (global) → Layer B (source adapter) → Layer C (quality gate) and return CleanupResult." />
+        <fn-globalCleanup description="Apply universal noise removal: data-URI images, empty formatting fragments, social-share rows, whitespace normalization." />
+        <fn-qualityGate description="Compute post-cleanup metrics (clean_char_count) and decide accept vs skip with reason code." />
+        <fn-wrenjapanAdapter description="Source-specific cleanup for wrenjapan: strip nav/menu, newsletter promos, image placeholders, footer navigation." />
+        <type-ParsedPage description="Canonical page record: source_id, url, canonical_url, title, clean_text, text_hash, http_status, fetched_at." />
+        <type-ParserResult description="Discriminated union: { status: 'accepted', page: ParsedPage } | { status: 'skipped', reason: SkipReason, source_id, url, metrics? }." />
+        <type-SkipReason description="String enum: EMPTY_CONTENT, EMPTY_AFTER_CLEANUP, TOO_SHORT_AFTER_CLEANUP." />
+        <type-CleanupMetrics description="Post-cleanup quality metrics: clean_char_count." />
+        <type-SourceAdapter description="Interface: { sourceId: string; clean(text: string): string }." />
+        <const-MIN_CLEAN_CHARS description="Quality gate threshold (v1 default: 80 chars)." />
       </annotations>
     </M-SITES-PARSER>
 
@@ -105,12 +122,14 @@
     </M-SITES-CHUNKER>
 
     <M-SITES-INGESTION NAME="SitesIngestionOrchestrator" TYPE="CORE_LOGIC" STATUS="active">
-      <purpose>Coordinate crawl-only ingestion, parsing, chunking, embedding, and repository upserts for curated sites.</purpose>
+      <purpose>Coordinate crawl-only ingestion, parsing, chunking, embedding, and repository upserts for curated sites with structured skip handling for quality-gated pages.</purpose>
       <path>src/sites/ingestion/orchestrator.ts</path>
       <depends>M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
       <annotations>
-        <fn-runScheduledIngestion description="Run due-source ingestion based on source intervals." />
-        <fn-runTargetedRecrawl description="Run internal single-URL recrawl through crawl endpoint with strict cap." />
+        <fn-runScheduledIngestion description="Run due-source ingestion based on source intervals; accumulates pages_skipped for quality-gated pages." />
+        <fn-runTargetedRecrawl description="Run internal single-URL recrawl through crawl endpoint with strict cap; handles parser skip results." />
+        <type-IngestionResult description="Aggregated counters: sources_processed, pages_fetched, pages_skipped, chunks_created, embeddings_created, errors[]." />
+        <type-IngestionError description="Typed error record: source_id, url?, error, code. Only true failures; quality skips are tracked via pages_skipped." />
       </annotations>
     </M-SITES-INGESTION>
 
@@ -527,8 +546,10 @@
       <DF-SITES-INGESTION NAME="curated sites crawl ingestion flow">
         <step-1>M-WORKER-ENTRYPOINT scheduler selects due sources from M-SITE-SOURCES.</step-1>
         <step-2>M-SITES-INGESTION calls M-SPIDER-CLOUD-CLIENT crawl endpoint through unified proxy.</step-2>
-        <step-3>M-SITES-PARSER and M-SITES-CHUNKER normalize and split fetched content.</step-3>
-        <step-4>M-VOYAGE-PROXY-CLIENT creates embeddings and M-SITES-INDEX-REPOSITORY persists index artifacts.</step-4>
+        <step-3>M-SITES-PARSER applies layered cleanup (global → source adapter → quality gate) and returns accepted pages or structured skips with reason codes.</step-3>
+        <step-4>M-SITES-INGESTION increments pages_skipped for quality-gated pages and continues to chunking only for accepted pages.</step-4>
+        <step-5>M-SITES-CHUNKER splits accepted content and M-VOYAGE-PROXY-CLIENT creates embeddings.</step-5>
+        <step-6>M-SITES-INDEX-REPOSITORY persists pages/chunks/embeddings for active index_version.</step-6>
       </DF-SITES-INGESTION>
 
       <DF-SITES-SEARCH NAME="search_sites local tool flow">
