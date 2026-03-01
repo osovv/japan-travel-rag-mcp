@@ -1,8 +1,8 @@
 // FILE: src/tools/contracts.test.ts
-// VERSION: 1.2.1
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Verify deterministic validation behavior and public tool surface for M-TOOLS-CONTRACTS.
-//   SCOPE: Assert four-tool allowlist, schema metadata, forbidden filters.chat_ids behavior, and SchemaValidationError details.
+//   SCOPE: Assert four-tool proxied allowlist, two-tool local registry, schema metadata, forbidden filters.chat_ids behavior, and SchemaValidationError details.
 //   DEPENDS: M-TOOLS-CONTRACTS
 //   LINKS: M-TOOLS-CONTRACTS
 // END_MODULE_CONTRACT
@@ -10,24 +10,31 @@
 // START_MODULE_MAP
 //   assertSchemaValidationError - Assert thrown validation errors are typed as SchemaValidationError with stable detail payload.
 //   ToolContractsTests - Deterministic contract tests for public tool schemas and validator dispatch.
+//   LocalToolContractsTests - Deterministic contract tests for local tool schemas (search_sites, get_page_chunk).
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.1 - Added strict metadata assertion for list_sources additionalProperties=false to keep JSON schema hints aligned with runtime validators.
-//   PREVIOUS: v1.2.0 - Updated tests to strict full-parameter contracts (query/top_k/filters and context/related defaults) and strict unknown-key rejection.
+//   LAST_CHANGE: v1.3.0 - Added comprehensive tests for search_sites and get_page_chunk local tool schemas, LOCAL_TOOL_INPUT_JSON_SCHEMAS, isLocalToolName, and validator functions.
+//   PREVIOUS: v1.2.1 - Added strict metadata assertion for list_sources additionalProperties=false to keep JSON schema hints aligned with runtime validators.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
 import {
+  LOCAL_TOOL_INPUT_JSON_SCHEMAS,
+  LOCAL_TOOL_NAMES,
   PROXIED_TOOL_NAMES,
   SchemaValidationError,
   TOOL_INPUT_JSON_SCHEMAS,
+  isLocalToolName,
   isProxiedToolName,
   validateGetMessageContextInput,
+  validateGetPageChunkInput,
   validateGetRelatedMessagesInput,
   validateListSourcesInput,
   validateSearchMessagesInputPublic,
+  validateSearchSitesInput,
   validateToolInput,
+  type LocalToolName,
   type ProxiedToolName,
 } from "./contracts";
 
@@ -214,5 +221,219 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
       "Unsupported tool name: unsupported_tool",
     );
     expect(schemaError.details).toEqual(["Unsupported tool name: unsupported_tool"]);
+  });
+});
+
+describe("M-TOOLS-CONTRACTS local tool contracts", () => {
+  it("exports exactly two local tool names in stable order", () => {
+    expect(LOCAL_TOOL_NAMES).toEqual(["search_sites", "get_page_chunk"]);
+    expect(LOCAL_TOOL_NAMES).toHaveLength(2);
+  });
+
+  it("keeps local tool metadata aligned with the two-tool local surface", () => {
+    const schemaKeys = Object.keys(LOCAL_TOOL_INPUT_JSON_SCHEMAS).sort();
+    expect(schemaKeys).toEqual(["get_page_chunk", "search_sites"]);
+    expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.search_sites.additionalProperties).toBe(false);
+    expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.search_sites.required).toEqual(["query"]);
+    expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.get_page_chunk.additionalProperties).toBe(false);
+    expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.get_page_chunk.required).toEqual(["chunk_id"]);
+  });
+
+  it("accepts known local tool names and rejects non-local names", () => {
+    expect(isLocalToolName("search_sites")).toBe(true);
+    expect(isLocalToolName("get_page_chunk")).toBe(true);
+    expect(isLocalToolName("search_messages")).toBe(false);
+    expect(isLocalToolName("unknown_tool")).toBe(false);
+  });
+
+  it("does not include local tool names in PROXIED_TOOL_NAMES", () => {
+    expect(isProxiedToolName("search_sites")).toBe(false);
+    expect(isProxiedToolName("get_page_chunk")).toBe(false);
+  });
+
+  // --- search_sites ---
+
+  it("accepts search_sites payloads with all fields", () => {
+    const input = {
+      query: "best ramen in tokyo",
+      top_k: 15,
+      source_ids: ["src-001", "src-002"],
+    };
+    expect(validateSearchSitesInput(input)).toEqual(input);
+  });
+
+  it("fills search_sites top_k default when omitted", () => {
+    expect(
+      validateSearchSitesInput({ query: "onsen guide" }),
+    ).toEqual({
+      query: "onsen guide",
+      top_k: 10,
+    });
+  });
+
+  it("accepts search_sites with source_ids omitted", () => {
+    const result = validateSearchSitesInput({ query: "shinkansen tips", top_k: 5 });
+    expect(result).toEqual({ query: "shinkansen tips", top_k: 5 });
+  });
+
+  it("accepts search_sites with empty source_ids array", () => {
+    const result = validateSearchSitesInput({
+      query: "kyoto temples",
+      source_ids: [],
+    });
+    expect(result).toEqual({
+      query: "kyoto temples",
+      top_k: 10,
+      source_ids: [],
+    });
+  });
+
+  it("trims search_sites query whitespace", () => {
+    const result = validateSearchSitesInput({ query: "  sushi etiquette  " });
+    expect(result.query).toBe("sushi etiquette");
+  });
+
+  it("trims search_sites source_ids entry whitespace", () => {
+    const result = validateSearchSitesInput({
+      query: "tokyo hotels",
+      source_ids: ["  src-trimmed  "],
+    });
+    expect(result.source_ids).toEqual(["src-trimmed"]);
+  });
+
+  it("rejects search_sites when query is missing", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({}),
+      "expected string, received undefined",
+    );
+  });
+
+  it("rejects search_sites when query is empty string", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "" }),
+      "search_sites requires non-empty string field query.",
+    );
+  });
+
+  it("rejects search_sites when query is whitespace-only", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "   " }),
+      "search_sites requires non-empty string field query.",
+    );
+  });
+
+  it("rejects search_sites when top_k is below minimum", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "test", top_k: 0 }),
+      "search_sites top_k must be an integer between 1 and 30.",
+    );
+  });
+
+  it("rejects search_sites when top_k exceeds maximum", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "test", top_k: 31 }),
+      "search_sites top_k must be an integer between 1 and 30.",
+    );
+  });
+
+  it("rejects search_sites when top_k is not an integer", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "test", top_k: 5.5 }),
+      "int",
+    );
+  });
+
+  it("rejects search_sites when source_ids contains empty string", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "test", source_ids: ["good-id", ""] }),
+      "search_sites requires each source_ids entry to be a non-empty string.",
+    );
+  });
+
+  it("rejects search_sites when source_ids contains whitespace-only entry", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "test", source_ids: ["  "] }),
+      "search_sites requires each source_ids entry to be a non-empty string.",
+    );
+  });
+
+  it("rejects search_sites when unknown keys are provided", () => {
+    assertSchemaValidationError(
+      () => validateSearchSitesInput({ query: "test", unknown_key: true }),
+      "Unrecognized key",
+    );
+  });
+
+  it("accepts search_sites at boundary top_k values", () => {
+    expect(validateSearchSitesInput({ query: "test", top_k: 1 }).top_k).toBe(1);
+    expect(validateSearchSitesInput({ query: "test", top_k: 30 }).top_k).toBe(30);
+  });
+
+  // --- get_page_chunk ---
+
+  it("accepts get_page_chunk with all fields", () => {
+    const input = { chunk_id: "chunk-abc-123", include_neighbors: true };
+    expect(validateGetPageChunkInput(input)).toEqual(input);
+  });
+
+  it("fills get_page_chunk include_neighbors default when omitted", () => {
+    expect(
+      validateGetPageChunkInput({ chunk_id: "chunk-001" }),
+    ).toEqual({
+      chunk_id: "chunk-001",
+      include_neighbors: false,
+    });
+  });
+
+  it("trims get_page_chunk chunk_id whitespace", () => {
+    const result = validateGetPageChunkInput({ chunk_id: "  chunk-trimmed  " });
+    expect(result.chunk_id).toBe("chunk-trimmed");
+  });
+
+  it("rejects get_page_chunk when chunk_id is missing", () => {
+    assertSchemaValidationError(
+      () => validateGetPageChunkInput({}),
+      "expected string, received undefined",
+    );
+  });
+
+  it("rejects get_page_chunk when chunk_id is empty string", () => {
+    assertSchemaValidationError(
+      () => validateGetPageChunkInput({ chunk_id: "" }),
+      "get_page_chunk requires non-empty string field chunk_id.",
+    );
+  });
+
+  it("rejects get_page_chunk when chunk_id is whitespace-only", () => {
+    assertSchemaValidationError(
+      () => validateGetPageChunkInput({ chunk_id: "   " }),
+      "get_page_chunk requires non-empty string field chunk_id.",
+    );
+  });
+
+  it("rejects get_page_chunk when include_neighbors is not a boolean", () => {
+    assertSchemaValidationError(
+      () => validateGetPageChunkInput({ chunk_id: "chunk-001", include_neighbors: "yes" }),
+      "boolean",
+    );
+  });
+
+  it("rejects get_page_chunk when unknown keys are provided", () => {
+    assertSchemaValidationError(
+      () => validateGetPageChunkInput({ chunk_id: "chunk-001", extra_field: 42 }),
+      "Unrecognized key",
+    );
+  });
+
+  it("accepts get_page_chunk with include_neighbors explicitly false", () => {
+    const result = validateGetPageChunkInput({ chunk_id: "chunk-002", include_neighbors: false });
+    expect(result).toEqual({ chunk_id: "chunk-002", include_neighbors: false });
+  });
+
+  it("rejects get_page_chunk when chunk_id is not a string", () => {
+    assertSchemaValidationError(
+      () => validateGetPageChunkInput({ chunk_id: 123 }),
+      "string",
+    );
   });
 });

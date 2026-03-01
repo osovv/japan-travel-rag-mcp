@@ -1,8 +1,8 @@
 // FILE: src/tools/contracts.ts
-// VERSION: 1.4.1
+// VERSION: 1.5.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Define and export MCP tool schemas and tool allowlist for the proxy surface.
-//   SCOPE: Provide input types, tool metadata schemas, and zod-based runtime validators for proxied MCP tool inputs.
+//   PURPOSE: Define and export MCP tool schemas and tool allowlist for the proxy surface, plus local tool schemas for curated-site retrieval.
+//   SCOPE: Provide input types, tool metadata schemas, and zod-based runtime validators for proxied and local MCP tool inputs.
 //   DEPENDS: M-LOGGER
 //   LINKS: M-TOOLS-CONTRACTS, M-LOGGER
 // END_MODULE_CONTRACT
@@ -13,21 +13,29 @@
 //   GetMessageContextInput - Input shape for get_message_context tool.
 //   GetRelatedMessagesInput - Input shape for get_related_messages tool.
 //   ListSourcesInput - Input shape for list_sources tool.
+//   SearchSitesInput - Input shape for search_sites local tool.
+//   GetPageChunkInput - Input shape for get_page_chunk local tool.
 //   ProxiedToolName - Union of supported proxied tool names.
+//   LocalToolName - Union of supported local tool names.
 //   PROXIED_TOOL_NAMES - Allowlist of proxied MCP tool names.
-//   TOOL_INPUT_JSON_SCHEMAS - JSON-schema-like metadata for supported tool inputs.
+//   LOCAL_TOOL_NAMES - Registry of local MCP tool names.
+//   TOOL_INPUT_JSON_SCHEMAS - JSON-schema-like metadata for supported proxied tool inputs.
+//   LOCAL_TOOL_INPUT_JSON_SCHEMAS - JSON-schema-like metadata for local tool inputs.
 //   SchemaValidationError - Typed validation error with SCHEMA_VALIDATION_ERROR code.
 //   isProxiedToolName - Type guard for supported tool names.
+//   isLocalToolName - Type guard for local tool names.
 //   validateSearchMessagesInputPublic - Validate search_messages public input boundary.
 //   validateGetMessageContextInput - Validate get_message_context input.
 //   validateGetRelatedMessagesInput - Validate get_related_messages input.
 //   validateListSourcesInput - Validate list_sources input.
 //   validateToolInput - Dispatch tool input validation by tool name.
+//   validateSearchSitesInput - Validate search_sites local tool input.
+//   validateGetPageChunkInput - Validate get_page_chunk local tool input.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.4.1 - Aligned list_sources JSON metadata with strict validator behavior and clarified search_messages validation contract wording.
-//   PREVIOUS: v1.4.0 - Rebased all public tool schemas to strict parameter contracts (wren-chat parity) with explicit fields/defaults and hard rejection of unknown keys/types.
+//   LAST_CHANGE: v1.5.0 - Added search_sites and get_page_chunk local tool schemas, LOCAL_TOOL_INPUT_JSON_SCHEMAS, validator functions, and type exports.
+//   PREVIOUS: v1.4.1 - Aligned list_sources JSON metadata with strict validator behavior and clarified search_messages validation contract wording.
 // END_CHANGE_SUMMARY
 
 import { z } from "zod";
@@ -68,6 +76,16 @@ const LIST_SOURCES_MESSAGE_UIDS_MIN_ERROR =
   "list_sources requires message_uids array with at least one message UID.";
 const LIST_SOURCES_MESSAGE_UIDS_MAX_ERROR =
   "list_sources supports at most 100 message_uids per request.";
+const SEARCH_SITES_QUERY_REQUIRED_ERROR =
+  "search_sites requires non-empty string field query.";
+const SEARCH_SITES_TOP_K_MIN_ERROR =
+  "search_sites top_k must be an integer between 1 and 30.";
+const SEARCH_SITES_TOP_K_MAX_ERROR =
+  "search_sites top_k must be an integer between 1 and 30.";
+const SEARCH_SITES_SOURCE_IDS_ENTRY_REQUIRED_ERROR =
+  "search_sites requires each source_ids entry to be a non-empty string.";
+const GET_PAGE_CHUNK_CHUNK_ID_REQUIRED_ERROR =
+  "get_page_chunk requires non-empty string field chunk_id.";
 
 type ToolInputSchema = {
   type: "object";
@@ -190,6 +208,73 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
   },
 };
 
+export const LOCAL_TOOL_NAMES = ["search_sites", "get_page_chunk"] as const;
+
+export type LocalToolName = (typeof LOCAL_TOOL_NAMES)[number];
+
+export const LOCAL_TOOL_INPUT_JSON_SCHEMAS: Record<LocalToolName, ToolInputSchema> = {
+  search_sites: {
+    type: "object",
+    description:
+      "Input for search_sites. Searches curated site pages by semantic similarity. Requires a non-empty query string.",
+    required: ["query"],
+    additionalProperties: false,
+    properties: {
+      query: {
+        type: "string",
+        minLength: 1,
+        description: "Search query text for semantic retrieval over curated site pages.",
+      },
+      top_k: {
+        type: "integer",
+        minimum: 1,
+        maximum: 30,
+        description: "Maximum number of results to return (1-30, default 10).",
+      },
+      source_ids: {
+        type: "array",
+        description: "Optional list of source IDs to restrict search scope.",
+        items: {
+          type: "string",
+          minLength: 1,
+          description: "Single source ID entry.",
+        },
+      },
+    },
+  },
+  get_page_chunk: {
+    type: "object",
+    description:
+      "Input for get_page_chunk. Retrieves a specific page chunk by its unique identifier, optionally including neighboring chunks.",
+    required: ["chunk_id"],
+    additionalProperties: false,
+    properties: {
+      chunk_id: {
+        type: "string",
+        minLength: 1,
+        description: "Unique chunk identifier used to retrieve a specific page chunk.",
+      },
+      include_neighbors: {
+        type: "boolean",
+        description: "Whether to include neighboring chunks in the response (default false).",
+      },
+    },
+  },
+};
+
+// START_CONTRACT: isLocalToolName
+//   PURPOSE: Validate tool name membership in local tool registry.
+//   INPUTS: { value: string - Tool name candidate }
+//   OUTPUTS: { boolean - True when value is a supported local tool name }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-TOOLS-CONTRACTS]
+// END_CONTRACT: isLocalToolName
+export function isLocalToolName(value: string): value is LocalToolName {
+  // START_BLOCK_MATCH_TOOL_NAME_AGAINST_LOCAL_REGISTRY_M_TOOLS_CONTRACTS_011
+  return (LOCAL_TOOL_NAMES as readonly string[]).includes(value);
+  // END_BLOCK_MATCH_TOOL_NAME_AGAINST_LOCAL_REGISTRY_M_TOOLS_CONTRACTS_011
+}
+
 export class SchemaValidationError extends Error {
   public readonly code = "SCHEMA_VALIDATION_ERROR" as const;
   public readonly details: string[];
@@ -278,10 +363,34 @@ export const ListSourcesInputSchema = z
   })
   .strict();
 
+export const SearchSitesInputSchema = z
+  .object({
+    query: z.string().trim().min(1, SEARCH_SITES_QUERY_REQUIRED_ERROR),
+    top_k: z
+      .number()
+      .int()
+      .min(1, SEARCH_SITES_TOP_K_MIN_ERROR)
+      .max(30, SEARCH_SITES_TOP_K_MAX_ERROR)
+      .default(10),
+    source_ids: z
+      .array(z.string().trim().min(1, SEARCH_SITES_SOURCE_IDS_ENTRY_REQUIRED_ERROR))
+      .optional(),
+  })
+  .strict();
+
+export const GetPageChunkInputSchema = z
+  .object({
+    chunk_id: z.string().trim().min(1, GET_PAGE_CHUNK_CHUNK_ID_REQUIRED_ERROR),
+    include_neighbors: z.boolean().default(false),
+  })
+  .strict();
+
 export type SearchMessagesInputPublic = z.infer<typeof SearchMessagesInputPublicSchema>;
 export type GetMessageContextInput = z.infer<typeof GetMessageContextInputSchema>;
 export type GetRelatedMessagesInput = z.infer<typeof GetRelatedMessagesInputSchema>;
 export type ListSourcesInput = z.infer<typeof ListSourcesInputSchema>;
+export type SearchSitesInput = z.infer<typeof SearchSitesInputSchema>;
+export type GetPageChunkInput = z.infer<typeof GetPageChunkInputSchema>;
 
 // START_CONTRACT: buildSchemaValidationError
 //   PURPOSE: Build and throw typed schema validation errors with optional diagnostics logging.
@@ -459,6 +568,52 @@ export function validateListSourcesInput(rawArgs: unknown, logger?: Logger): Lis
     "VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD",
   );
   // END_BLOCK_VALIDATE_LIST_SOURCES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_009
+}
+
+// START_CONTRACT: validateSearchSitesInput
+//   PURPOSE: Validate search_sites local tool input with query, top_k, and optional source_ids.
+//   INPUTS: { rawArgs: unknown - Untrusted tool args, logger: Logger | undefined - Optional diagnostics logger }
+//   OUTPUTS: { SearchSitesInput - Validated search_sites input }
+//   SIDE_EFFECTS: [Throws SchemaValidationError on validation failures]
+//   LINKS: [M-TOOLS-CONTRACTS, M-LOGGER]
+// END_CONTRACT: validateSearchSitesInput
+export function validateSearchSitesInput(
+  rawArgs: unknown,
+  logger?: Logger,
+): SearchSitesInput {
+  // START_BLOCK_VALIDATE_SEARCH_SITES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_012
+  return parseWithSchema(
+    rawArgs,
+    SearchSitesInputSchema,
+    "search_sites",
+    logger,
+    "validateSearchSitesInput",
+    "VALIDATE_SEARCH_SITES_INPUT_WITH_ZOD",
+  );
+  // END_BLOCK_VALIDATE_SEARCH_SITES_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_012
+}
+
+// START_CONTRACT: validateGetPageChunkInput
+//   PURPOSE: Validate get_page_chunk local tool input with chunk_id and optional include_neighbors.
+//   INPUTS: { rawArgs: unknown - Untrusted tool args, logger: Logger | undefined - Optional diagnostics logger }
+//   OUTPUTS: { GetPageChunkInput - Validated get_page_chunk input }
+//   SIDE_EFFECTS: [Throws SchemaValidationError on validation failures]
+//   LINKS: [M-TOOLS-CONTRACTS, M-LOGGER]
+// END_CONTRACT: validateGetPageChunkInput
+export function validateGetPageChunkInput(
+  rawArgs: unknown,
+  logger?: Logger,
+): GetPageChunkInput {
+  // START_BLOCK_VALIDATE_GET_PAGE_CHUNK_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_013
+  return parseWithSchema(
+    rawArgs,
+    GetPageChunkInputSchema,
+    "get_page_chunk",
+    logger,
+    "validateGetPageChunkInput",
+    "VALIDATE_GET_PAGE_CHUNK_INPUT_WITH_ZOD",
+  );
+  // END_BLOCK_VALIDATE_GET_PAGE_CHUNK_INPUT_WITH_ZOD_M_TOOLS_CONTRACTS_013
 }
 
 // START_CONTRACT: validateToolInput
