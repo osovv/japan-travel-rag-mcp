@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 3.2.0
+// VERSION: 3.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server with MCP, admin, and portal surfaces, and start HTTP stream transport on /mcp.
-//   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER
+//   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler/sites search service dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -15,7 +15,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.2.0 - Wired usageTracker into portal and FastMCP runtime dependencies after DB initialization.
+//   LAST_CHANGE: v3.3.0 - Wired SitesSearchService (VoyageProxyClient, SitesIndexRepository) into FastMCP runtime dependencies with bootstrapSitesSchema.
+//   PREVIOUS: v3.2.0 - Wired usageTracker into portal and FastMCP runtime dependencies after DB initialization.
 // END_CHANGE_SUMMARY
 
 import { type FastMCP } from "fastmcp";
@@ -41,7 +42,11 @@ import {
   handlePortalLogoutRoute,
 } from "../portal/ui-routes";
 import type { PortalUiDependencies } from "../portal/ui-routes";
+import { bootstrapSitesSchema } from "../db/sites-bootstrap";
+import { createVoyageProxyClient } from "../integrations/voyage-proxy-client";
 import { createFastMcpRuntime } from "../runtime/fastmcp-runtime";
+import { createSitesIndexRepository } from "../sites/search/repository";
+import { createSitesSearchService } from "../sites/search/service";
 import { createToolProxyService } from "../tools/proxy-service";
 import { createUsageTracker } from "../usage/tracker";
 
@@ -197,8 +202,8 @@ function installGracefulShutdownHandlers(shutdownTarget: ShutdownTarget, logger:
 //   PURPOSE: Bootstrap all runtime dependencies, construct FastMCP runtime, and start MCP httpStream transport.
 //   INPUTS: {}
 //   OUTPUTS: { Promise<FastMCP> - Started FastMCP runtime instance }
-//   SIDE_EFFECTS: [Reads env config, initializes database client and oauth proxy metadata and upstream dependencies, bootstraps usage_counters schema via M-USAGE-TRACKER, opens network listeners, registers process signal handlers, emits logs]
-//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER]
+//   SIDE_EFFECTS: [Reads env config, initializes database client and oauth proxy metadata and upstream dependencies, bootstraps usage_counters and sites schema, initializes SitesSearchService, opens network listeners, registers process signal handlers, emits logs]
+//   LINKS: [M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP]
 // END_CONTRACT: main
 export async function main(): Promise<FastMCP> {
   const shutdownTarget: ShutdownTarget = {
@@ -231,6 +236,18 @@ export async function main(): Promise<FastMCP> {
       logger: logger.child({ component: "usageTracker" }),
     });
     // END_BLOCK_BOOTSTRAP_USAGE_TRACKER_M_SERVER_108
+
+    // START_BLOCK_BOOTSTRAP_SITES_SEARCH_SERVICE_M_SERVER_109
+    await bootstrapSitesSchema(dbClient.db, logger.child({ component: "sitesBootstrap" }));
+
+    const voyageClient = createVoyageProxyClient(config, logger.child({ component: "voyageClient" }));
+    const sitesRepository = createSitesIndexRepository(dbClient.db, logger.child({ component: "sitesRepository" }));
+    const sitesSearchService = createSitesSearchService({
+      voyageClient,
+      repository: sitesRepository,
+      logger: logger.child({ component: "sitesSearch" }),
+    });
+    // END_BLOCK_BOOTSTRAP_SITES_SEARCH_SERVICE_M_SERVER_109
 
     const tgClient = createTgChatRagClient(config, logger.child({ component: "tgChatRagClient" }));
     const proxyService = createToolProxyService(
@@ -310,6 +327,7 @@ export async function main(): Promise<FastMCP> {
       portalLandingHandler,
       portalHandler,
       usageTracker,
+      sitesSearchService,
     });
     shutdownTarget.fastMcpServer = fastMcpServer;
 

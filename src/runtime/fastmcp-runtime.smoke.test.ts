@@ -34,6 +34,7 @@ import type { OauthProxyContext } from "../auth/oauth-proxy";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { createFastMcpRuntime } from "./fastmcp-runtime";
+import type { SitesSearchService } from "../sites/search/service";
 import type { ToolProxyService } from "../tools/proxy-service";
 import type { UsageTracker } from "../usage/tracker";
 
@@ -273,6 +274,16 @@ async function createRuntimeHarness(
     recordToolCall: () => {},
     getUserStats: async () => ({ tools: [], total: 0 }),
   };
+  const mockSitesSearchService: SitesSearchService = {
+    searchSites: async () => ({ results: [] }),
+    getPageChunk: async (params) => ({
+      chunk_id: params.chunk_id,
+      source_id: "mock-source",
+      original_page_url: "https://example.com/mock",
+      title: "Mock Page",
+      chunk_excerpt: "Mock chunk content.",
+    }),
+  };
   const adminHandler = async (): Promise<Response> => {
     return new Response("admin", {
       status: 200,
@@ -298,6 +309,7 @@ async function createRuntimeHarness(
     portalLandingHandler,
     portalHandler,
     usageTracker: mockUsageTracker,
+    sitesSearchService: mockSitesSearchService,
   });
 
   await runtime.start({
@@ -454,7 +466,7 @@ function assertMcpInvalidParamsError(error: unknown): void {
 }
 
 describe("M-FASTMCP-RUNTIME smoke checks", () => {
-  it("exposes exactly 5 tools (4 proxied + 1 local) and excludes list_chats at /mcp runtime boundary", async () => {
+  it("exposes exactly 7 tools (4 proxied + 3 local) and excludes list_chats at /mcp runtime boundary", async () => {
     const harness = await createRuntimeHarnessOrSkipWhenBindRestricted("allow");
     if (!harness) {
       return;
@@ -470,6 +482,8 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
         "get_related_messages",
         "list_sources",
         "get_site_sources",
+        "search_sites",
+        "get_page_chunk",
       ]);
       expect(toolNames).not.toContain("list_chats");
       expect(harness.proxyCalls).toEqual([]);

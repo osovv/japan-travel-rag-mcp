@@ -33,6 +33,7 @@ import type { OauthProxyContext } from "../auth/oauth-proxy";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { createFastMcpRuntime } from "../runtime/fastmcp-runtime";
+import type { SitesSearchService } from "../sites/search/service";
 import type { ToolProxyService } from "../tools/proxy-service";
 import type { UsageTracker } from "../usage/tracker";
 
@@ -501,6 +502,16 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
     recordToolCall: () => {},
     getUserStats: async () => ({ tools: [], total: 0 }),
   };
+  const mockSitesSearchService: SitesSearchService = {
+    searchSites: async () => ({ results: [] }),
+    getPageChunk: async (params) => ({
+      chunk_id: params.chunk_id,
+      source_id: "mock-source",
+      original_page_url: "https://example.com/mock",
+      title: "Mock Page",
+      chunk_excerpt: "Mock chunk content.",
+    }),
+  };
 
   const portalLandingHandler = async (): Promise<Response> => {
     return new Response("landing", { status: 200 });
@@ -518,6 +529,7 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
     portalLandingHandler,
     portalHandler,
     usageTracker: mockUsageTracker,
+    sitesSearchService: mockSitesSearchService,
   });
 
   const app = runtime.getApp();
@@ -813,6 +825,16 @@ describe("M-SERVER FastMCP integration", () => {
       recordToolCall: () => {},
       getUserStats: async () => ({ tools: [], total: 0 }),
     };
+    const mockSitesSearchService2: SitesSearchService = {
+      searchSites: async () => ({ results: [] }),
+      getPageChunk: async (params) => ({
+        chunk_id: params.chunk_id,
+        source_id: "mock-source",
+        original_page_url: "https://example.com/mock",
+        title: "Mock Page",
+        chunk_excerpt: "Mock chunk content.",
+      }),
+    };
     const portalLandingHandler = async (): Promise<Response> => {
       return new Response("landing", { status: 200 });
     };
@@ -829,6 +851,7 @@ describe("M-SERVER FastMCP integration", () => {
       portalLandingHandler,
       portalHandler,
       usageTracker: mockUsageTracker,
+      sitesSearchService: mockSitesSearchService2,
     });
 
     const app = runtime.getApp();
