@@ -1019,7 +1019,7 @@
       <justification>Admin sites management enables operators to add/edit/remove curated sources and monitor index health without direct database access.</justification>
     </Phase-10>
 
-    <Phase-11 name="PerSourceCleanupAndQualityGate" status="planned">
+    <Phase-11 name="PerSourceCleanupAndQualityGate" status="done">
       <step-1>Define cleanup types and contracts: SkipReason enum, CleanupMetrics, SourceAdapter interface, ParserResult discriminated union, quality gate constants in `src/sites/parser/cleanup/types.ts`.</step-1>
       <step-2>Implement global cleanup rules (Layer A) in `src/sites/parser/cleanup/global.ts`: data-URI image removal, empty formatting fragment removal, social-share row stripping, whitespace normalization.</step-2>
       <step-3>Implement `wrenjapan` source adapter (Layer B) in `src/sites/parser/cleanup/adapters/wrenjapan.ts`: nav/menu block stripping, newsletter promo removal, image placeholder removal, footer navigation stripping.</step-3>

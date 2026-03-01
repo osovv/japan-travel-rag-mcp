@@ -1,24 +1,30 @@
 // FILE: src/sites/parser/index.ts
-// VERSION: 1.2.0
+// VERSION: 2.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Normalize Spider crawl payload items into canonical page records suitable for storage and chunking.
-//   SCOPE: URL normalization, title extraction, markdown text cleaning, SHA-256 hashing, and structured error handling.
-//   DEPENDS: M-SPIDER-CLOUD-CLIENT, M-LOGGER
+//   PURPOSE: Parse Spider crawl payload into canonical page records with layered content cleanup (global → source adapter → quality gate) and discriminated union output (accepted vs skipped).
+//   SCOPE: URL normalization, title extraction, layered cleanup pipeline, SHA-256 hashing, and discriminated union output.
+//   DEPENDS: M-SPIDER-CLOUD-CLIENT, M-LOGGER, M-SITES-PARSER-CLEANUP
 //   LINKS: M-SITES-PARSER, M-SPIDER-CLOUD-CLIENT, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   ParsedPage - Canonical page record produced from a Spider crawl item.
 //   SitesParserError - Typed error for parser failures with SITES_PARSER_ERROR code.
-//   parseCrawlItem - Parse and normalize a single SpiderCrawlItem into a ParsedPage.
+//   parseCrawlItem - Parse and normalize a single SpiderCrawlItem into a ParserResult (discriminated union).
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Add fallback content extraction from Spider item markdown/text/html fields when content is empty.
+//   LAST_CHANGE: v2.0.0 - Integrate layered cleanup pipeline, change return type to ParserResult discriminated union, convert empty-content throw to structured skip.
 // END_CHANGE_SUMMARY
 
 import type { SpiderCrawlItem } from "../../integrations/spider-cloud-client";
 import type { Logger } from "../../logger/index";
+import { runCleanupPipeline } from "./cleanup/index";
+import type { ParserResult } from "./cleanup/types";
+
+// Re-export cleanup types for consumers
+export type { ParserResult } from "./cleanup/types";
+export type { CleanupMetrics, SkipReason } from "./cleanup/types";
 
 // START_BLOCK_DEFINE_PARSED_PAGE_TYPE_M_SITES_PARSER_001
 export type ParsedPage = {
@@ -78,24 +84,24 @@ function normalizeUrl(raw: string): string {
 
 // START_CONTRACT: extractTitle
 //   PURPOSE: Extract page title from metadata, content headings, or URL path.
-//   INPUTS: { item: SpiderCrawlItem - Crawl item with optional metadata and content }
+//   INPUTS: { metadata: SpiderCrawlItem["metadata"], content: string - Post-cleanup text, url: string - Raw URL for fallback }
 //   OUTPUTS: { string - Extracted or derived title }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-SITES-PARSER]
 // END_CONTRACT: extractTitle
-function extractTitle(item: SpiderCrawlItem): string {
+function extractTitle(metadata: SpiderCrawlItem["metadata"], content: string, url: string): string {
   // START_BLOCK_EXTRACT_TITLE_M_SITES_PARSER_004
 
   // 1. Try metadata.title
-  if (item.metadata?.title) {
-    const metaTitle = String(item.metadata.title).trim();
+  if (metadata?.title) {
+    const metaTitle = String(metadata.title).trim();
     if (metaTitle.length > 0) {
       return metaTitle;
     }
   }
 
   // 2. Try first heading in content (markdown: # Heading)
-  const headingMatch = item.content.match(/^#{1,6}\s+(.+)$/m);
+  const headingMatch = content.match(/^#{1,6}\s+(.+)$/m);
   if (headingMatch) {
     const headingText = headingMatch[1].trim();
     if (headingText.length > 0) {
@@ -105,8 +111,8 @@ function extractTitle(item: SpiderCrawlItem): string {
 
   // 3. Derive from URL path
   try {
-    const url = new URL(item.url);
-    const pathSegments = url.pathname
+    const parsedUrl = new URL(url);
+    const pathSegments = parsedUrl.pathname
       .split("/")
       .filter((s) => s.length > 0);
     if (pathSegments.length > 0) {
@@ -116,7 +122,7 @@ function extractTitle(item: SpiderCrawlItem): string {
         .replace(/\.[^.]+$/, "")
         .replace(/[-_]/g, " ");
     }
-    return url.hostname;
+    return parsedUrl.hostname;
   } catch {
     return "Untitled";
   }
@@ -184,17 +190,17 @@ function computeTextHash(text: string): string {
 }
 
 // START_CONTRACT: parseCrawlItem
-//   PURPOSE: Parse and normalize a Spider crawl item into a canonical ParsedPage record.
+//   PURPOSE: Parse and normalize a Spider crawl item into a ParserResult discriminated union (accepted page or structured skip).
 //   INPUTS: { item: SpiderCrawlItem - Raw crawl result, sourceId: string - Source identifier, logger: Logger - Module logger }
-//   OUTPUTS: { ParsedPage - Normalized page record }
-//   SIDE_EFFECTS: [Logs warnings for explicit non-200 status codes, throws SitesParserError on invalid input]
+//   OUTPUTS: { ParserResult - Discriminated union: { status: "accepted", page } or { status: "skipped", reason, ... } }
+//   SIDE_EFFECTS: [Logs warnings for explicit non-200 status codes, throws SitesParserError only on invalid URL]
 //   LINKS: [M-SITES-PARSER, M-SPIDER-CLOUD-CLIENT, M-LOGGER]
 // END_CONTRACT: parseCrawlItem
 export function parseCrawlItem(
   item: SpiderCrawlItem,
   sourceId: string,
   logger: Logger,
-): ParsedPage {
+): ParserResult {
   // START_BLOCK_VALIDATE_CRAWL_ITEM_INPUTS_M_SITES_PARSER_007
   const functionName = "parseCrawlItem";
 
@@ -219,10 +225,13 @@ export function parseCrawlItem(
     .find((value) => value.length > 0) ?? "";
 
   if (!rawContent) {
-    throw new SitesParserError("Crawl item content is empty.", {
-      sourceId,
-      url: item.url,
-    });
+    const normalizedUrl = normalizeUrl(rawUrl);
+    return {
+      status: "skipped",
+      reason: "EMPTY_CONTENT",
+      source_id: sourceId,
+      url: normalizedUrl,
+    };
   }
   // END_BLOCK_VALIDATE_CRAWL_ITEM_INPUTS_M_SITES_PARSER_007
 
@@ -237,21 +246,40 @@ export function parseCrawlItem(
   }
   // END_BLOCK_WARN_ON_NON_200_STATUS_M_SITES_PARSER_008
 
-  // START_BLOCK_BUILD_PARSED_PAGE_M_SITES_PARSER_009
+  // START_BLOCK_RUN_CLEANUP_PIPELINE_M_SITES_PARSER_010
   const normalizedUrl = normalizeUrl(rawUrl);
-  const title = extractTitle({ ...item, content: rawContent });
-  const cleanedText = cleanText(rawContent);
+
+  const cleanupResult = runCleanupPipeline(rawContent, sourceId);
+
+  if (cleanupResult.accepted === false) {
+    return {
+      status: "skipped",
+      reason: cleanupResult.reason,
+      source_id: sourceId,
+      url: normalizedUrl,
+      metrics: cleanupResult.metrics,
+    };
+  }
+  // END_BLOCK_RUN_CLEANUP_PIPELINE_M_SITES_PARSER_010
+
+  // START_BLOCK_BUILD_PARSED_PAGE_M_SITES_PARSER_009
+  // Run legacy cleanText on the pipeline-accepted text for HTML tag removal and text-based boilerplate
+  const cleanedText = cleanText(cleanupResult.text);
+  const title = extractTitle(item.metadata, cleanedText, rawUrl);
   const textHash = computeTextHash(cleanedText);
 
   return {
-    source_id: sourceId,
-    url: normalizedUrl,
-    canonical_url: normalizedUrl,
-    title,
-    clean_text: cleanedText,
-    text_hash: textHash,
-    http_status: item.status_code ?? 200,
-    fetched_at: new Date(),
+    status: "accepted",
+    page: {
+      source_id: sourceId,
+      url: normalizedUrl,
+      canonical_url: normalizedUrl,
+      title,
+      clean_text: cleanedText,
+      text_hash: textHash,
+      http_status: item.status_code ?? 200,
+      fetched_at: new Date(),
+    },
   };
   // END_BLOCK_BUILD_PARSED_PAGE_M_SITES_PARSER_009
 }

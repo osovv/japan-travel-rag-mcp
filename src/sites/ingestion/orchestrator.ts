@@ -1,5 +1,5 @@
 // FILE: src/sites/ingestion/orchestrator.ts
-// VERSION: 1.3.0
+// VERSION: 2.0.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Coordinate the crawl-parse-chunk-embed-upsert pipeline for curated sites ingestion.
 //   SCOPE: Orchestrate Spider crawl, page parsing, text chunking, Voyage embedding, and repository upsert for scheduled and targeted recrawl jobs.
@@ -10,7 +10,7 @@
 // START_MODULE_MAP
 //   SourceForIngestion - Input source descriptor for an ingestion run.
 //   IngestionError - Typed error record accumulated during pipeline execution.
-//   IngestionResult - Aggregated result counters and error list from an ingestion run.
+//   IngestionResult - Aggregated result counters (including pages_skipped), error list from an ingestion run.
 //   IngestionDeps - External dependencies injected into the orchestrator factory.
 //   IngestionOrchestrator - Runtime orchestrator interface exposing scheduled and targeted ingestion.
 //   SitesIngestionError - Typed error class for ingestion failures with SITES_INGESTION_ERROR code.
@@ -19,7 +19,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Downgrade known empty-content page parsing failures to warn-level skip events instead of error-level processing failures.
+//   LAST_CHANGE: v2.0.0 - Adopt ParserResult discriminated union from parser v2.0.0; replace empty-content error hack with structured skip handling; add pages_skipped counter.
 // END_CHANGE_SUMMARY
 
 import type { SpiderCloudClient } from "../../integrations/spider-cloud-client";
@@ -32,6 +32,7 @@ import type {
   UpsertPageInput,
 } from "../search/repository";
 import { parseCrawlItem } from "../parser/index";
+import type { ParserResult, SkipReason } from "../parser/index";
 import { chunkPage, CHUNKING_VERSION } from "../chunking/index";
 import type { Logger } from "../../logger/index";
 
@@ -53,6 +54,7 @@ export type IngestionError = {
 export type IngestionResult = {
   sources_processed: number;
   pages_fetched: number;
+  pages_skipped: number;
   chunks_created: number;
   embeddings_created: number;
   errors: IngestionError[];
@@ -205,23 +207,13 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
         const errorCode = pageError instanceof SitesIngestionError
           ? pageError.code
           : "SITES_INGESTION_ERROR";
-        const isEmptyContentError = errorMessage === "Crawl item content is empty.";
 
-        if (isEmptyContentError) {
-          logger.warn(
-            `Skipping page ${item.url} for source ${source.source_id}: ${errorMessage}`,
-            functionName,
-            "PAGE_SKIPPED_EMPTY_CONTENT",
-            { sourceId: source.source_id, url: item.url, error: errorMessage },
-          );
-        } else {
-          logger.error(
-            `Failed to process page ${item.url} for source ${source.source_id}: ${errorMessage}`,
-            functionName,
-            "PAGE_PROCESSING_ERROR",
-            { sourceId: source.source_id, url: item.url, error: errorMessage },
-          );
-        }
+        logger.error(
+          `Failed to process page ${item.url} for source ${source.source_id}: ${errorMessage}`,
+          functionName,
+          "PAGE_PROCESSING_ERROR",
+          { sourceId: source.source_id, url: item.url, error: errorMessage },
+        );
 
         result.errors.push({
           source_id: source.source_id,
@@ -250,7 +242,25 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
     const functionName = "processPage";
 
     // Step 2: Parse
-    const parsedPage = parseCrawlItem(item, source.source_id, logger);
+    const parseResult: ParserResult = parseCrawlItem(item, source.source_id, logger);
+
+    if (parseResult.status === "skipped") {
+      logger.info(
+        `Skipping page ${parseResult.url} for source ${parseResult.source_id}: ${parseResult.reason}${parseResult.metrics ? ` (clean_char_count=${parseResult.metrics.clean_char_count})` : ""}.`,
+        functionName,
+        "PAGE_SKIPPED",
+        {
+          sourceId: parseResult.source_id,
+          url: parseResult.url,
+          reason: parseResult.reason,
+          metrics: parseResult.metrics,
+        },
+      );
+      result.pages_skipped += 1;
+      return;
+    }
+
+    const parsedPage = parseResult.page;
 
     // Step 3: Upsert page
     const upsertPageInput: UpsertPageInput = {
@@ -350,6 +360,7 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
     const result: IngestionResult = {
       sources_processed: 0,
       pages_fetched: 0,
+      pages_skipped: 0,
       chunks_created: 0,
       embeddings_created: 0,
       errors: [],
@@ -463,6 +474,7 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
       {
         total_sources: result.sources_processed,
         total_pages: result.pages_fetched,
+        pages_skipped: result.pages_skipped,
         total_chunks: result.chunks_created,
         total_embeddings: result.embeddings_created,
         total_duration_ms: tickDurationMs,
@@ -471,12 +483,13 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
     );
 
     logger.info(
-      `Scheduled ingestion complete. Processed ${result.sources_processed} sources, fetched ${result.pages_fetched} pages, created ${result.chunks_created} chunks, ${result.embeddings_created} embeddings, ${result.errors.length} errors.`,
+      `Scheduled ingestion complete. Processed ${result.sources_processed} sources, fetched ${result.pages_fetched} pages, skipped ${result.pages_skipped} pages, created ${result.chunks_created} chunks, ${result.embeddings_created} embeddings, ${result.errors.length} errors.`,
       functionName,
       "SCHEDULED_INGESTION_COMPLETE",
       {
         sourcesProcessed: result.sources_processed,
         pagesFetched: result.pages_fetched,
+        pagesSkipped: result.pages_skipped,
         chunksCreated: result.chunks_created,
         embeddingsCreated: result.embeddings_created,
         errorCount: result.errors.length,
@@ -523,6 +536,7 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
     const result: IngestionResult = {
       sources_processed: 0,
       pages_fetched: 0,
+      pages_skipped: 0,
       chunks_created: 0,
       embeddings_created: 0,
       errors: [],
@@ -578,13 +592,14 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
     }
 
     logger.info(
-      `Targeted recrawl complete for ${url}. Pages: ${result.pages_fetched}, chunks: ${result.chunks_created}, embeddings: ${result.embeddings_created}, errors: ${result.errors.length}.`,
+      `Targeted recrawl complete for ${url}. Pages: ${result.pages_fetched}, skipped: ${result.pages_skipped}, chunks: ${result.chunks_created}, embeddings: ${result.embeddings_created}, errors: ${result.errors.length}.`,
       functionName,
       "TARGETED_RECRAWL_COMPLETE",
       {
         url,
         sourceId,
         pagesFetched: result.pages_fetched,
+        pagesSkipped: result.pages_skipped,
         chunksCreated: result.chunks_created,
         embeddingsCreated: result.embeddings_created,
         errorCount: result.errors.length,

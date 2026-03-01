@@ -442,15 +442,15 @@ describe("error isolation", () => {
     expect(result.errors[0].error).toContain("DB connection lost");
   });
 
-  it("logs empty-content page failures as warn-level skip events", async () => {
-    const warnCalls: { blockName: string; extra?: Record<string, unknown> }[] = [];
+  it("tracks empty-content pages as structured skips, not errors", async () => {
+    const infoCalls: { blockName: string; extra?: Record<string, unknown> }[] = [];
     const errorCalls: { blockName: string; extra?: Record<string, unknown> }[] = [];
     const captureLogger: Logger = {
       debug: () => {},
-      info: () => {},
-      warn: (_message, _functionName, blockName, extra) => {
-        warnCalls.push({ blockName, extra });
+      info: (_message, _functionName, blockName, extra) => {
+        infoCalls.push({ blockName, extra });
       },
+      warn: () => {},
       error: (_message, _functionName, blockName, extra) => {
         errorCalls.push({ blockName, extra });
       },
@@ -477,11 +477,12 @@ describe("error isolation", () => {
 
     expect(result.sources_processed).toBe(1);
     expect(result.pages_fetched).toBe(2);
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].error).toBe("Crawl item content is empty.");
+    expect(result.pages_skipped).toBe(1);
+    expect(result.errors).toHaveLength(0);
 
-    const skipWarnLogs = warnCalls.filter((call) => call.blockName === "PAGE_SKIPPED_EMPTY_CONTENT");
-    expect(skipWarnLogs).toHaveLength(1);
+    const skipInfoLogs = infoCalls.filter((call) => call.blockName === "PAGE_SKIPPED");
+    expect(skipInfoLogs).toHaveLength(1);
+    expect(skipInfoLogs[0].extra?.reason).toBe("EMPTY_CONTENT");
 
     const pageErrorLogs = errorCalls.filter((call) => call.blockName === "PAGE_PROCESSING_ERROR");
     expect(pageErrorLogs).toHaveLength(0);
@@ -559,8 +560,8 @@ describe("runTargetedRecrawl", () => {
     expect(result.errors[0].error).toContain("Targeted crawl failed");
   });
 
-  it("handles page processing failure in targeted recrawl", async () => {
-    // Return an item with empty content to trigger parser error
+  it("handles empty-content page as structured skip in targeted recrawl", async () => {
+    // Return an item with empty content — parser returns skip instead of throwing
     const spiderClient = createMockSpiderClient({
       items: [makeCrawlItem({ url: "https://example.com/page", content: "" })],
     });
@@ -580,8 +581,8 @@ describe("runTargetedRecrawl", () => {
 
     expect(result.sources_processed).toBe(1);
     expect(result.pages_fetched).toBe(1);
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].source_id).toBe("src-empty");
+    expect(result.pages_skipped).toBe(1);
+    expect(result.errors).toHaveLength(0);
   });
 });
 // END_BLOCK_TARGETED_RECRAWL_TESTS_M_SITES_INGESTION_TEST_004

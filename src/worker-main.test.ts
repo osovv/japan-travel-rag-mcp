@@ -47,6 +47,7 @@ function createMockOrchestrator(resultOverride?: Partial<IngestionResult>): Inge
   const defaultResult: IngestionResult = {
     sources_processed: 2,
     pages_fetched: 10,
+    pages_skipped: 0,
     chunks_created: 50,
     embeddings_created: 50,
     errors: [],
