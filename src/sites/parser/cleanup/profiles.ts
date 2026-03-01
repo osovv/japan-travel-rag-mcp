@@ -41,9 +41,11 @@ const READ_MORE_HEADER_RE = /^\s*(?:READ\s+MORE|RELATED)\s*:/i;
 const PINTEREST_PROMPT_RE =
   /^\s*(?:Like\s+it\?\s*Pin\s+it!?|Pin\s+(?:me\s+)?(?:to\s+|on\s+)?Pinterest!?|Save\s+(?:to|on)\s+Pinterest!?)\s*$/i;
 
-/** Matches newsletter/email signup CTAs (standalone lines) */
+/** Matches newsletter/email signup CTAs (standalone lines).
+ *  Narrowed to newsletter/mailing-list keywords to avoid false positives
+ *  on travel content like "Sign up for a JR Pass". */
 const NEWSLETTER_CTA_RE =
-  /^\s*(?:Sign\s+up\s+for\s+|Enter\s+your\s+email|Subscribe\s*$)/i;
+  /^\s*(?:Sign\s+up\s+for\s+(?:our|the|my)\s+(?:\w+\s+)?(?:newsletter|mailing\s+list|email\s+list|updates)|Enter\s+your\s+email|Subscribe\s*$)/i;
 
 /** Matches lines that are just a standalone markdown link (for READ MORE blocks) */
 const STANDALONE_LINK_LINE_RE = /^\s*\[[^\]]+\]\([^)]+\)\s*$/;
