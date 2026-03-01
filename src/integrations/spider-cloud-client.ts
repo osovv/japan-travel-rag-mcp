@@ -222,12 +222,17 @@ async function parseSpiderCrawlResponse(response: Response): Promise<SpiderCrawl
     );
   }
 
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+  if (parsed === null || (typeof parsed !== "object" && !Array.isArray(parsed))) {
     throw new SpiderProxyError(
-      "Spider proxy response JSON must be an object.",
+      "Spider proxy response JSON must be an object or array.",
       response.status,
       { bodyPreview: rawText.slice(0, 1000) },
     );
+  }
+
+  // Spider API returns a JSON array of crawl results directly
+  if (Array.isArray(parsed)) {
+    return { data: parsed as SpiderCrawlItem[], status: "ok" };
   }
 
   const result = parsed as Record<string, unknown>;

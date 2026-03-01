@@ -400,16 +400,21 @@ describe("M-SPIDER-CLOUD-CLIENT deterministic crawl contract", () => {
     expect(error.details?.bodyPreview).toBe("not-json-at-all");
   });
 
-  it("maps success JSON arrays to SpiderProxyError because object payload is required", async () => {
+  it("accepts success JSON arrays as Spider crawl results", async () => {
+    const items = [
+      { url: "https://example.com", content: "hello", status_code: 200 },
+      { url: "https://example.com/page2", content: "world", status_code: 200 },
+    ];
     installFetchMock(async () => {
-      return new Response(JSON.stringify(["item-1", "item-2"]), { status: 200 });
+      return new Response(JSON.stringify(items), { status: 200 });
     });
 
-    const error = await assertSpiderProxyError(() =>
-      runCrawl(createTestConfig(), createNoopLogger(), { url: "https://example.com" }),
-    );
+    const result = await runCrawl(createTestConfig(), createNoopLogger(), { url: "https://example.com" });
 
-    expect(error.status).toBe(200);
+    expect(result.status).toBe("ok");
+    expect(result.data).toHaveLength(2);
+    expect(result.data[0].url).toBe("https://example.com");
+    expect(result.data[1].content).toBe("world");
   });
 
   it("throws SpiderProxyError when request.url is empty", async () => {
