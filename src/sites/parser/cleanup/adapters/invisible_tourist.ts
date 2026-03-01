@@ -58,9 +58,9 @@ const AFFILIATE_DISCLAIMER_RE =
 /** Pinterest pin prompt: `Like it? Pin it! 📌` */
 const PIN_PROMPT_RE = /^\s*Like it\?\s*Pin it!\s*📌?\s*$/;
 
-/** Inline pin prompt: `*Pin me to Pinterest for reference later!*` or `*Pin me to Pinterest for later reference!*` */
+/** Inline pin prompt: `*Pin me to Pinterest for reference later!*` — appears as suffix on image lines */
 const INLINE_PIN_RE =
-  /^\s*\*Pin me to Pinterest for (?:reference later|later reference)!\*\s*$/;
+  /\s*\*Pin me to Pinterest for (?:reference later|later reference)!\*/g;
 
 /** Newsletter signup heading */
 const NEWSLETTER_HEADING_RE = /^###\s+Like what you see\?\s*✅?\s*Sign up/;
@@ -219,7 +219,7 @@ function stripLineNoise(text: string): string {
     if (DOUBLED_DATE_RE.test(line)) continue;
     if (AFFILIATE_DISCLAIMER_RE.test(line)) continue;
     if (PIN_PROMPT_RE.test(line)) continue;
-    if (INLINE_PIN_RE.test(line)) continue;
+    // INLINE_PIN_RE handled as global text replace in clean() below
     if (NEWSLETTER_HEADING_RE.test(line)) continue;
     if (NEWSLETTER_EMAIL_RE.test(line)) continue;
     if (SUBSCRIPTION_BOX_RE.test(line)) continue;
@@ -255,8 +255,11 @@ function stripLineNoise(text: string): string {
 function clean(text: string): string {
   // START_BLOCK_CLEAN_M_ADAPTER_INVISIBLE_TOURIST_007
 
+  // Phase 0: Strip inline Pinterest prompts (global text replace, not line-level)
+  let result = text.replace(INLINE_PIN_RE, "");
+
   // Phase 1: Strip SVG placeholder images
-  let result = stripSvgPlaceholders(text);
+  result = stripSvgPlaceholders(result);
 
   // Phase 2: Truncate at earliest footer marker (Like what you see, Comments, Leave a Reply)
   result = stripFooterFromMarker(result);
