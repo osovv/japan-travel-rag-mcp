@@ -239,7 +239,7 @@ export function parseCrawlItem(
     title,
     clean_text: cleanedText,
     text_hash: textHash,
-    http_status: item.status_code,
+    http_status: item.status_code ?? 200,
     fetched_at: new Date(),
   };
   // END_BLOCK_BUILD_PARSED_PAGE_M_SITES_PARSER_009

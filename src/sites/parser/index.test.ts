@@ -416,6 +416,13 @@ describe("M-SITES-PARSER", () => {
       expect(result.http_status).toBe(200);
     });
 
+    it("should default http_status to 200 when status_code is undefined", () => {
+      const item = makeCrawlItem();
+      (item as Record<string, unknown>).status_code = undefined;
+      const result = parseCrawlItem(item, TEST_SOURCE_ID, createNoopLogger());
+      expect(result.http_status).toBe(200);
+    });
+
     it("should set fetched_at to a recent Date", () => {
       const before = new Date();
       const item = makeCrawlItem();
