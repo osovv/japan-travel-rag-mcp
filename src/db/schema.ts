@@ -63,7 +63,7 @@ export const sitePagesTable = pgTable("site_pages", {
     .notNull()
     .references(() => siteSourcesTable.sourceId),
   url: text("url").notNull(),
-  canonicalUrl: text("canonical_url"),
+  canonicalUrl: text("canonical_url").unique(),
   title: text("title"),
   textHash: text("text_hash"),
   httpStatus: integer("http_status"),
