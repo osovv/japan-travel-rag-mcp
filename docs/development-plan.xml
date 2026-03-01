@@ -1159,7 +1159,7 @@
       <justification>Per-source cleanup removes domain-specific crawl noise from indexed content, improving chunk quality and retrieval relevance for search_sites and get_page_chunk without changing MCP tool contracts. Discriminated union output and structured skip handling replaces the current error-based empty-content hack with clean non-fatal ingestion semantics.</justification>
     </Phase-11>
 
-    <Phase-12 name="CleanupAdapterCoverageAllSources" status="planned">
+    <Phase-12 name="CleanupAdapterCoverageAllSources" status="done">
       <step-1>Add shared cleanup primitives in `src/sites/parser/cleanup/common.ts` and profile composers in `src/sites/parser/cleanup/profiles.ts` to avoid rule duplication across adapters.</step-1>
       <step-2>Implement Layer B adapters for all remaining source_ids using fixture-guided deterministic rules: insidekyoto, trulytokyo, kansai_odyssey, invisible_tourist, japan_unravelled, japan_guide, reddit_japantravel, navitime, jorudan, jreast, smart_ex.</step-2>
       <step-3>Implement `src/sites/parser/cleanup/registry.ts` with stable source_id-to-adapter mapping and exported SUPPORTED_CLEANUP_SOURCE_IDS list.</step-3>
