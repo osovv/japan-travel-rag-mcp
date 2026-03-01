@@ -2,8 +2,8 @@
 // VERSION: 2.0.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Validate deterministic parsing behavior for M-SITES-PARSER with ParserResult discriminated union, and validate the layered cleanup pipeline (global, source adapter, quality gate).
-//   SCOPE: Assert URL normalization, title extraction, text cleaning, SHA-256 hashing, error handling, non-200 status warnings, ParserResult discriminated union, global cleanup, wrenjapan adapter, quality gate, and full pipeline integration.
-//   DEPENDS: M-SITES-PARSER, M-SPIDER-CLOUD-CLIENT, M-LOGGER, M-SITES-PARSER-CLEANUP-GLOBAL, M-SITES-PARSER-CLEANUP-ADAPTERS-WRENJAPAN, M-SITES-PARSER-CLEANUP-QUALITY-GATE
+//   SCOPE: Assert URL normalization, title extraction, text cleaning, SHA-256 hashing, error handling, non-200 status warnings, ParserResult discriminated union, global cleanup, wrenjapan adapter, quality gate, full pipeline integration, cleanup registry, and fixture matrix coverage for all 12 source adapters.
+//   DEPENDS: M-SITES-PARSER, M-SPIDER-CLOUD-CLIENT, M-LOGGER, M-SITES-PARSER-CLEANUP-GLOBAL, M-SITES-PARSER-CLEANUP-ADAPTERS-WRENJAPAN, M-SITES-PARSER-CLEANUP-QUALITY-GATE, M-SITES-PARSER-CLEANUP-REGISTRY
 //   LINKS: M-SITES-PARSER-TEST, M-SITES-PARSER, M-SPIDER-CLOUD-CLIENT, M-LOGGER
 // END_MODULE_CONTRACT
 //
@@ -21,10 +21,13 @@
 //   WrenjapanAdapterTests - Validate Layer B wrenjapan source adapter cleanup.
 //   QualityGateTests - Validate Layer C quality gate accept/reject decisions.
 //   CleanupPipelineIntegrationTests - Validate full cleanup pipeline through parseCrawlItem.
+//   RegistryTests - Validate cleanup adapter registry completeness and lookup.
+//   FixtureMatrixTests - Validate cleanup pipeline for all 12 source adapters via fixture regression.
+//   PipelineRegistryIntegrationTests - Validate pipeline routes non-wrenjapan sources through registry.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.0.0 - Updated all tests for ParserResult discriminated union return type, converted empty-content throws to structured skip assertions, added cleanup pipeline tests (global, wrenjapan adapter, quality gate, integration).
+//   LAST_CHANGE: v3.0.0 - Added cleanup registry tests, fixture matrix coverage for all 12 source adapters, and pipeline-registry integration test.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -836,3 +839,397 @@ describe("M-SITES-PARSER-CLEANUP-PIPELINE", () => {
   });
 });
 // END_BLOCK_CLEANUP_PIPELINE_INTEGRATION_TESTS_M_SITES_PARSER_TEST_016
+
+// START_BLOCK_REGISTRY_TESTS_M_SITES_PARSER_TEST_017
+import { SUPPORTED_CLEANUP_SOURCE_IDS, getCleanupAdapter } from "./cleanup/registry";
+import { runCleanupPipeline } from "./cleanup/index";
+
+describe("M-SITES-PARSER-CLEANUP-REGISTRY", () => {
+  it("should have exactly 12 entries in SUPPORTED_CLEANUP_SOURCE_IDS", () => {
+    expect(SUPPORTED_CLEANUP_SOURCE_IDS).toHaveLength(12);
+  });
+
+  it("should contain all expected source IDs", () => {
+    const expected = [
+      "insidekyoto",
+      "invisible_tourist",
+      "japan_guide",
+      "japan_unravelled",
+      "jorudan",
+      "jreast",
+      "kansai_odyssey",
+      "navitime",
+      "reddit_japantravel",
+      "smart_ex",
+      "trulytokyo",
+      "wrenjapan",
+    ];
+    expect(SUPPORTED_CLEANUP_SOURCE_IDS).toEqual(expected);
+  });
+
+  it("should return an adapter for each registered source", () => {
+    for (const sourceId of SUPPORTED_CLEANUP_SOURCE_IDS) {
+      const adapter = getCleanupAdapter(sourceId);
+      expect(adapter).not.toBeNull();
+    }
+  });
+
+  it("should return null for unknown source", () => {
+    expect(getCleanupAdapter("nonexistent_source")).toBeNull();
+  });
+
+  it("should have correct sourceId on each adapter", () => {
+    for (const sourceId of SUPPORTED_CLEANUP_SOURCE_IDS) {
+      const adapter = getCleanupAdapter(sourceId);
+      expect(adapter!.sourceId).toBe(sourceId);
+    }
+  });
+});
+// END_BLOCK_REGISTRY_TESTS_M_SITES_PARSER_TEST_017
+
+// START_BLOCK_INSIDEKYOTO_FIXTURE_TESTS_M_SITES_PARSER_TEST_018
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-INSIDEKYOTO", () => {
+  it("should clean insidekyoto one-day itinerary fixture", () => {
+    const fixture = require("./__fixtures__/insidekyoto/raw/insidekyoto.com-kyoto-one-day-itinerary-bc6429fe.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "insidekyoto");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Kyoto Vacation Checklist");
+      expect(result.text).not.toContain("Kyoto District Map");
+      expect(result.text).not.toContain("About InsideKyoto.com");
+      // Preserve article headings and body text
+      expect(result.text).toContain("##");
+      expect(result.text.toLowerCase()).toContain("temple");
+    }
+  });
+
+  it("should clean insidekyoto districts fixture", () => {
+    const fixture = require("./__fixtures__/insidekyoto/raw/insidekyoto.com-kyoto-districts-e204753f.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "insidekyoto");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Kyoto Vacation Checklist");
+      expect(result.text).not.toContain("About InsideKyoto.com");
+      expect(result.text.toLowerCase()).toContain("kyoto");
+    }
+  });
+});
+// END_BLOCK_INSIDEKYOTO_FIXTURE_TESTS_M_SITES_PARSER_TEST_018
+
+// START_BLOCK_TRULYTOKYO_FIXTURE_TESTS_M_SITES_PARSER_TEST_019
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-TRULYTOKYO", () => {
+  it("should clean trulytokyo restaurants fixture", () => {
+    const fixture = require("./__fixtures__/trulytokyo/raw/trulytokyo.com-best-tokyo-restaurants-570f3ef4.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "trulytokyo");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Tokyo Vacation Checklist");
+      expect(result.text).not.toContain("Tokyo District Map");
+      expect(result.text).not.toContain("Top Activities In Tokyo");
+      // Preserve restaurant listings
+      expect(result.text.toLowerCase()).toContain("restaurant");
+      expect(result.text.toLowerCase()).toContain("shinjuku");
+    }
+  });
+
+  it("should clean trulytokyo luxury hotels fixture", () => {
+    const fixture = require("./__fixtures__/trulytokyo/raw/trulytokyo.com-best-tokyo-luxury-hotels-0937f367.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "trulytokyo");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Tokyo Vacation Checklist");
+      expect(result.text).not.toContain("Top Activities In Tokyo");
+      expect(result.text.toLowerCase()).toContain("hotel");
+    }
+  });
+});
+// END_BLOCK_TRULYTOKYO_FIXTURE_TESTS_M_SITES_PARSER_TEST_019
+
+// START_BLOCK_KANSAI_ODYSSEY_FIXTURE_TESTS_M_SITES_PARSER_TEST_020
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-KANSAI_ODYSSEY", () => {
+  it("should clean kansai_odyssey koyasan fixture", () => {
+    const fixture = require("./__fixtures__/kansai_odyssey/raw/kansai-odyssey.com-koyasan-okunoin-cemetery-d4543146.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "kansai_odyssey");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("[Kansai Odyssey]");
+      expect(result.text).not.toContain("Adventures in Kansai");
+      expect(result.text).not.toContain("You May Also Like");
+      // Preserve article text
+      expect(result.text.toLowerCase()).toContain("okunoin");
+      expect(result.text.toLowerCase()).toContain("cemetery");
+    }
+  });
+
+  it("should clean kansai_odyssey hamadera park fixture", () => {
+    const fixture = require("./__fixtures__/kansai_odyssey/raw/kansai-odyssey.com-hamadera-park-4d0bd65d.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "kansai_odyssey");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("[Kansai Odyssey]");
+      expect(result.text).not.toContain("You May Also Like");
+      expect(result.text.toLowerCase()).toContain("park");
+    }
+  });
+});
+// END_BLOCK_KANSAI_ODYSSEY_FIXTURE_TESTS_M_SITES_PARSER_TEST_020
+
+// START_BLOCK_INVISIBLE_TOURIST_FIXTURE_TESTS_M_SITES_PARSER_TEST_021
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-INVISIBLE_TOURIST", () => {
+  it("should clean invisible_tourist etiquette fixture", () => {
+    const fixture = require("./__fixtures__/invisible_tourist/raw/theinvisibletourist.com-dos-and-donts-in-japan-tourist-guide-etiquette-72165e6e.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "invisible_tourist");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("ByAlyse");
+      expect(result.text).not.toContain("affiliate links");
+      expect(result.text).not.toContain("Like it? Pin it!");
+      expect(result.text).not.toContain("READ MORE:");
+      // Preserve article headings and tips
+      expect(result.text).toContain("##");
+      expect(result.text.toLowerCase()).toContain("etiquette");
+    }
+  });
+
+  it("should clean invisible_tourist japan travel fixture", () => {
+    const fixture = require("./__fixtures__/invisible_tourist/raw/theinvisibletourist.com-japan-travel-2bad8bee.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "invisible_tourist");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("ByAlyse");
+      expect(result.text).not.toContain("Like it? Pin it!");
+      expect(result.text.toLowerCase()).toContain("japan");
+    }
+  });
+});
+// END_BLOCK_INVISIBLE_TOURIST_FIXTURE_TESTS_M_SITES_PARSER_TEST_021
+
+// START_BLOCK_JAPAN_UNRAVELLED_FIXTURE_TESTS_M_SITES_PARSER_TEST_022
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-JAPAN_UNRAVELLED", () => {
+  it("should clean japan_unravelled best time fixture", () => {
+    const fixture = require("./__fixtures__/japan_unravelled/raw/japanunravelled.substack.com-p-best-time-to-visit-japan-3eb25182.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "japan_unravelled");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("SubscribeSign in");
+      expect(result.text).not.toContain("Trip Essentials");
+      expect(result.text).not.toContain("Ready for more?");
+      expect(result.text).not.toContain("Discussion about this post");
+      // Preserve article advice content
+      expect(result.text.toLowerCase()).toContain("japan");
+      expect(result.text.toLowerCase()).toContain("september");
+    }
+  });
+
+  it("should clean japan_unravelled getting around fixture", () => {
+    const fixture = require("./__fixtures__/japan_unravelled/raw/japanunravelled.substack.com-p-how-to-get-around-japan-cb950aaf.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "japan_unravelled");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("SubscribeSign in");
+      expect(result.text).not.toContain("Ready for more?");
+      expect(result.text.toLowerCase()).toContain("japan");
+    }
+  });
+});
+// END_BLOCK_JAPAN_UNRAVELLED_FIXTURE_TESTS_M_SITES_PARSER_TEST_022
+
+// START_BLOCK_JAPAN_GUIDE_FIXTURE_TESTS_M_SITES_PARSER_TEST_023
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-JAPAN_GUIDE", () => {
+  it("should clean japan_guide kyoto fixture", () => {
+    const fixture = require("./__fixtures__/japan_guide/raw/japan-guide.com-e-e2158.html-2abc4b3d.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "japan_guide");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Choose a destinationTokyo");
+      expect(result.text).not.toContain("Sponsored Story");
+      expect(result.text).not.toContain("Search stays");
+      // Preserve practical info
+      expect(result.text.toLowerCase()).toContain("kyoto");
+      expect(result.text.toLowerCase()).toContain("temple");
+    }
+  });
+
+  it("should clean japan_guide fushimi inari fixture", () => {
+    const fixture = require("./__fixtures__/japan_guide/raw/japan-guide.com-e-e3915.html-27873f53.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "japan_guide");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Choose a destinationTokyo");
+      expect(result.text).not.toContain("Sponsored Story");
+      expect(result.text.toLowerCase()).toContain("fushimi inari");
+    }
+  });
+});
+// END_BLOCK_JAPAN_GUIDE_FIXTURE_TESTS_M_SITES_PARSER_TEST_023
+
+// START_BLOCK_NAVITIME_FIXTURE_TESTS_M_SITES_PARSER_TEST_024
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-NAVITIME", () => {
+  it("should clean navitime museum fixture", () => {
+    const fixture = require("./__fixtures__/navitime/raw/japantravel.navitime.com-en-area-jp-guide-ntjtrv0699-en-475e6a09.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "navitime");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("検索ボックス");
+      expect(result.text).not.toContain("JAPAN TRAVEL INSTAGRAM");
+      expect(result.text).not.toContain("Premium Plan");
+      // Preserve spot info
+      expect(result.text.toLowerCase()).toContain("museum");
+      expect(result.text.toLowerCase()).toContain("yamagata");
+    }
+  });
+
+  it("should reject navitime 404 page fixture", () => {
+    const fixture = require("./__fixtures__/navitime/raw/japantravel.navitime.com-en-area-jp-guide-ntjonry2528004-en-b47bb4c2.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "navitime");
+    expect(result.accepted).toBe(false);
+  });
+});
+// END_BLOCK_NAVITIME_FIXTURE_TESTS_M_SITES_PARSER_TEST_024
+
+// START_BLOCK_JORUDAN_FIXTURE_TESTS_M_SITES_PARSER_TEST_025
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-JORUDAN", () => {
+  it("should reject jorudan JS redirect stub", () => {
+    const fixture = require("./__fixtures__/jorudan/raw/world.jorudan.co.jp-mln-en-4abd19b1.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "jorudan");
+    expect(result.accepted).toBe(false);
+  });
+
+  it("should accept jorudan FAQ page and preserve content", () => {
+    const fixture = require("./__fixtures__/jorudan/raw/world.jorudan.co.jp-mln-en-faq-f121d970.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "jorudan");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      // Preserve FAQ content
+      expect(result.text.toLowerCase()).toContain("japan transit planner");
+      expect(result.text.toLowerCase()).toContain("english");
+    }
+  });
+});
+// END_BLOCK_JORUDAN_FIXTURE_TESTS_M_SITES_PARSER_TEST_025
+
+// START_BLOCK_JREAST_FIXTURE_TESTS_M_SITES_PARSER_TEST_026
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-JREAST", () => {
+  it("should clean jreast multi fixture", () => {
+    const fixture = require("./__fixtures__/jreast/raw/jreast.co.jp-en-multi-51d46a18.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "jreast");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Reserve Today!");
+      expect(result.text).not.toContain("Opens in a new window");
+      // Preserve train/station info
+      expect(result.text.toLowerCase()).toContain("train");
+      expect(result.text.toLowerCase()).toContain("station");
+    }
+  });
+
+  it("should clean jreast information center fixture", () => {
+    const fixture = require("./__fixtures__/jreast/raw/jreast.co.jp-en-multi-customer_support-information_center.html-acf3a17e.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "jreast");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Reserve Today!");
+      expect(result.text.toLowerCase()).toContain("information");
+    }
+  });
+});
+// END_BLOCK_JREAST_FIXTURE_TESTS_M_SITES_PARSER_TEST_026
+
+// START_BLOCK_SMART_EX_FIXTURE_TESTS_M_SITES_PARSER_TEST_027
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-SMART_EX", () => {
+  it("should clean smart_ex beginner fixture", () => {
+    const fixture = require("./__fixtures__/smart_ex/raw/smart-ex.jp-en-beginner-d049b9ea.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "smart_ex");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Download on the App Store");
+      expect(result.text).not.toContain("GET IT ON Google Play");
+      expect(result.text).not.toContain("Register Here");
+      // Preserve Shinkansen info
+      expect(result.text.toLowerCase()).toContain("shinkansen");
+      expect(result.text.toLowerCase()).toContain("ticket");
+    }
+  });
+
+  it("should clean smart_ex ticket place fixture", () => {
+    const fixture = require("./__fixtures__/smart_ex/raw/smart-ex.jp-en-entraining-ticket-place-6e775076.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "smart_ex");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Download on the App Store");
+      expect(result.text).not.toContain("GET IT ON Google Play");
+      expect(result.text.toLowerCase()).toContain("shinkansen");
+    }
+  });
+});
+// END_BLOCK_SMART_EX_FIXTURE_TESTS_M_SITES_PARSER_TEST_027
+
+// START_BLOCK_REDDIT_JAPANTRAVEL_FIXTURE_TESTS_M_SITES_PARSER_TEST_028
+describe("M-SITES-PARSER-CLEANUP-ADAPTERS-REDDIT_JAPANTRAVEL", () => {
+  it("should clean reddit_japantravel 108 days fixture", () => {
+    const fixture = require("./__fixtures__/reddit_japantravel/raw/reddit.com-r-japantravel-comments-1cwwfc0-i_spent_108_days_in_japan_and_this_is_what_i-e6a55dde.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "reddit_japantravel");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("Reddit - The heart of the internet");
+      expect(result.text).not.toContain("Related Answers Section");
+      expect(result.text).not.toContain("New to Reddit?");
+      expect(result.text).not.toContain("Top Posts");
+      // Preserve post title and body
+      expect(result.text.toLowerCase()).toContain("108 days");
+      expect(result.text.toLowerCase()).toContain("japan");
+    }
+  });
+
+  it("should clean reddit_japantravel medical emergency fixture", () => {
+    const fixture = require("./__fixtures__/reddit_japantravel/raw/reddit.com-r-japantravel-comments-12qlz68-my_experience_with_a_medical_emergency_in_japan-3f1b6f36.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "reddit_japantravel");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      expect(result.text).not.toContain("New to Reddit?");
+      expect(result.text).not.toContain("Top Posts");
+      expect(result.text.toLowerCase()).toContain("japan");
+    }
+  });
+});
+// END_BLOCK_REDDIT_JAPANTRAVEL_FIXTURE_TESTS_M_SITES_PARSER_TEST_028
+
+// START_BLOCK_PIPELINE_REGISTRY_INTEGRATION_TESTS_M_SITES_PARSER_TEST_029
+describe("M-SITES-PARSER-CLEANUP-PIPELINE-REGISTRY-INTEGRATION", () => {
+  it("pipeline routes insidekyoto through correct adapter", () => {
+    const fixture = require("./__fixtures__/insidekyoto/raw/insidekyoto.com-kyoto-one-day-itinerary-bc6429fe.json");
+    const raw: string = fixture.body[0].content;
+    const result = runCleanupPipeline(raw, "insidekyoto");
+    expect(result.accepted).toBe(true);
+    if (result.accepted) {
+      // insidekyoto-specific noise should be removed (not just global cleanup)
+      expect(result.text).not.toContain("Kyoto Vacation Checklist");
+      expect(result.text).not.toContain("Kyoto District Map");
+      expect(result.text).not.toContain("About InsideKyoto.com");
+      expect(result.metrics.clean_char_count).toBeGreaterThan(MIN_CLEAN_CHARS);
+    }
+  });
+});
+// END_BLOCK_PIPELINE_REGISTRY_INTEGRATION_TESTS_M_SITES_PARSER_TEST_029
