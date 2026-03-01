@@ -54,7 +54,7 @@
       </annotations>
     </M-SITE-SOURCES>
 
-    <M-SPIDER-CLOUD-CLIENT NAME="SpiderCloudClient" TYPE="INTEGRATION" STATUS="planned">
+    <M-SPIDER-CLOUD-CLIENT NAME="SpiderCloudClient" TYPE="INTEGRATION" STATUS="active">
       <purpose>Spider crawl API adapter routed through unified proxy for scheduled and targeted recrawl jobs.</purpose>
       <path>src/integrations/spider-cloud-client.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
@@ -63,7 +63,7 @@
       </annotations>
     </M-SPIDER-CLOUD-CLIENT>
 
-    <M-VOYAGE-PROXY-CLIENT NAME="VoyageProxyClient" TYPE="INTEGRATION" STATUS="planned">
+    <M-VOYAGE-PROXY-CLIENT NAME="VoyageProxyClient" TYPE="INTEGRATION" STATUS="active">
       <purpose>Voyage embedding adapter routed through unified proxy for query/document embedding workflows.</purpose>
       <path>src/integrations/voyage-proxy-client.ts</path>
       <depends>M-CONFIG, M-LOGGER</depends>
@@ -73,7 +73,7 @@
       </annotations>
     </M-VOYAGE-PROXY-CLIENT>
 
-    <M-SITES-INDEX-REPOSITORY NAME="SitesIndexRepository" TYPE="DATA_LAYER" STATUS="planned">
+    <M-SITES-INDEX-REPOSITORY NAME="SitesIndexRepository" TYPE="DATA_LAYER" STATUS="active">
       <purpose>Persist curated-site pages/chunks/embeddings and serve hybrid search/chunk lookup queries with active index version filtering.</purpose>
       <path>src/sites/search/repository.ts</path>
       <depends>M-DB, M-LOGGER</depends>
@@ -86,7 +86,7 @@
       </annotations>
     </M-SITES-INDEX-REPOSITORY>
 
-    <M-SITES-PARSER NAME="SitesParser" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-SITES-PARSER NAME="SitesParser" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Parse Spider crawl payload into canonical URL/title/clean-text records.</purpose>
       <path>src/sites/parser/index.ts</path>
       <depends>M-LOGGER</depends>
@@ -95,7 +95,7 @@
       </annotations>
     </M-SITES-PARSER>
 
-    <M-SITES-CHUNKER NAME="SitesChunker" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-SITES-CHUNKER NAME="SitesChunker" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Deterministic structural + token split chunking for curated-site text.</purpose>
       <path>src/sites/chunking/index.ts</path>
       <depends>M-LOGGER</depends>
@@ -104,7 +104,7 @@
       </annotations>
     </M-SITES-CHUNKER>
 
-    <M-SITES-INGESTION NAME="SitesIngestionOrchestrator" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-SITES-INGESTION NAME="SitesIngestionOrchestrator" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Coordinate crawl-only ingestion, parsing, chunking, embedding, and repository upserts for curated sites.</purpose>
       <path>src/sites/ingestion/orchestrator.ts</path>
       <depends>M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
@@ -114,7 +114,7 @@
       </annotations>
     </M-SITES-INGESTION>
 
-    <M-SITES-SEARCH NAME="SitesSearchService" TYPE="CORE_LOGIC" STATUS="planned">
+    <M-SITES-SEARCH NAME="SitesSearchService" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Serve local `search_sites` and `get_page_chunk` tool logic over local indexed content.</purpose>
       <path>src/sites/search/service.ts</path>
       <depends>M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
@@ -275,7 +275,7 @@
       </annotations>
     </M-SERVER>
 
-    <M-WORKER-ENTRYPOINT NAME="WorkerMain" TYPE="ENTRY_POINT" STATUS="planned">
+    <M-WORKER-ENTRYPOINT NAME="WorkerMain" TYPE="ENTRY_POINT" STATUS="active">
       <purpose>Bootstrap worker runtime and execute recurring curated-site scheduling/ingestion/index jobs.</purpose>
       <path>src/worker-main.ts</path>
       <depends>M-CONFIG, M-LOGGER, M-DB, M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-VOYAGE-PROXY-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-SITES-INDEX-REPOSITORY, M-SITES-INGESTION</depends>

@@ -865,7 +865,7 @@
       <justification>Usage tracking requires database persistence (M-DB reactivation), a new data-layer module (M-USAGE-TRACKER), JWT identity extraction in tool execution (M-FASTMCP-RUNTIME), and portal display integration (M-PORTAL-UI). Steps are ordered by dependency: config first, then DB, then tracker, then runtime integration, then UI.</justification>
     </Phase-5>
 
-    <Phase-6 name="CuratedSitesContractsAndSchema" status="planned">
+    <Phase-6 name="CuratedSitesContractsAndSchema" status="done">
       <step-1>Extend M-CONFIG contract with `VOYAGE_API_KEY`, `SPIDER_API_KEY`, `PROXY_BASE_URL`, `PROXY_SECRET`.</step-1>
       <step-2>Add required site index schema/migrations (`site_sources`, `site_pages`, `site_chunks`, `site_chunk_embeddings`, `site_crawl_jobs`) with index_version support, execute `CREATE EXTENSION IF NOT EXISTS vector;`, and define `site_chunk_embeddings.embedding` as `vector(1024)` for `voyage-4` similarity search.</step-2>
       <step-3>Switch M-SITE-SOURCES runtime read path to `site_sources` table while keeping bootstrap constant as seed-only.</step-3>
@@ -873,7 +873,7 @@
       <justification>Contract and schema alignment must be complete before worker ingestion or local retrieval tools can be implemented safely.</justification>
     </Phase-6>
 
-    <Phase-7 name="RuntimeSplitAndIngestionWorker" status="planned">
+    <Phase-7 name="RuntimeSplitAndIngestionWorker" status="done">
       <step-1>Introduce dedicated worker entrypoint and startup wiring separate from API runtime.</step-1>
       <step-2>Implement Spider proxy crawl client and deterministic crawl-only ingestion orchestrator.</step-2>
       <step-3>Implement parser/chunker/embedding pipeline (`voyage-4`) and repository upserts for active index version.</step-3>
@@ -881,14 +881,14 @@
       <justification>Worker isolation avoids API interference and enables predictable ingestion lifecycle and crawl budget enforcement.</justification>
     </Phase-7>
 
-    <Phase-8 name="CuratedSitesLocalTools" status="planned">
+    <Phase-8 name="CuratedSitesLocalTools" status="done">
       <step-1>Register local `search_sites` and `get_page_chunk` tools in M-FASTMCP-RUNTIME (not in proxied allowlist).</step-1>
       <step-2>Implement M-SITES-SEARCH hybrid retrieval path and bounded chunk evidence response.</step-2>
       <step-3>Keep tool model explicit (`search_messages` + `search_sites`) and reject unified search abstraction.</step-3>
       <justification>This phase exposes user-facing curated retrieval while preserving clear tool boundaries and attribution guarantees.</justification>
     </Phase-8>
 
-    <Phase-9 name="OpsHardening" status="planned">
+    <Phase-9 name="OpsHardening" status="done">
       <step-1>Add ingestion observability, retry/backoff policy, and provider outage fallback behavior.</step-1>
       <step-2>Add takedown/pause controls and strict bounded-output checks for evidence endpoints.</step-2>
       <step-3>Stabilize cost/performance via source budgets and cadence tuning.</step-3>
