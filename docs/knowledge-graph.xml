@@ -1,7 +1,7 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.7.0">
-    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources</keywords>
-    <annotation>Portal-first architecture with five MCP tools (4 proxied + 1 local registry), shareable landing + self-serve user portal onboarding, and per-user MCP tool call usage tracking in PostgreSQL with portal display.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.8.0">
+    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search</keywords>
+    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, and worker-driven curated-sites crawl/index pipeline with attributed local retrieval.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
       <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
@@ -9,7 +9,7 @@
       <depends>none</depends>
       <annotations>
         <fn-loadConfig description="Validate env and build typed AppConfig including DATABASE_URL." />
-        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, Logto credentials, M2M provisioning credentials, and databaseUrl." />
+        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, Logto credentials, M2M provisioning credentials, databaseUrl, and unified proxy keys for Spider/Voyage." />
       </annotations>
     </M-CONFIG>
 
@@ -23,7 +23,7 @@
     </M-LOGGER>
 
     <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" STATUS="active">
-      <purpose>Tool schema registry and validators for current proxied MCP tool set.</purpose>
+      <purpose>Tool schema registry and validators for proxied tg-chat tools and local curated-site tools.</purpose>
       <path>src/tools/contracts.ts</path>
       <depends>M-LOGGER</depends>
       <annotations>
@@ -31,24 +31,98 @@
         <schema-GetMessageContextInput description="Input schema for get_message_context." />
         <schema-GetRelatedMessagesInput description="Input schema for get_related_messages." />
         <schema-ListSourcesInput description="Input schema for list_sources." />
+        <schema-SearchSitesInput description="Input schema for search_sites (query/top_k/source_ids)." />
+        <schema-GetPageChunkInput description="Input schema for get_page_chunk (chunk_id/include_neighbors)." />
         <const-PROXIED_TOOL_NAMES description="Allowlist: search_messages, get_message_context, get_related_messages, list_sources." />
         <const-TOOL_INPUT_JSON_SCHEMAS description="Tool descriptions and parameter contracts consumed by runtime registration." />
       </annotations>
     </M-TOOLS-CONTRACTS>
 
     <M-SITE-SOURCES NAME="SiteSources" TYPE="DATA_LAYER" STATUS="active">
-      <purpose>Serve curated source registry as frozen seed data for get_site_sources local MCP tool.</purpose>
+      <purpose>Serve curated source registry from `site_sources` database table with bootstrap seed constant used only for initialization.</purpose>
       <path>src/tools/site-sources.ts</path>
-      <depends>none</depends>
+      <depends>M-DB, M-LOGGER</depends>
       <annotations>
-        <const-SITE_SOURCES_RESPONSE description="Frozen seed data: description_and_tiers + 12 source entries." />
+        <const-SITE_SOURCES_RESPONSE description="Bootstrap seed data: description_and_tiers + initial source entries." />
+        <fn-getSiteSources description="Fetch registry rows from `site_sources` table for local tool response." />
+        <fn-upsertSiteSourcesSeed description="Seed/refresh initial source rows from bootstrap constant." />
         <schema-GetSiteSourcesInputSchema description="Empty z.object({}) schema for FastMCP tool registration." />
         <type-SiteSourcesResponse description="Typed output: description_and_tiers + sources array." />
-        <type-SiteSource description="Source entry: source_id, name, domain, tier, language, focus, status." />
+        <type-SiteSource description="Source entry: source_id, name, domain, tier, language, focus, status, crawl_interval_minutes, max_pages." />
         <type-TierDescription description="Tier metadata: tier, name, focus." />
         <type-DescriptionAndTiers description="Description string + tiers array." />
       </annotations>
     </M-SITE-SOURCES>
+
+    <M-SPIDER-CLOUD-CLIENT NAME="SpiderCloudClient" TYPE="INTEGRATION" STATUS="planned">
+      <purpose>Spider crawl API adapter routed through unified proxy for scheduled and targeted recrawl jobs.</purpose>
+      <path>src/integrations/spider-cloud-client.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-runCrawl description="Execute crawl request via `${PROXY_BASE_URL}/api.spider.cloud/*` with proxy and provider auth headers." />
+      </annotations>
+    </M-SPIDER-CLOUD-CLIENT>
+
+    <M-VOYAGE-PROXY-CLIENT NAME="VoyageProxyClient" TYPE="INTEGRATION" STATUS="planned">
+      <purpose>Voyage embedding adapter routed through unified proxy for query/document embedding workflows.</purpose>
+      <path>src/integrations/voyage-proxy-client.ts</path>
+      <depends>M-CONFIG, M-LOGGER</depends>
+      <annotations>
+        <fn-embedDocuments description="Generate `voyage-4` document embeddings via proxy endpoint." />
+        <fn-embedQuery description="Generate `voyage-4` query embedding via proxy endpoint." />
+      </annotations>
+    </M-VOYAGE-PROXY-CLIENT>
+
+    <M-SITES-INDEX-REPOSITORY NAME="SitesIndexRepository" TYPE="DATA_LAYER" STATUS="planned">
+      <purpose>Persist curated-site pages/chunks/embeddings and serve hybrid search/chunk lookup queries with active index version filtering.</purpose>
+      <path>src/sites/search/repository.ts</path>
+      <depends>M-DB, M-LOGGER</depends>
+      <annotations>
+        <fn-upsertPage description="Upsert normalized page records by canonical URL/hash." />
+        <fn-upsertChunks description="Upsert deterministic chunk records with chunking/index versions." />
+        <fn-upsertEmbeddings description="Upsert chunk embeddings for active index version." />
+        <fn-searchHybrid description="Run vector + FTS search with active index_version filter." />
+        <fn-getChunkWithNeighbors description="Resolve bounded chunk excerpt and optional neighbors." />
+      </annotations>
+    </M-SITES-INDEX-REPOSITORY>
+
+    <M-SITES-PARSER NAME="SitesParser" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Parse Spider crawl payload into canonical URL/title/clean-text records.</purpose>
+      <path>src/sites/parser/index.ts</path>
+      <depends>M-LOGGER</depends>
+      <annotations>
+        <fn-parseCrawlItem description="Normalize crawl item to deterministic page representation." />
+      </annotations>
+    </M-SITES-PARSER>
+
+    <M-SITES-CHUNKER NAME="SitesChunker" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Deterministic structural + token split chunking for curated-site text.</purpose>
+      <path>src/sites/chunking/index.ts</path>
+      <depends>M-LOGGER</depends>
+      <annotations>
+        <fn-chunkPage description="Apply v1 chunking config (`target=450`, `max=650`, `overlap=80`) with npm `tiktoken` token counting." />
+      </annotations>
+    </M-SITES-CHUNKER>
+
+    <M-SITES-INGESTION NAME="SitesIngestionOrchestrator" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Coordinate crawl-only ingestion, parsing, chunking, embedding, and repository upserts for curated sites.</purpose>
+      <path>src/sites/ingestion/orchestrator.ts</path>
+      <depends>M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
+      <annotations>
+        <fn-runScheduledIngestion description="Run due-source ingestion based on source intervals." />
+        <fn-runTargetedRecrawl description="Run internal single-URL recrawl through crawl endpoint with strict cap." />
+      </annotations>
+    </M-SITES-INGESTION>
+
+    <M-SITES-SEARCH NAME="SitesSearchService" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Serve local `search_sites` and `get_page_chunk` tool logic over local indexed content.</purpose>
+      <path>src/sites/search/service.ts</path>
+      <depends>M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
+      <annotations>
+        <fn-searchSites description="Run hybrid retrieval and return attributed ranked snippets." />
+        <fn-getPageChunk description="Return bounded chunk excerpt with optional neighbors." />
+      </annotations>
+    </M-SITES-SEARCH>
 
     <M-TG-CHAT-RAG-CLIENT NAME="TgChatRagClient" TYPE="INTEGRATION" STATUS="active">
       <purpose>HTTP methods adapter for tg-chat-rag upstream API.</purpose>
@@ -179,13 +253,13 @@
     </M-PORTAL-UI>
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" STATUS="active">
-      <purpose>Construct FastMCP runtime, register fixed tool surface (4 proxied + 1 local) with per-user usage tracking, configure OAuth Proxy on /mcp, and mount admin + portal routes.</purpose>
+      <purpose>Construct FastMCP runtime, register fixed tool surface (4 proxied + 3 local) with per-user usage tracking, configure OAuth Proxy on /mcp, and mount admin + portal routes.</purpose>
       <path>src/runtime/fastmcp-runtime.ts</path>
-      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
+      <depends>M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-TOOL-PROXY, M-TOOLS-CONTRACTS, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH</depends>
       <annotations>
         <fn-createFastMcpRuntime description="Build FastMCP instance with oauth proxy and route extension." />
         <fn-registerProxyTools description="Register four proxied tool handlers with Zod schemas and per-user usage tracking via context.session JWT sub extraction." />
-        <fn-registerLocalTools description="Register local tools (get_site_sources) with canAccess guard, local execute handler, and usage tracking." />
+        <fn-registerLocalTools description="Register local tools (`get_site_sources`, `search_sites`, `get_page_chunk`) with canAccess guard, local execute handlers, and usage tracking." />
         <fn-extractUserIdFromSession description="Decode JWT sub claim from RuntimeOauthSession idToken or accessToken for usage tracking." />
         <fn-mountAdminRoutes description="Mount /admin routes through Hono app returned by getApp()." />
         <fn-mountPortalRoutes description="Mount /, /portal, and /portal/* routes through Hono app returned by getApp()." />
@@ -193,13 +267,22 @@
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active">
-      <purpose>Bootstrap config, database, and dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, usage tracking, and local tools.</purpose>
+      <purpose>Bootstrap API runtime config/dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, usage tracking, and local tools.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
       <annotations>
-        <fn-main description="Initialize runtime dependencies, mount route handlers, and start server lifecycle." />
+        <fn-main description="Initialize API runtime dependencies, mount route handlers, and start server lifecycle." />
       </annotations>
     </M-SERVER>
+
+    <M-WORKER-ENTRYPOINT NAME="WorkerMain" TYPE="ENTRY_POINT" STATUS="planned">
+      <purpose>Bootstrap worker runtime and execute recurring curated-site scheduling/ingestion/index jobs.</purpose>
+      <path>src/worker-main.ts</path>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-VOYAGE-PROXY-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-SITES-INDEX-REPOSITORY, M-SITES-INGESTION</depends>
+      <annotations>
+        <fn-main description="Run scheduler loop for crawl-only ingestion and index refresh jobs." />
+      </annotations>
+    </M-WORKER-ENTRYPOINT>
 
     <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT" STATUS="active">
       <purpose>Top-level process bootstrap and fatal error mapping.</purpose>
@@ -253,11 +336,22 @@
       <CrossLink FROM="M-CONFIG" TO="M-AUTH-PROXY" REL="configures" />
       <CrossLink FROM="M-CONFIG" TO="M-PORTAL-IDENTITY" REL="configures" />
       <CrossLink FROM="M-CONFIG" TO="M-PORTAL-AUTH" REL="configures" />
+      <CrossLink FROM="M-CONFIG" TO="M-SPIDER-CLOUD-CLIENT" REL="configures" />
+      <CrossLink FROM="M-CONFIG" TO="M-VOYAGE-PROXY-CLIENT" REL="configures" />
       <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-TOOL-PROXY" REL="validates_inputs_for" />
+      <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-FASTMCP-RUNTIME" REL="provides_local_tool_contracts_for" />
       <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TOOL-PROXY" REL="integrates_with" />
+      <CrossLink FROM="M-SPIDER-CLOUD-CLIENT" TO="M-SITES-INGESTION" REL="integrates_with" />
+      <CrossLink FROM="M-VOYAGE-PROXY-CLIENT" TO="M-SITES-INGESTION" REL="integrates_with" />
+      <CrossLink FROM="M-VOYAGE-PROXY-CLIENT" TO="M-SITES-SEARCH" REL="embeds_for" />
+      <CrossLink FROM="M-SITES-PARSER" TO="M-SITES-INGESTION" REL="parses_for" />
+      <CrossLink FROM="M-SITES-CHUNKER" TO="M-SITES-INGESTION" REL="chunks_for" />
+      <CrossLink FROM="M-SITES-INDEX-REPOSITORY" TO="M-SITES-INGESTION" REL="persists_for" />
+      <CrossLink FROM="M-SITES-INDEX-REPOSITORY" TO="M-SITES-SEARCH" REL="queries_for" />
       <CrossLink FROM="M-AUTH-CONSENT-PATCH" TO="M-AUTH-PROXY" REL="patches_consent_for" />
       <CrossLink FROM="M-AUTH-PROXY" TO="M-FASTMCP-RUNTIME" REL="authenticates" />
       <CrossLink FROM="M-TOOL-PROXY" TO="M-FASTMCP-RUNTIME" REL="handles_tool_execution_for" />
+      <CrossLink FROM="M-SITES-SEARCH" TO="M-FASTMCP-RUNTIME" REL="handles_local_tool_execution_for" />
       <CrossLink FROM="M-ADMIN-AUTH" TO="M-ADMIN-UI" REL="authorizes" />
       <CrossLink FROM="M-PORTAL-IDENTITY" TO="M-PORTAL-PROVISIONING" REL="provisions_through" />
       <CrossLink FROM="M-PORTAL-AUTH" TO="M-PORTAL-UI" REL="authorizes" />
@@ -265,14 +359,18 @@
       <CrossLink FROM="M-PORTAL-UI" TO="M-FASTMCP-RUNTIME" REL="mounted_by" />
       <CrossLink FROM="M-ADMIN-UI" TO="M-FASTMCP-RUNTIME" REL="mounted_by" />
       <CrossLink FROM="M-FASTMCP-RUNTIME" TO="M-SERVER" REL="booted_by" />
+      <CrossLink FROM="M-SITES-INGESTION" TO="M-WORKER-ENTRYPOINT" REL="booted_by" />
       <CrossLink FROM="M-SERVER" TO="M-ROOT-ENTRYPOINT" REL="invoked_by" />
       <CrossLink FROM="M-MCP-AUTH-PROVIDER" TO="M-AUTH-PROXY" REL="superseded_by" />
       <CrossLink FROM="M-MCP-AUTH-ADAPTER" TO="M-AUTH-PROXY" REL="superseded_by" />
       <CrossLink FROM="M-CONFIG" TO="M-DB" REL="configures" />
       <CrossLink FROM="M-DB" TO="M-USAGE-TRACKER" REL="persists_for" />
+      <CrossLink FROM="M-DB" TO="M-SITE-SOURCES" REL="persists_for" />
+      <CrossLink FROM="M-DB" TO="M-SITES-INDEX-REPOSITORY" REL="persists_for" />
       <CrossLink FROM="M-USAGE-TRACKER" TO="M-FASTMCP-RUNTIME" REL="tracks_usage_for" />
       <CrossLink FROM="M-USAGE-TRACKER" TO="M-PORTAL-UI" REL="provides_stats_for" />
       <CrossLink FROM="M-SITE-SOURCES" TO="M-FASTMCP-RUNTIME" REL="provides_local_tool_for" />
+      <CrossLink FROM="M-SITE-SOURCES" TO="M-SITES-INGESTION" REL="provides_source_registry_for" />
       <CrossLink FROM="M-API-KEY-REPOSITORY" TO="M-PORTAL-PROVISIONING" REL="outside_scope_of" />
     </CrossLinks>
 
@@ -327,9 +425,29 @@
       <DF-SITE-SOURCES NAME="get_site_sources local tool flow">
         <step-1>Authenticated MCP client calls get_site_sources with no parameters.</step-1>
         <step-2>canAccess guard validates OAuth session.</step-2>
-        <step-3>Local execute handler returns frozen SITE_SOURCES_RESPONSE (no upstream call).</step-3>
+        <step-3>Local execute handler returns registry rows from `site_sources` table (bootstrap constant is seed-only).</step-3>
         <step-4>Usage tracking fires with userId + "get_site_sources".</step-4>
       </DF-SITE-SOURCES>
+
+      <DF-SITES-INGESTION NAME="curated sites crawl ingestion flow">
+        <step-1>M-WORKER-ENTRYPOINT scheduler selects due sources from M-SITE-SOURCES.</step-1>
+        <step-2>M-SITES-INGESTION calls M-SPIDER-CLOUD-CLIENT crawl endpoint through unified proxy.</step-2>
+        <step-3>M-SITES-PARSER and M-SITES-CHUNKER normalize and split fetched content.</step-3>
+        <step-4>M-VOYAGE-PROXY-CLIENT creates embeddings and M-SITES-INDEX-REPOSITORY persists index artifacts.</step-4>
+      </DF-SITES-INGESTION>
+
+      <DF-SITES-SEARCH NAME="search_sites local tool flow">
+        <step-1>Authenticated MCP client calls `search_sites` via M-FASTMCP-RUNTIME local tool route.</step-1>
+        <step-2>M-SITES-SEARCH builds query embedding via M-VOYAGE-PROXY-CLIENT.</step-2>
+        <step-3>M-SITES-INDEX-REPOSITORY executes hybrid vector+FTS search with active index version filter.</step-3>
+        <step-4>Attributed snippet results are returned with source_id, tier, URL, and chunk_id.</step-4>
+      </DF-SITES-SEARCH>
+
+      <DF-PAGE-CHUNK NAME="get_page_chunk local tool flow">
+        <step-1>Authenticated MCP client calls `get_page_chunk(chunk_id)`.</step-1>
+        <step-2>M-SITES-SEARCH resolves chunk + neighbors through M-SITES-INDEX-REPOSITORY.</step-2>
+        <step-3>Response returns bounded excerpt only (no full-page dump).</step-3>
+      </DF-PAGE-CHUNK>
 
       <DF-ADMIN-ROOT-AUTH NAME="admin root auth flow">
         <step-1>Operator posts token to `/admin/login`.</step-1>

@@ -1,9 +1,9 @@
-<DevelopmentPlan VERSION="1.1.0">
+<DevelopmentPlan VERSION="1.2.0">
   <Context>
-    <purpose>Deliver a shareable end-to-end onboarding flow for external testers using current MCP tool surface: landing redirect, user portal registration/login, automatic access provisioning, first successful MCP usage, and per-user tool call usage tracking visible in the portal.</purpose>
-    <scope>Keep existing public tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), preserve tg-chat-rag proxy behavior, keep `/admin/*` root-token protected, add portal-first onboarding surface on `/` and `/portal/*`, and track per-user MCP tool call counts in PostgreSQL with portal home display.</scope>
+    <purpose>Deliver a shareable end-to-end onboarding flow plus curated-site retrieval: portal onboarding, fixed MCP tool surface (4 proxied + 3 local), worker-based crawl/index pipeline, and attributed evidence retrieval for travel agents.</purpose>
+    <scope>Keep existing proxied tg-chat tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), keep `/admin/*` root-token protected, keep portal-first onboarding on `/` and `/portal/*`, and add local curated-site tools (`get_site_sources`, `search_sites`, `get_page_chunk`) backed by PostgreSQL index refreshed by worker crawl/index jobs.</scope>
     <constraints>
-      <constraint-1>Public MCP surface remains exactly five tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources` (proxied to upstream), and `get_site_sources` (local registry).</constraint-1>
+      <constraint-1>Public MCP surface remains exactly seven tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources` (proxied to upstream), and `get_site_sources`, `search_sites`, `get_page_chunk` (local).</constraint-1>
       <constraint-2>`search_context`, `validate_google_map_link`, and `verify_tabelog` are removed from active and deferred implementation plans.</constraint-2>
       <constraint-3>Landing remains intentionally simple and redirects users into user portal; invite link is not required in this phase.</constraint-3>
       <constraint-4>User portal must support self-serve onboarding through Logto social OAuth only (no email/password auth forms) and avoid manual operator permission grants.</constraint-4>
@@ -11,10 +11,15 @@
       <constraint-6>FastMCP OAuth Proxy is enabled only for `/mcp` transport surface.</constraint-6>
       <constraint-7>`/admin/*` is protected only by `ROOT_AUTH_TOKEN` login/session policy.</constraint-7>
       <constraint-8>Portal session auth on `/portal/*` is isolated from both `/mcp` OAuth and `/admin/*` root session models.</constraint-8>
-      <constraint-9>Curated-source ingestion/indexing and backfill are explicitly deferred until portal e2e flow is validated.</constraint-9>
+      <constraint-9>Curated-source ingestion/indexing is active scope and runs only in worker runtime with crawl-only ingestion policy.</constraint-9>
       <constraint-10>Billing settings are deferred and represented as future extension points in portal architecture only.</constraint-10>
       <constraint-11>Usage tracking failures must never block MCP tool execution; tracking is fire-and-forget with warning logs on failure.</constraint-11>
       <constraint-12>User identity for usage tracking is extracted from MCP OAuth session JWT `sub` claim; the same Logto `sub` links MCP and portal users.</constraint-12>
+      <constraint-13>Unified cross-source search tool is intentionally out of scope; caller must use `search_messages` and `search_sites` explicitly.</constraint-13>
+      <constraint-14>`get_page_chunk` returns bounded excerpts only; full-page verbatim dump is not exposed.</constraint-14>
+      <constraint-15>All Spider and Voyage calls must go through unified proxy (`PROXY_BASE_URL` + `PROXY_SECRET`) with service keys.</constraint-15>
+      <constraint-16>Runtime is split into dedicated API and Worker entrypoints; no single-binary `APP_ROLE` toggle.</constraint-16>
+      <constraint-17>Curated crawling in v1 is crawl-only (scheduled + internal targeted recrawl), with no public manual-refresh endpoint.</constraint-17>
     </constraints>
   </Context>
 
@@ -38,7 +43,7 @@
       </interface>
       <depends>none</depends>
       <notes>
-        <note-1>Required env includes existing MCP/admin/logto values plus `PORTAL_SESSION_SECRET`, `LOGTO_M2M_APP_ID`, `LOGTO_M2M_APP_SECRET`, `LOGTO_MCP_USER_ROLE_ID`, and `DATABASE_URL`.</note-1>
+        <note-1>Required env includes existing MCP/admin/logto values plus `PORTAL_SESSION_SECRET`, `LOGTO_M2M_APP_ID`, `LOGTO_M2M_APP_SECRET`, `LOGTO_MCP_USER_ROLE_ID`, `DATABASE_URL`, `VOYAGE_API_KEY`, `SPIDER_API_KEY`, `PROXY_BASE_URL`, and `PROXY_SECRET`.</note-1>
       </notes>
     </M-CONFIG>
 
@@ -63,7 +68,7 @@
 
     <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="1">
       <contract>
-        <purpose>Define deterministic Zod schemas and allowlist for the four active proxied MCP tools.</purpose>
+        <purpose>Define deterministic Zod schemas and tool contracts for proxied tg-chat tools and local curated-site tools.</purpose>
         <inputs>
           <param-1 name="rawArgs" type="unknown" />
           <param-2 name="toolName" type="string" />
@@ -82,6 +87,8 @@
         <export-GetMessageContextInput PURPOSE="Input schema for get_message_context." />
         <export-GetRelatedMessagesInput PURPOSE="Input schema for get_related_messages." />
         <export-ListSourcesInput PURPOSE="Input schema for list_sources." />
+        <export-SearchSitesInput PURPOSE="Input schema for search_sites (query, top_k, source_ids)." />
+        <export-GetPageChunkInput PURPOSE="Input schema for get_page_chunk (chunk_id, include_neighbors)." />
         <export-PROXIED_TOOL_NAMES PURPOSE="Stable allowlist for tool registration and proxy dispatch." />
         <export-TOOL_INPUT_JSON_SCHEMAS PURPOSE="Tool descriptions used by FastMCP addTool metadata." />
       </interface>
@@ -316,32 +323,181 @@
 
     <M-SITE-SOURCES NAME="SiteSources" TYPE="DATA_LAYER" LAYER="1" ORDER="3">
       <contract>
-        <purpose>Serve curated source registry as a static MCP tool response with typed output contract and frozen seed data.</purpose>
+        <purpose>Serve curated source registry from `site_sources` table with bootstrap seed fallback for initialization/migrations.</purpose>
         <inputs>
-          <param-1 name="none" type="void" />
+          <param-1 name="filters" type="{ sourceIds?: string[]; status?: string }" />
         </inputs>
         <outputs>
           <param-1 name="SiteSourcesResponse" type="{ description_and_tiers: DescriptionAndTiers; sources: SiteSource[] }" />
         </outputs>
         <errors>
-          <error-NONE code="none" />
+          <error-SITE_SOURCES_ERROR code="SITE_SOURCES_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-SITE_SOURCES_RESPONSE PURPOSE="Frozen seed data constant containing curated source registry." />
+        <export-SITE_SOURCES_RESPONSE PURPOSE="Bootstrap-only seed constant for initialization/tests (not runtime source of truth)." />
+        <export-getSiteSources PURPOSE="Read registry rows from `site_sources` table for local get_site_sources tool." />
+        <export-upsertSiteSourcesSeed PURPOSE="Seed/update initial `site_sources` rows from bootstrap constant." />
         <export-GetSiteSourcesInputSchema PURPOSE="Empty z.object({}) schema for FastMCP tool registration." />
         <type-SiteSourcesResponse PURPOSE="Typed output: description_and_tiers + sources array." />
-        <type-SiteSource PURPOSE="Individual source entry: source_id, name, domain, tier, language, focus, status." />
+        <type-SiteSource PURPOSE="Individual source entry: source_id, name, domain, tier, language, focus, status, crawl_interval_minutes, max_pages." />
         <type-TierDescription PURPOSE="Tier metadata: tier number, name, focus description." />
         <type-DescriptionAndTiers PURPOSE="Description text + tiers array." />
       </interface>
-      <depends>none</depends>
+      <depends>M-DB, M-LOGGER</depends>
       <notes>
-        <note-1>Data is hardcoded seed from product guide; no database or upstream dependency.</note-1>
-        <note-2>Tool takes no input parameters; returns full registry including paused sources.</note-2>
-        <note-3>This is a local tool — not proxied through M-TOOL-PROXY or M-TG-CHAT-RAG-CLIENT.</note-3>
+        <note-1>Runtime source of truth is PostgreSQL `site_sources`; bootstrap constant is seed-only.</note-1>
+        <note-2>Tool takes no input parameters; returns registry metadata only (no page/chunk content).</note-2>
+        <note-3>This is a local tool and must not be added to proxied allowlist.</note-3>
       </notes>
     </M-SITE-SOURCES>
+
+    <M-SPIDER-CLOUD-CLIENT NAME="SpiderCloudClient" TYPE="INTEGRATION" LAYER="2" ORDER="5">
+      <contract>
+        <purpose>Call Spider crawl API through unified proxy for scheduled and targeted recrawl ingestion jobs.</purpose>
+        <inputs>
+          <param-1 name="crawlRequest" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="crawlResponse" type="object" />
+        </outputs>
+        <errors>
+          <error-SPIDER_PROXY_ERROR code="SPIDER_PROXY_ERROR" />
+          <error-SPIDER_TIMEOUT code="SPIDER_TIMEOUT" />
+        </errors>
+      </contract>
+      <interface>
+        <export-runCrawl PURPOSE="POST Spider crawl request via `${PROXY_BASE_URL}/api.spider.cloud/*` with proxy and provider auth headers." />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+    </M-SPIDER-CLOUD-CLIENT>
+
+    <M-VOYAGE-PROXY-CLIENT NAME="VoyageProxyClient" TYPE="INTEGRATION" LAYER="2" ORDER="6">
+      <contract>
+        <purpose>Call Voyage embeddings endpoint through unified proxy for document and query embedding paths.</purpose>
+        <inputs>
+          <param-1 name="embeddingRequest" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="embeddingResponse" type="object" />
+        </outputs>
+        <errors>
+          <error-VOYAGE_PROXY_ERROR code="VOYAGE_PROXY_ERROR" />
+          <error-VOYAGE_TIMEOUT code="VOYAGE_TIMEOUT" />
+        </errors>
+      </contract>
+      <interface>
+        <export-embedDocuments PURPOSE="Batch document embeddings using `voyage-4` and `input_type=document`." />
+        <export-embedQuery PURPOSE="Single query embedding using `voyage-4` and `input_type=query`." />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER</depends>
+    </M-VOYAGE-PROXY-CLIENT>
+
+    <M-SITES-INDEX-REPOSITORY NAME="SitesIndexRepository" TYPE="DATA_LAYER" LAYER="2" ORDER="7">
+      <contract>
+        <purpose>Persist and query curated-site pages, chunks, embeddings, crawl jobs, and active index version metadata.</purpose>
+        <inputs>
+          <param-1 name="dbInput" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="dbResult" type="object" />
+        </outputs>
+        <errors>
+          <error-SITES_INDEX_REPOSITORY_ERROR code="SITES_INDEX_REPOSITORY_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-upsertPage PURPOSE="Insert/update normalized page by canonical URL + content hash." />
+        <export-upsertChunks PURPOSE="Insert/update deterministic chunks with chunking/index versions." />
+        <export-upsertEmbeddings PURPOSE="Store chunk embeddings and embedding metadata for active index version." />
+        <export-searchHybrid PURPOSE="Execute vector + FTS retrieval with active index_version filter." />
+        <export-getChunkWithNeighbors PURPOSE="Fetch bounded chunk excerpt and optional neighbors by chunk_id." />
+      </interface>
+      <depends>M-DB, M-LOGGER</depends>
+    </M-SITES-INDEX-REPOSITORY>
+
+    <M-SITES-PARSER NAME="SitesParser" TYPE="CORE_LOGIC" LAYER="3" ORDER="5">
+      <contract>
+        <purpose>Normalize Spider payload into canonical URL/title/text records suitable for deterministic chunking.</purpose>
+        <inputs>
+          <param-1 name="crawlPayload" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="parsedPage" type="object" />
+        </outputs>
+        <errors>
+          <error-SITES_PARSER_ERROR code="SITES_PARSER_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-parseCrawlItem PURPOSE="Extract canonical URL, title, clean text, and fetch metadata." />
+      </interface>
+      <depends>M-LOGGER</depends>
+    </M-SITES-PARSER>
+
+    <M-SITES-CHUNKER NAME="SitesChunker" TYPE="CORE_LOGIC" LAYER="3" ORDER="6">
+      <contract>
+        <purpose>Split parsed page text with deterministic structural/token strategy and stable chunk metadata.</purpose>
+        <inputs>
+          <param-1 name="pageText" type="string" />
+        </inputs>
+        <outputs>
+          <param-1 name="chunks" type="object[]" />
+        </outputs>
+        <errors>
+          <error-SITES_CHUNKER_ERROR code="SITES_CHUNKER_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-chunkPage PURPOSE="Apply v1 split config (`target=450`, `max=650`, `overlap=80`) using npm `tiktoken` token counting and output ordered chunks." />
+      </interface>
+      <depends>M-LOGGER</depends>
+      <notes>
+        <note-1>Token counting strategy is fixed to `tiktoken`; chars/4 approximation is out of scope for v1.</note-1>
+      </notes>
+    </M-SITES-CHUNKER>
+
+    <M-SITES-INGESTION NAME="SitesIngestionOrchestrator" TYPE="CORE_LOGIC" LAYER="4" ORDER="3">
+      <contract>
+        <purpose>Run scheduled and targeted crawl-only ingestion jobs and persist parsed/chunked/embedded index artifacts.</purpose>
+        <inputs>
+          <param-1 name="ingestionJob" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="ingestionResult" type="object" />
+        </outputs>
+        <errors>
+          <error-SITES_INGESTION_ERROR code="SITES_INGESTION_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-runScheduledIngestion PURPOSE="Select due sources by interval and execute crawl ingestion." />
+        <export-runTargetedRecrawl PURPOSE="Execute internal single-URL recrawl via crawl endpoint with strict cap." />
+      </interface>
+      <depends>M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
+    </M-SITES-INGESTION>
+
+    <M-SITES-SEARCH NAME="SitesSearchService" TYPE="CORE_LOGIC" LAYER="4" ORDER="4">
+      <contract>
+        <purpose>Serve local MCP curated-site search tools with hybrid retrieval and bounded evidence chunk access.</purpose>
+        <inputs>
+          <param-1 name="searchArgs" type="object" />
+          <param-2 name="chunkArgs" type="object" />
+        </inputs>
+        <outputs>
+          <param-1 name="searchResults" type="object[]" />
+          <param-2 name="chunkResult" type="object" />
+        </outputs>
+        <errors>
+          <error-SITES_SEARCH_ERROR code="SITES_SEARCH_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-searchSites PURPOSE="Hybrid search over active index_version returning attributed snippets." />
+        <export-getPageChunk PURPOSE="Return bounded excerpt by chunk_id with optional neighbors." />
+      </interface>
+      <depends>M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-LOGGER</depends>
+    </M-SITES-SEARCH>
 
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="1">
       <contract>
@@ -401,7 +557,7 @@
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set (4 proxied + 1 local) with per-user usage tracking, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
+        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set (4 proxied + 3 local) with per-user usage tracking, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
           <param-2 name="logger" type="Logger" />
@@ -411,6 +567,8 @@
           <param-6 name="portalLandingHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
           <param-7 name="portalHandler" type="(request: Request) =&gt; Promise&lt;Response&gt;" />
           <param-8 name="usageTracker" type="UsageTracker" />
+          <param-9 name="sitesSearchService" type="SitesSearchService" />
+          <param-10 name="siteSourcesRepository" type="SiteSourcesRepository" />
         </inputs>
         <outputs>
           <param-1 name="fastMcpServer" type="FastMCP" />
@@ -422,17 +580,17 @@
       <interface>
         <export-createFastMcpRuntime PURPOSE="Build FastMCP with oauth.enabled=true and mount non-MCP HTTP routes via getApp()." />
         <export-registerProxyTools PURPOSE="Register the four proxied tools with described schemas, canAccess guards, and per-user usage tracking via context.session JWT sub extraction." />
-        <export-registerLocalTools PURPOSE="Register local tools (get_site_sources) with canAccess guards and per-user usage tracking." />
+        <export-registerLocalTools PURPOSE="Register local tools (`get_site_sources`, `search_sites`, `get_page_chunk`) with canAccess guards and per-user usage tracking." />
         <export-extractUserIdFromSession PURPOSE="Decode JWT sub claim from RuntimeOauthSession idToken or accessToken for usage tracking." />
         <export-mountAdminRoutes PURPOSE="Mount `/admin` and `/admin/*` handlers via getApp()." />
         <export-mountPortalRoutes PURPOSE="Mount `/`, `/portal`, and `/portal/*` handlers via getApp()." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH</depends>
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
       <contract>
-        <purpose>Bootstrap runtime dependencies and start FastMCP HTTP stream server with MCP, admin, and portal surfaces.</purpose>
+        <purpose>Bootstrap API runtime dependencies and start FastMCP HTTP stream server with MCP, admin, portal, and local curated-site tools.</purpose>
         <inputs>
           <param-1 name="none" type="void" />
         </inputs>
@@ -444,14 +602,33 @@
         </errors>
       </contract>
       <interface>
-        <export-main PURPOSE="Load config, create dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
+        <export-main PURPOSE="Load config, create API dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
     </M-SERVER>
+
+    <M-WORKER-ENTRYPOINT NAME="WorkerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="2">
+      <contract>
+        <purpose>Bootstrap worker dependencies and run recurring curated-site scheduling, crawl ingestion, parsing, chunking, and embedding jobs.</purpose>
+        <inputs>
+          <param-1 name="none" type="void" />
+        </inputs>
+        <outputs>
+          <param-1 name="workerLoop" type="void" />
+        </outputs>
+        <errors>
+          <error-WORKER_START_ERROR code="WORKER_START_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-main PURPOSE="Load config, initialize ingestion dependencies, run scheduler tick loop, handle graceful shutdown." />
+      </interface>
+      <depends>M-CONFIG, M-LOGGER, M-DB, M-SITE-SOURCES, M-SPIDER-CLOUD-CLIENT, M-VOYAGE-PROXY-CLIENT, M-SITES-PARSER, M-SITES-CHUNKER, M-SITES-INDEX-REPOSITORY, M-SITES-INGESTION</depends>
+    </M-WORKER-ENTRYPOINT>
 
     <M-ROOT-ENTRYPOINT NAME="RootEntrypoint" TYPE="ENTRY_POINT" LAYER="7" ORDER="1">
       <contract>
-        <purpose>Call ServerMain and map fatal startup errors to process exit behavior.</purpose>
+        <purpose>Call API entrypoint by default and map fatal startup errors to process exit behavior.</purpose>
         <inputs>
           <param-1 name="none" type="void" />
         </inputs>
@@ -463,7 +640,7 @@
         </errors>
       </contract>
       <interface>
-        <export-bootstrap PURPOSE="Invoke main() and handle fatal startup exceptions." />
+        <export-bootstrap PURPOSE="Invoke API main() by default and handle fatal startup exceptions." />
       </interface>
       <depends>M-SERVER</depends>
     </M-ROOT-ENTRYPOINT>
@@ -500,7 +677,7 @@
     <DF-PORTAL-E2E-MCP NAME="portal to first mcp usage flow">
       <step-1>Authenticated portal user reads MCP setup details (`/mcp` endpoint + auth requirements).</step-1>
       <step-2>User configures external AI agent with provided instructions.</step-2>
-      <step-3>Agent authenticates via OAuth flow on `/mcp` and executes one of four active tools.</step-3>
+      <step-3>Agent authenticates via OAuth flow on `/mcp` and executes one of active tools (`search_messages` or `search_sites`).</step-3>
     </DF-PORTAL-E2E-MCP>
 
     <DF-MCP-OAUTH NAME="mcp oauth proxy auth flow">
@@ -533,10 +710,31 @@
     <DF-SITE-SOURCES NAME="get_site_sources local tool flow">
       <step-1>Authenticated MCP client calls get_site_sources with no parameters.</step-1>
       <step-2>canAccess guard validates OAuth session (same as proxied tools).</step-2>
-      <step-3>Execute handler returns frozen SITE_SOURCES_RESPONSE directly (no upstream call).</step-3>
+      <step-3>Execute handler reads curated source registry from `site_sources` table (seed constant is bootstrap-only).</step-3>
       <step-4>Usage tracking fires with userId + "get_site_sources" (fire-and-forget).</step-4>
       <step-5>Client receives description_and_tiers + sources registry.</step-5>
     </DF-SITE-SOURCES>
+
+    <DF-SITES-INGESTION NAME="curated sites crawl ingestion flow">
+      <step-1>Worker scheduler selects due sources from `site_sources` by `crawl_interval_minutes`.</step-1>
+      <step-2>M-SITES-INGESTION calls M-SPIDER-CLOUD-CLIENT crawl endpoint through unified proxy with source limits.</step-2>
+      <step-3>M-SITES-PARSER normalizes payload into canonical page records.</step-3>
+      <step-4>M-SITES-CHUNKER applies deterministic chunking and M-VOYAGE-PROXY-CLIENT embeds chunks.</step-4>
+      <step-5>M-SITES-INDEX-REPOSITORY upserts pages/chunks/embeddings for active `index_version`.</step-5>
+    </DF-SITES-INGESTION>
+
+    <DF-SITES-SEARCH NAME="search_sites local tool flow">
+      <step-1>Authenticated MCP client calls `search_sites` with query and optional filters.</step-1>
+      <step-2>M-SITES-SEARCH builds query embedding via M-VOYAGE-PROXY-CLIENT (`voyage-4`, query mode).</step-2>
+      <step-3>M-SITES-INDEX-REPOSITORY runs hybrid search (vector + FTS simple config) filtered by active `index_version`.</step-3>
+      <step-4>Runtime returns ranked snippets with attribution (`source_id`, `tier`, `original_page_url`, `chunk_id`).</step-4>
+    </DF-SITES-SEARCH>
+
+    <DF-PAGE-CHUNK NAME="get_page_chunk local tool flow">
+      <step-1>Authenticated MCP client calls `get_page_chunk(chunk_id)`.</step-1>
+      <step-2>M-SITES-SEARCH resolves chunk and optional neighbors from repository.</step-2>
+      <step-3>Response returns bounded evidence excerpt with attribution and no full-page dump.</step-3>
+    </DF-PAGE-CHUNK>
 
     <DF-ADMIN-ROOT-AUTH NAME="admin root token flow">
       <step-1>Operator submits token on `/admin/login`.</step-1>
@@ -564,7 +762,7 @@
     <MT-3 NAME="dropped tools surface test">
       <step-1>Enumerate MCP tools via runtime metadata.</step-1>
       <step-2>Verify `search_context`, `validate_google_map_link`, and `verify_tabelog` are absent.</step-2>
-      <step-3>Verify only five active tools remain callable (4 proxied + 1 local).</step-3>
+      <step-3>Verify unified cross-source search tool is absent and exactly seven approved tools remain callable (4 proxied + 3 local).</step-3>
       <result>Pass when dropped tools do not appear in runtime contracts, plan, or knowledge graph.</result>
     </MT-3>
 
@@ -593,10 +791,10 @@
     </MT-6>
     <MT-7 NAME="get_site_sources happy path test">
       <step-1>Authenticated MCP client calls get_site_sources with empty args.</step-1>
-      <step-2>canAccess passes; execute handler returns frozen SITE_SOURCES_RESPONSE.</step-2>
-      <step-3>Response contains 3 tiers and 12 source entries matching seed data.</step-3>
+      <step-2>canAccess passes; execute handler reads registry from `site_sources` table.</step-2>
+      <step-3>Response contains description + tiers and source rows with domain/tier/status/crawl metadata.</step-3>
       <step-4>Usage counter increments for userId + "get_site_sources".</step-4>
-      <result>Pass when response matches seed data exactly and usage tracking fires.</result>
+      <result>Pass when response matches DB registry state and usage tracking fires.</result>
     </MT-7>
 
     <MT-8 NAME="get_site_sources unauthenticated test">
@@ -605,12 +803,26 @@
       <result>Pass when access denied without reaching execute handler.</result>
     </MT-8>
 
-    <MT-9 NAME="five-tool surface completeness test">
+    <MT-9 NAME="seven-tool surface completeness test">
       <step-1>Enumerate MCP tools via runtime metadata.</step-1>
-      <step-2>Verify all five tools present: search_messages, get_message_context, get_related_messages, list_sources, get_site_sources.</step-2>
-      <step-3>Verify first four proxy to upstream, last one returns local data.</step-3>
-      <result>Pass when tool surface is exactly five tools with correct execution paths.</result>
+      <step-2>Verify all seven tools present: search_messages, get_message_context, get_related_messages, list_sources, get_site_sources, search_sites, get_page_chunk.</step-2>
+      <step-3>Verify first four proxy to upstream and last three execute locally.</step-3>
+      <result>Pass when tool surface is exactly seven tools with correct execution paths.</result>
     </MT-9>
+
+    <MT-10 NAME="curated-sites retrieval flow test">
+      <step-1>Run worker crawl ingestion for at least one active source and persist chunks/embeddings.</step-1>
+      <step-2>Call `search_sites` with a known query and confirm ranked attributed snippets are returned.</step-2>
+      <step-3>Call `get_page_chunk` with returned chunk_id and verify bounded excerpt behavior.</step-3>
+      <result>Pass when local site retrieval path works end-to-end without direct runtime crawl calls.</result>
+    </MT-10>
+
+    <MT-11 NAME="crawl-only policy test">
+      <step-1>Attempt internal targeted recrawl for one URL.</step-1>
+      <step-2>Verify ingestion uses Spider crawl path with strict cap, not scrape/manual endpoint.</step-2>
+      <step-3>Verify no public MCP tool exposes manual refresh action.</step-3>
+      <result>Pass when v1 crawl-only policy is enforced in both contracts and runtime behavior.</result>
+    </MT-11>
   </MentalTests>
 
   <ImplementationOrder>
@@ -638,7 +850,7 @@
     <Phase-4 name="RuntimeMountingAndE2EValidation" status="done">
       <step-1>Mount landing and portal routes in M-FASTMCP-RUNTIME alongside existing admin routes.</step-1>
       <step-2>Add integration/smoke tests for onboarding e2e and auth isolation.</step-2>
-      <step-3>Confirm tool surface remains fixed to four active tools.</step-3>
+      <step-3>Confirm proxied tg-chat tool surface remains fixed to four active tools.</step-3>
       <justification>Runtime composition and tests validate real product objective: shareable tester onboarding to first MCP success.</justification>
     </Phase-4>
 
@@ -653,19 +865,35 @@
       <justification>Usage tracking requires database persistence (M-DB reactivation), a new data-layer module (M-USAGE-TRACKER), JWT identity extraction in tool execution (M-FASTMCP-RUNTIME), and portal display integration (M-PORTAL-UI). Steps are ordered by dependency: config first, then DB, then tracker, then runtime integration, then UI.</justification>
     </Phase-5>
 
-    <Phase-7 name="LocalSiteSourcesTool" status="done">
-      <step-1>Create M-SITE-SOURCES: `src/tools/site-sources.ts` with types, frozen seed data, and empty Zod input schema.</step-1>
-      <step-2>Create `src/tools/site-sources.test.ts` with output shape validation and seed data integrity tests.</step-2>
-      <step-3>Update M-FASTMCP-RUNTIME: add registerLocalTools to register get_site_sources with canAccess guard, local execute handler, and usage tracking.</step-3>
-      <step-4>Update M-FASTMCP-RUNTIME tests to cover get_site_sources registration and execution.</step-4>
-      <justification>get_site_sources is a local registry tool that does not proxy to upstream; it requires a new data module and a separate registration path in the runtime.</justification>
+    <Phase-6 name="CuratedSitesContractsAndSchema" status="planned">
+      <step-1>Extend M-CONFIG contract with `VOYAGE_API_KEY`, `SPIDER_API_KEY`, `PROXY_BASE_URL`, `PROXY_SECRET`.</step-1>
+      <step-2>Add required site index schema/migrations (`site_sources`, `site_pages`, `site_chunks`, `site_chunk_embeddings`, `site_crawl_jobs`) with index_version support, execute `CREATE EXTENSION IF NOT EXISTS vector;`, and define `site_chunk_embeddings.embedding` as `vector(1024)` for `voyage-4` similarity search.</step-2>
+      <step-3>Switch M-SITE-SOURCES runtime read path to `site_sources` table while keeping bootstrap constant as seed-only.</step-3>
+      <step-4>Extend tool contracts for local `search_sites` and `get_page_chunk` schemas.</step-4>
+      <justification>Contract and schema alignment must be complete before worker ingestion or local retrieval tools can be implemented safely.</justification>
+    </Phase-6>
+
+    <Phase-7 name="RuntimeSplitAndIngestionWorker" status="planned">
+      <step-1>Introduce dedicated worker entrypoint and startup wiring separate from API runtime.</step-1>
+      <step-2>Implement Spider proxy crawl client and deterministic crawl-only ingestion orchestrator.</step-2>
+      <step-3>Implement parser/chunker/embedding pipeline (`voyage-4`) and repository upserts for active index version.</step-3>
+      <step-4>Implement scheduling cadence (5-min tick, tier-based intervals, weekly discovery pass) with jitter.</step-4>
+      <justification>Worker isolation avoids API interference and enables predictable ingestion lifecycle and crawl budget enforcement.</justification>
     </Phase-7>
 
-    <Phase-6 name="PostE2EDeferredTrack" status="deferred">
-      <step-1>Plan curated-source ingestion/indexing/backfill architecture.</step-1>
-      <step-2>Plan portal billing settings module set.</step-2>
-      <justification>Deferred until portal-first e2e flow is stable in real tester usage.</justification>
-    </Phase-6>
+    <Phase-8 name="CuratedSitesLocalTools" status="planned">
+      <step-1>Register local `search_sites` and `get_page_chunk` tools in M-FASTMCP-RUNTIME (not in proxied allowlist).</step-1>
+      <step-2>Implement M-SITES-SEARCH hybrid retrieval path and bounded chunk evidence response.</step-2>
+      <step-3>Keep tool model explicit (`search_messages` + `search_sites`) and reject unified search abstraction.</step-3>
+      <justification>This phase exposes user-facing curated retrieval while preserving clear tool boundaries and attribution guarantees.</justification>
+    </Phase-8>
+
+    <Phase-9 name="OpsHardening" status="planned">
+      <step-1>Add ingestion observability, retry/backoff policy, and provider outage fallback behavior.</step-1>
+      <step-2>Add takedown/pause controls and strict bounded-output checks for evidence endpoints.</step-2>
+      <step-3>Stabilize cost/performance via source budgets and cadence tuning.</step-3>
+      <justification>Operational controls are required for production reliability, safety, and predictable operating cost.</justification>
+    </Phase-9>
   </ImplementationOrder>
 
   <RiskAssessment>
@@ -677,6 +905,10 @@
     <risk-6 severity="low">Deprecated modules (M-MCP-AUTH-PROVIDER, M-MCP-AUTH-ADAPTER, M-API-KEY-REPOSITORY) remaining in repo can confuse future implementation unless graph linkage remains explicit.</risk-6>
     <risk-7 severity="medium">MCP OAuth session JWT (idToken/accessToken) may not always contain decodable sub claim depending on Logto configuration, causing silent tracking gaps.</risk-7>
     <risk-8 severity="low">PostgreSQL unavailability during tool execution causes usage tracking gaps but does not affect tool functionality due to fire-and-forget design.</risk-8>
+    <risk-9 severity="medium">Spider provider outage or quota exhaustion can stall freshness for curated-site index.</risk-9>
+    <risk-10 severity="medium">Improper crawl limits or missing jitter can cause bursty load and unstable ingestion latency.</risk-10>
+    <risk-11 severity="medium">Index-version misconfiguration can mix old/new embeddings and degrade ranking consistency.</risk-11>
+    <risk-12 severity="low">Bounded excerpt policy regressions in get_page_chunk can accidentally expose oversized content.</risk-12>
   </RiskAssessment>
 
   <DeprecatedModules>
@@ -689,5 +921,6 @@
     <M-SEARCH-CONTEXT-TOOL NAME="SearchContextTool" reason="Dropped from product plan by scope decision; not implemented in active roadmap." />
     <M-VERIFY-GMAP-TOOL NAME="ValidateGoogleMapLinkTool" reason="Dropped from product plan by scope decision; not implemented in active roadmap." />
     <M-VERIFY-TABELOG-TOOL NAME="VerifyTabelogTool" reason="Dropped from product plan by scope decision; not implemented in active roadmap." />
+    <M-UNIFIED-SEARCH-TOOL NAME="UnifiedSearchTool" reason="Intentionally out of scope; product keeps explicit `search_messages` and `search_sites` tools." />
   </DroppedModules>
 </DevelopmentPlan>

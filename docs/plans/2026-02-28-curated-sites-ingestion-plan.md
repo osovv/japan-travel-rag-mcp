@@ -18,29 +18,32 @@ Build production-ready curated site search for Japan travel with this user-facin
 2. `voyage-4` is used for both document indexing and query embeddings in v1.
 3. Chunking strategy for v1 is a simple deterministic pipeline (structural split + token cap split).
 4. V1 chunking params are fixed: `target_tokens=450`, `max_tokens=650`, `overlap_tokens=80`.
-5. LLM-based chunking/enrichment is out of scope for v1.
-6. Formal recall/eval pipeline is out of scope for v1; quality is validated by manual smoke-check queries.
-7. Pipeline must remain versioned to support future full reindex with a different strategy.
-8. `site_sources` table is the single source of truth for both ingestion and `get_site_sources` tool output.
-9. `SITE_SOURCES_RESPONSE` constant is bootstrap-only seed data (initialization/tests), not runtime source of truth.
-10. `spider.cloud` endpoint policy for v1:
+5. Token counting for chunking is fixed to npm `tiktoken` (no chars-based approximation in v1).
+6. LLM-based chunking/enrichment is out of scope for v1.
+7. Formal recall/eval pipeline is out of scope for v1; quality is validated by manual smoke-check queries.
+8. Pipeline must remain versioned to support future full reindex with a different strategy.
+9. `site_sources` table is the single source of truth for both ingestion and `get_site_sources` tool output.
+10. `SITE_SOURCES_RESPONSE` constant is bootstrap-only seed data (initialization/tests), not runtime source of truth.
+11. `spider.cloud` endpoint policy for v1:
    - scheduled ingestion uses `crawl` only,
-   - manual per-URL refresh path is out of scope for v1.
-11. Voyage and Spider requests are proxied through a unified proxy base URL with shared proxy secret.
-12. `M-CONFIG` must include required env vars for embeddings and crawl proxying:
+   - targeted single-URL recrawl also uses `crawl` (seed URL + strict limit),
+   - no public/manual refresh tool in v1.
+12. Voyage and Spider requests are proxied through a unified proxy base URL with shared proxy secret.
+13. `M-CONFIG` must include required env vars for embeddings and crawl proxying:
    - `VOYAGE_API_KEY`
    - `SPIDER_API_KEY`
    - `PROXY_BASE_URL`
    - `PROXY_SECRET`
-13. New curated-sites tools (`get_site_sources`, `search_sites`, `get_page_chunk`) are local MCP tools and must not be added to proxied upstream allowlist (`PROXIED_TOOL_NAMES`).
-14. `unified_search` tool is intentionally out of scope; product keeps two explicit tools: `search_messages` and `search_sites`.
-15. Runtime split uses separate process entrypoints (HTTP/API and Worker), not role-switching via single `APP_ROLE` toggle.
+14. New curated-sites tools (`get_site_sources`, `search_sites`, `get_page_chunk`) are local MCP tools and must not be added to proxied upstream allowlist (`PROXIED_TOOL_NAMES`).
+15. `unified_search` tool is intentionally out of scope; product keeps two explicit tools: `search_messages` and `search_sites`.
+16. Runtime split uses separate process entrypoints (HTTP/API and Worker), not role-switching via single `APP_ROLE` toggle.
 
 ## 1.2 Future Reindex Strategy (accepted now)
 
 1. Full reindex is an expected operation, not an exceptional one.
 2. New retrieval/chunking/embedding approaches are introduced via version bump (no in-place mutation assumptions).
 3. Old index version can run in parallel during cutover, then be decommissioned.
+4. Search reads only active `index_version` to avoid mixed ranking between old/new index generations.
 
 ## 2. Current Baseline
 
@@ -78,10 +81,11 @@ Out of scope for this phase:
 
 1. Scheduler picks active source domains.
 2. Ingestion worker runs scheduled Spider-proxied `crawl` jobs with per-source `depth/limit` caps.
-3. Parser extracts canonical URL, title, clean text from fetched payloads.
-4. Chunker splits content into stable chunks.
-5. Embedding worker writes vectors to local index tables.
-6. Search service executes hybrid query and returns ranked chunk hits from local DB.
+3. Internal targeted recrawl jobs reuse Spider-proxied `crawl` with a seed URL and strict page cap.
+4. Parser extracts canonical URL, title, clean text from fetched payloads.
+5. Chunker splits content into stable chunks.
+6. Embedding worker writes vectors to local index tables.
+7. Search service executes hybrid query and returns ranked chunk hits from local DB.
 
 ### 4.7 Runtime Topology (separate entrypoints)
 
@@ -99,20 +103,23 @@ Out of scope for this phase:
 2. `site_pages`
    - `page_id`, `source_id`, `url`, `canonical_url`, `title`, `text_hash`, `http_status`, `fetched_at`, `last_modified`, `etag`.
 3. `site_chunks`
-   - `chunk_id`, `page_id`, `chunk_index`, `chunk_text`, `char_count`, `token_estimate`, `content_hash`, `chunking_version`, `start_offset`, `end_offset`.
+   - `chunk_id`, `page_id`, `chunk_index`, `chunk_text`, `char_count`, `token_estimate`, `content_hash`, `chunking_version`, `index_version`, `start_offset`, `end_offset`.
 4. `site_chunk_embeddings`
-   - `chunk_id`, `embedding`, `embedding_model`, `embedding_version`, `embedded_at`.
-5. `site_crawl_jobs` (optional, recommended)
+   - `chunk_id` (FK -> `site_chunks.chunk_id` with cascade delete), `embedding vector(1024)`, `embedding_model`, `embedding_version`, `index_version`, `embedded_at`.
+5. `site_crawl_jobs` (required)
    - `crawl_job_id`, `source_id`, `provider`, `provider_job_id`, `status`, `started_at`, `finished_at`, `pages_fetched`, `error`.
+6. PostgreSQL extension prerequisite:
+   - `CREATE EXTENSION IF NOT EXISTS vector;` (pgvector)
 
 ### 4.3 Retrieval model
 
 1. Vector retrieval over `site_chunk_embeddings`.
-2. FTS retrieval over `site_chunks.chunk_text`.
+2. FTS retrieval over `site_chunks.chunk_text` using PostgreSQL `simple` text search config in v1 (single config for all sources).
 3. Weighted merge + rerank.
-4. Output always includes `original_page_url` and `source_id`.
-5. Retrieval does not query `spider.cloud` directly at runtime for user requests.
-6. Embeddings in this phase are generated with `voyage-4`.
+4. Retrieval always filters by active `index_version`.
+5. Output always includes `original_page_url` and `source_id`.
+6. Retrieval does not query `spider.cloud` directly at runtime for user requests.
+7. Embeddings in this phase are generated with `voyage-4`.
 
 ### 4.4 Chunking v1 Spec (simple and deterministic)
 
@@ -123,7 +130,8 @@ Out of scope for this phase:
    - `max_tokens=650`
    - `overlap_tokens=80` (only for forced split)
 4. Tiny fragments (<120 tokens) are merged with adjacent block when possible.
-5. Output excerpt for `get_page_chunk` remains bounded; no full-page dump.
+5. Token counting/limits are computed with npm `tiktoken` for deterministic chunk boundaries aligned with embedding budget control.
+6. Output excerpt for `get_page_chunk` remains bounded; no full-page dump.
 
 ### 4.5 Voyage Proxy Embedding Flow (wren-chat aligned)
 
@@ -147,7 +155,8 @@ Out of scope for this phase:
    - `X-Proxy-Key: ${PROXY_SECRET}`
    - `Content-Type: application/json`
 3. Scheduled ingestion uses proxied `crawl` endpoint with per-source `depth`/`limit` caps.
-4. V1 should include explicit request timeout and retry/backoff policy in Spider client.
+4. Internal targeted recrawl uses the same proxied `crawl` endpoint with seed URL + strict `limit=1` style cap.
+5. V1 should include explicit request timeout and retry/backoff policy in Spider client.
 
 ## 5. Tool Contracts
 
@@ -163,12 +172,13 @@ Input:
 Output item:
 1. `result_id`
 2. `source_id`
-3. `domain`
-4. `original_page_url`
-5. `title`
-6. `snippet`
-7. `chunk_id`
-8. `score`
+3. `tier`
+4. `domain`
+5. `original_page_url`
+6. `title`
+7. `snippet`
+8. `chunk_id`
+9. `score`
 
 ### 5.2 `get_page_chunk`
 
@@ -203,10 +213,11 @@ Output:
    - Tier 2 community/tool domains re-crawl interval: 1440 minutes (24h),
    - discovery pass for new URLs: every 7 days,
    - full reindex: event-driven (pipeline/version changes) with optional 30-day safety run.
+11. No public/manual per-URL refresh path in v1; internal targeted recrawl is worker-only and must reuse `crawl`.
 
 ## 7. Implementation Phases
 
-### Phase 0: Contracts and schema prep
+### Phase 0A: Contracts, config, and schema prep
 
 Deliverables:
 1. Add local tool schemas/handlers for `search_sites` and `get_page_chunk` in local tool registration path (separate from proxied upstream tool allowlist).
@@ -219,7 +230,6 @@ Deliverables:
 4. Add seed migration/initializer to populate `site_sources` from `SITE_SOURCES_RESPONSE`.
 5. Switch `get_site_sources` local tool to read from `site_sources` table.
 6. Add config tests for new env validation and required-field failures.
-7. Define separate runtime entrypoint files and startup wiring (API entrypoint + worker entrypoint).
 
 Exit criteria:
 1. Contracts compile and tests for validation pass.
@@ -227,15 +237,26 @@ Exit criteria:
 3. `get_site_sources` response reflects DB updates without redeploy.
 4. App boot fails fast with deterministic config error when any required Voyage/Spider proxy env is missing.
 
+### Phase 0B: Runtime split wiring
+
+Deliverables:
+1. Define separate runtime entrypoint files and startup wiring (API entrypoint + worker entrypoint).
+2. Ensure scheduling/ingestion code paths are worker-only.
+
+Exit criteria:
+1. API runtime starts without worker loops.
+2. Worker runtime starts crawl/index jobs without exposing API routes.
+
 ### Phase 1: Ingestion pipeline MVP
 
 Deliverables:
 1. `src/integrations/spider-cloud-client.ts` for typed API client and retries.
 2. `src/sites/ingestion/*` orchestrator that pulls active sources and triggers provider `crawl` jobs.
-3. `src/sites/parser/*` for canonical URL and text extraction.
-4. `src/sites/chunking/*` for deterministic chunking.
-5. Upsert flow into `site_pages` and `site_chunks`.
-6. `src/integrations/voyage-proxy-client.ts` for query/document embedding calls via proxy headers.
+3. Internal targeted recrawl path that reuses provider `crawl` (seed URL + strict page cap), worker-only.
+4. `src/sites/parser/*` for canonical URL and text extraction.
+5. `src/sites/chunking/*` for deterministic chunking.
+6. Upsert flow into `site_pages` and `site_chunks`.
+7. `src/integrations/voyage-proxy-client.ts` for query/document embedding calls via proxy headers.
 
 Exit criteria:
 1. At least 3 domains ingest successfully end-to-end.
@@ -243,6 +264,7 @@ Exit criteria:
 3. Provider failures are mapped to deterministic local ingestion errors.
 4. Embedding requests are observable and route only through configured proxy URL.
 5. Spider crawl requests are observable and route only through configured unified proxy base URL.
+6. Targeted single-URL recrawl succeeds through the same crawl path without introducing a separate scrape/manual API.
 
 ### Phase 2: Embeddings and hybrid search
 
