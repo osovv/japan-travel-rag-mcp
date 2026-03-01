@@ -380,3 +380,8 @@ export async function main(): Promise<void> {
     // END_BLOCK_MAP_STARTUP_FAILURE_TO_WORKER_START_ERROR_M_WORKER_ENTRYPOINT_010
   }
 }
+
+main().catch((error: unknown) => {
+  console.error("Worker failed to start:", error);
+  process.exit(1);
+});
