@@ -1,8 +1,8 @@
 // FILE: src/config/index.test.ts
-// VERSION: 1.2.0
+// VERSION: 1.5.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Validate M-CONFIG runtime parsing for tg-chat-rag, admin root auth, public URL, and Logto OAuth proxy settings.
-//   SCOPE: Assert required env validation, normalized URL parsing, derived OIDC endpoint construction, chat-id CSV behavior, and legacy env ignore behavior.
+//   PURPOSE: Validate M-CONFIG runtime parsing for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy settings, and proxy settings for Spider/Voyage API access.
+//   SCOPE: Assert required env validation, normalized URL parsing, derived OIDC endpoint construction, chat-id CSV behavior, legacy env ignore behavior, and proxy config validation.
 //   DEPENDS: M-CONFIG
 //   LINKS: M-CONFIG-TEST, M-CONFIG
 // END_MODULE_CONTRACT
@@ -14,7 +14,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.4.0 - Extended tests for M2M provisioning credentials (LOGTO_M2M_APP_ID, LOGTO_M2M_APP_SECRET) and configurable role ID (LOGTO_MCP_USER_ROLE_ID).
+//   LAST_CHANGE: v1.5.0 - Extended tests for proxy section (PROXY_BASE_URL, PROXY_SECRET, VOYAGE_API_KEY, SPIDER_API_KEY) validation and happy-path assertions.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -50,6 +50,10 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     LOGTO_MANAGEMENT_API_RESOURCE: "https://default.logto.app/api",
     LOGTO_MCP_USER_ROLE_ID: "role-uuid-1234",
     DATABASE_URL: "postgresql://user:pass@localhost:5432/japan_travel",
+    PROXY_BASE_URL: "https://proxy.example.com",
+    PROXY_SECRET: "proxy-secret-value",
+    VOYAGE_API_KEY: "voyage-api-key-value",
+    SPIDER_API_KEY: "spider-api-key-value",
     ...overrides,
   };
   // END_BLOCK_BUILD_BASE_ENV_FOR_CONFIG_TESTS_M_CONFIG_TEST_001
@@ -98,6 +102,10 @@ describe("M-CONFIG runtime settings", () => {
     expect(config.portal.mcpUserRoleId).toBe("role-uuid-1234");
     expect(config.portal.sessionTtlSeconds).toBe(604800);
     expect(config.databaseUrl).toBe("postgresql://user:pass@localhost:5432/japan_travel");
+    expect(config.proxy.baseUrl).toBe("https://proxy.example.com/");
+    expect(config.proxy.secret).toBe("proxy-secret-value");
+    expect(config.proxy.voyageApiKey).toBe("voyage-api-key-value");
+    expect(config.proxy.spiderApiKey).toBe("spider-api-key-value");
   });
 
   it("parses custom port/timeout and deduplicates chat IDs", () => {
@@ -146,6 +154,10 @@ describe("M-CONFIG runtime settings", () => {
         LOGTO_MANAGEMENT_API_RESOURCE: " ",
         LOGTO_MCP_USER_ROLE_ID: " ",
         DATABASE_URL: " ",
+        PROXY_BASE_URL: " ",
+        PROXY_SECRET: " ",
+        VOYAGE_API_KEY: " ",
+        SPIDER_API_KEY: " ",
       }),
     );
 
@@ -166,6 +178,10 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.details).toContain("LOGTO_MANAGEMENT_API_RESOURCE is required.");
     expect(error.details).toContain("LOGTO_MCP_USER_ROLE_ID is required.");
     expect(error.details).toContain("DATABASE_URL is required.");
+    expect(error.details).toContain("PROXY_BASE_URL is required.");
+    expect(error.details).toContain("PROXY_SECRET is required.");
+    expect(error.details).toContain("VOYAGE_API_KEY is required.");
+    expect(error.details).toContain("SPIDER_API_KEY is required.");
   });
 
   it("throws CONFIG_VALIDATION_ERROR for invalid URL values", () => {
@@ -174,6 +190,7 @@ describe("M-CONFIG runtime settings", () => {
         TG_CHAT_RAG_BASE_URL: "invalid-url",
         PUBLIC_URL: "also-invalid",
         LOGTO_TENANT_URL: "still-invalid",
+        PROXY_BASE_URL: "not-a-url",
       }),
     );
 
@@ -181,5 +198,6 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.details).toContain("TG_CHAT_RAG_BASE_URL must be a valid URL.");
     expect(error.details).toContain("PUBLIC_URL must be a valid URL.");
     expect(error.details).toContain("LOGTO_TENANT_URL must be a valid URL.");
+    expect(error.details).toContain("PROXY_BASE_URL must be a valid URL.");
   });
 });
