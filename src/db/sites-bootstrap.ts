@@ -167,6 +167,21 @@ export async function bootstrapSitesSchema(db: NodePgDatabase, logger: Logger): 
     );
     // END_BLOCK_CREATE_SITE_CRAWL_JOBS_TABLE_M_DB_SITES_BOOTSTRAP_007
 
+    // START_BLOCK_CREATE_OAUTH_TOKEN_STORE_TABLE_M_DB_SITES_BOOTSTRAP_011
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS oauth_token_store (
+        key        TEXT PRIMARY KEY,
+        value      JSONB NOT NULL,
+        expires_at TIMESTAMPTZ
+      )
+    `);
+    logger.info(
+      "oauth_token_store table ensured.",
+      "bootstrapSitesSchema",
+      "CREATE_OAUTH_TOKEN_STORE_TABLE",
+    );
+    // END_BLOCK_CREATE_OAUTH_TOKEN_STORE_TABLE_M_DB_SITES_BOOTSTRAP_011
+
     // START_BLOCK_SEED_SITE_SOURCES_M_DB_SITES_BOOTSTRAP_008
     for (const source of SITE_SOURCES_RESPONSE.sources) {
       await db.execute(sql`

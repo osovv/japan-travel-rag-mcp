@@ -78,6 +78,7 @@ function createTestConfig(proxyOverrides?: Partial<AppConfig["proxy"]>): AppConf
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-token",
     databaseUrl: "postgres://localhost:5432/test",
+    oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
       bearerToken: "service-bearer-token",

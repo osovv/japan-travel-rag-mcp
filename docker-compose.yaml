@@ -23,6 +23,7 @@ x-shared-env: &shared-env
     DATABASE_URL: ${DATABASE_URL:?}
     PORT: ${PORT:-3000}
     TG_CHAT_RAG_TIMEOUT_MS: ${TG_CHAT_RAG_TIMEOUT_MS:-15000}
+    OAUTH_SESSION_SECRET: ${OAUTH_SESSION_SECRET:-dev-oauth-session-secret-minimum-32chars}
 
 services:
   # START_BLOCK_MCP_SERVICE

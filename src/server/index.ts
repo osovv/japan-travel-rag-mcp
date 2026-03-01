@@ -259,6 +259,7 @@ export async function main(): Promise<FastMCP> {
     const oauthProxyContext = createOauthProxy({
       config,
       logger: logger.child({ component: "oauthProxy" }),
+      db: dbClient.db,
     });
 
     const adminDeps = {

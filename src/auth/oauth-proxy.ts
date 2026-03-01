@@ -19,10 +19,13 @@
 //   LAST_CHANGE: v1.8.0 - Integrated patchOAuthProxyConsent from M-AUTH-CONSENT-PATCH to replace default consent screen with portal-styled HTML after OAuthProxy construction.
 // END_CHANGE_SUMMARY
 
+import { createHmac } from "node:crypto";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { OAuthProxy, type OAuthProxyConfig } from "fastmcp/auth";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { patchOAuthProxyConsent } from "./consent-patch";
+import { PostgresTokenStorage } from "./pg-token-storage";
 
 type OauthProxyInitErrorDetails = {
   field?: string;
@@ -43,6 +46,7 @@ const DEFAULT_OAUTH_PROXY_SCOPES = Object.freeze(["mcp:access"]);
 export type OauthProxyDeps = {
   config: AppConfig;
   logger: Logger;
+  db: NodePgDatabase;
 };
 
 export type OauthProxyContext = {
@@ -246,6 +250,12 @@ function resolveOauthProxyConfig(config: AppConfig): ResolvedOauthProxyConfig {
   // END_BLOCK_VALIDATE_AND_RESOLVE_OAUTH_PROXY_CONFIG_M_AUTH_PROXY_006
 }
 
+function deriveKey(secret: string, label: string): string {
+  const hmac = createHmac("sha256", secret);
+  hmac.update(label);
+  return hmac.digest("hex");
+}
+
 // START_CONTRACT: createOauthProxy
 //   PURPOSE: Create FastMCP OAuthProxy instance with deterministic default upstream scopes and derive authorization-server metadata for runtime oauth config wiring.
 //   INPUTS: { deps: OauthProxyDeps - Dependency bundle with AppConfig and logger }
@@ -281,6 +291,12 @@ export function createOauthProxy(deps: OauthProxyDeps): OauthProxyContext {
 
   // START_BLOCK_CONSTRUCT_OAUTH_PROXY_AND_METADATA_M_AUTH_PROXY_009
   try {
+    const secret = deps.config.oauthSessionSecret;
+    const encryptionKey = deriveKey(secret, "fastmcp:encryption");
+    const jwtSigningKey = deriveKey(secret, "fastmcp:jwt");
+    const consentSigningKey = deriveKey(secret, "fastmcp:consent");
+    const tokenStorage = new PostgresTokenStorage(deps.db, logger);
+
     const oauthProxyConfig: OAuthProxyConfig = {
       baseUrl: resolvedConfig.baseUrl,
       upstreamAuthorizationEndpoint: resolvedConfig.upstreamAuthorizationEndpoint,
@@ -288,6 +304,10 @@ export function createOauthProxy(deps: OauthProxyDeps): OauthProxyContext {
       upstreamClientId: resolvedConfig.upstreamClientId,
       upstreamClientSecret: resolvedConfig.upstreamClientSecret,
       scopes: resolvedConfig.scopes,
+      tokenStorage,
+      encryptionKey,
+      jwtSigningKey,
+      consentSigningKey,
     };
 
     const oauthProxy = new OAuthProxy(oauthProxyConfig);

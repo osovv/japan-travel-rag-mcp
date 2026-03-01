@@ -36,6 +36,7 @@ x-shared-env: &shared-env
     PROXY_SECRET: ${PROXY_SECRET:?}
     VOYAGE_API_KEY: ${VOYAGE_API_KEY:?}
     SPIDER_API_KEY: ${SPIDER_API_KEY:?}
+    OAUTH_SESSION_SECRET: ${OAUTH_SESSION_SECRET:?}
   networks:
     - coolify
 

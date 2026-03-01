@@ -26,7 +26,7 @@
 //   LAST_CHANGE: v1.0.0 - Consolidated from api-key-repository.ts, sites-schema.ts, and tracker.ts into unified schema. Replaced custom vector type with built-in drizzle-orm/pg-core vector.
 // END_CHANGE_SUMMARY
 
-import { integer, pgTable, primaryKey, text, timestamp, vector } from "drizzle-orm/pg-core";
+import { integer, jsonb, pgTable, primaryKey, text, timestamp, vector } from "drizzle-orm/pg-core";
 import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
 // ─── API Keys ───────────────────────────────────────────────────────────────
@@ -131,6 +131,14 @@ export const usageCountersTable = pgTable(
   },
   (table) => [primaryKey({ columns: [table.userId, table.toolName] })],
 );
+
+// ─── OAuth Token Store ──────────────────────────────────────────────────────
+
+export const oauthTokenStoreTable = pgTable("oauth_token_store", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
 
 // ─── Inferred Types ─────────────────────────────────────────────────────────
 

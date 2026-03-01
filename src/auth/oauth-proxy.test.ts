@@ -72,6 +72,7 @@ function createMockAppConfig(): AppConfig {
       oidcAuthEndpoint: "https://issuer.example.com/oidc/auth",
       oidcTokenEndpoint: "https://issuer.example.com/oidc/token",
     },
+    oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
     portal: {
       sessionSecret: "test-portal-session-secret",
       logtoAppId: "test-portal-app-id",
@@ -87,6 +88,7 @@ describe("M-AUTH-PROXY createOauthProxy", () => {
     const oauthProxyContext = createOauthProxy({
       config: createMockAppConfig(),
       logger: createNoopLogger(),
+      db: {} as any,
     });
 
     expect(oauthProxyContext.authorizationServerMetadata.scopesSupported).toEqual(EXPECTED_SCOPES_SUPPORTED);

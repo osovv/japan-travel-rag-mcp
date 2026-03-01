@@ -54,6 +54,7 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     PROXY_SECRET: "proxy-secret-value",
     VOYAGE_API_KEY: "voyage-api-key-value",
     SPIDER_API_KEY: "spider-api-key-value",
+    OAUTH_SESSION_SECRET: "test-oauth-session-secret-at-least-32-characters",
     ...overrides,
   };
   // END_BLOCK_BUILD_BASE_ENV_FOR_CONFIG_TESTS_M_CONFIG_TEST_001
@@ -158,6 +159,7 @@ describe("M-CONFIG runtime settings", () => {
         PROXY_SECRET: " ",
         VOYAGE_API_KEY: " ",
         SPIDER_API_KEY: " ",
+        OAUTH_SESSION_SECRET: " ",
       }),
     );
 
@@ -182,6 +184,7 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.details).toContain("PROXY_SECRET is required.");
     expect(error.details).toContain("VOYAGE_API_KEY is required.");
     expect(error.details).toContain("SPIDER_API_KEY is required.");
+    expect(error.details).toContain("OAUTH_SESSION_SECRET is required.");
   });
 
   it("throws CONFIG_VALIDATION_ERROR for invalid URL values", () => {

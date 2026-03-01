@@ -22,6 +22,7 @@ export type AppConfig = {
   publicUrl: string;
   rootAuthToken: string;
   databaseUrl: string;
+  oauthSessionSecret: string;
   tgChatRag: {
     baseUrl: string;
     bearerToken: string;
@@ -98,6 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const proxySecret = (env.PROXY_SECRET ?? "").trim();
   const voyageApiKey = (env.VOYAGE_API_KEY ?? "").trim();
   const spiderApiKey = (env.SPIDER_API_KEY ?? "").trim();
+  const oauthSessionSecret = (env.OAUTH_SESSION_SECRET ?? "").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -283,6 +285,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   // END_BLOCK_VALIDATE_SPIDER_API_KEY_M_CONFIG_023
 
+  // START_BLOCK_VALIDATE_OAUTH_SESSION_SECRET_M_CONFIG_024
+  if (!oauthSessionSecret) {
+    errors.push("OAUTH_SESSION_SECRET is required.");
+  } else if (oauthSessionSecret.length < 32) {
+    errors.push("OAUTH_SESSION_SECRET must be at least 32 characters.");
+  }
+  // END_BLOCK_VALIDATE_OAUTH_SESSION_SECRET_M_CONFIG_024
+
   // START_BLOCK_PARSE_PORTAL_SESSION_TTL_M_CONFIG_016
   let portalSessionTtlSeconds = 604800; // 7 days default
   if (portalSessionTtlRaw) {
@@ -307,6 +317,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     publicUrl,
     rootAuthToken,
     databaseUrl: databaseUrlRaw,
+    oauthSessionSecret,
     tgChatRag: {
       baseUrl: normalizedBaseUrl,
       bearerToken,
