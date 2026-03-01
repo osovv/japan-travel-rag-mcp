@@ -26,7 +26,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 
 import type { Logger } from "../logger/index";
-import { siteSourcesTable } from "../db/sites-schema";
+import { siteSourcesTable } from "../db/schema";
 
 // START_CONTRACT: TierDescription
 //   PURPOSE: Describe a single tier in the source priority hierarchy.

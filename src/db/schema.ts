@@ -1,19 +1,20 @@
-// FILE: src/db/sites-schema.ts
+// FILE: src/db/schema.ts
 // VERSION: 1.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Define Drizzle pgTable schemas for curated site indexing pipeline: sources, pages, chunks, embeddings, and crawl jobs.
+//   PURPOSE: Unified Drizzle pgTable schemas for the entire application: API keys, curated site indexing pipeline, and usage tracking.
 //   SCOPE: Pure schema definitions and inferred types; no runtime SQL execution.
 //   DEPENDS: (none — schema-only module)
-//   LINKS: M-DB, M-SITE-SOURCES
+//   LINKS: M-DB, M-API-KEY-REPOSITORY, M-SITE-SOURCES, M-USAGE-TRACKER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   vector - Custom Drizzle column type for pgvector vector(N) columns.
+//   apiKeysTable - API key persistence table for Bearer authentication (id PK, key_hash, label, expiry/revocation timestamps).
 //   siteSourcesTable - Curated site source registry (source_id PK, tier, domain, crawl config).
 //   sitePagesTable - Fetched pages linked to a source (page_id PK, source_id FK).
 //   siteChunksTable - Text chunks derived from pages (chunk_id PK, page_id FK).
 //   siteChunkEmbeddingsTable - Embedding vectors for chunks (chunk_id PK+FK, pgvector column).
 //   siteCrawlJobsTable - Crawl job tracking (crawl_job_id PK, source_id FK).
+//   usageCountersTable - Per-user per-tool call counters with composite PK.
 //   SiteSource (type) - Inferred insert/select types for site_sources.
 //   SitePage (type) - Inferred insert/select types for site_pages.
 //   SiteChunk (type) - Inferred insert/select types for site_chunks.
@@ -22,46 +23,26 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial creation with 5 table definitions and pgvector custom type for curated sites index.
+//   LAST_CHANGE: v1.0.0 - Consolidated from api-key-repository.ts, sites-schema.ts, and tracker.ts into unified schema. Replaced custom vector type with built-in drizzle-orm/pg-core vector.
 // END_CHANGE_SUMMARY
 
-import { customType, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, pgTable, primaryKey, text, timestamp, vector } from "drizzle-orm/pg-core";
 import type { InferInsertModel, InferSelectModel } from "drizzle-orm";
 
-// START_BLOCK_DEFINE_PGVECTOR_CUSTOM_TYPE_M_DB_SITES_001
-// START_CONTRACT: vector
-//   PURPOSE: Define a custom Drizzle column type mapping to pgvector's vector(N) SQL type.
-//   INPUTS: { dimensions: number - Vector dimensionality for the SQL type declaration }
-//   OUTPUTS: { customType column builder for use in pgTable definitions }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-DB]
-// END_CONTRACT: vector
-export const vector = (dimensions: number) =>
-  customType<{ data: number[]; driverParam: string }>({
-    dataType() {
-      return `vector(${dimensions})`;
-    },
-    toDriver(value: number[]): string {
-      return `[${value.join(",")}]`;
-    },
-    fromDriver(value: string): number[] {
-      // pgvector returns '[1,2,3]' format
-      return value
-        .slice(1, -1)
-        .split(",")
-        .map(Number);
-    },
-  });
-// END_BLOCK_DEFINE_PGVECTOR_CUSTOM_TYPE_M_DB_SITES_001
+// ─── API Keys ───────────────────────────────────────────────────────────────
 
-// START_BLOCK_DEFINE_SITE_SOURCES_TABLE_M_DB_SITES_002
-// START_CONTRACT: siteSourcesTable
-//   PURPOSE: Curated site source registry table — one row per crawl target site.
-//   INPUTS: (none — table definition)
-//   OUTPUTS: pgTable schema for site_sources
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-DB, M-SITE-SOURCES]
-// END_CONTRACT: siteSourcesTable
+export const apiKeysTable = pgTable("api_keys", {
+  id: text("id").primaryKey(),
+  key_hash: text("key_hash").notNull().unique(),
+  key_prefix: text("key_prefix").notNull(),
+  label: text("label").notNull(),
+  expires_at: timestamp("expires_at", { withTimezone: true, mode: "date" }),
+  revoked_at: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
+  created_at: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+// ─── Site Sources ───────────────────────────────────────────────────────────
+
 export const siteSourcesTable = pgTable("site_sources", {
   sourceId: text("source_id").primaryKey(),
   name: text("name").notNull(),
@@ -73,16 +54,9 @@ export const siteSourcesTable = pgTable("site_sources", {
   crawlIntervalMinutes: integer("crawl_interval_minutes").notNull(),
   maxPages: integer("max_pages").notNull(),
 });
-// END_BLOCK_DEFINE_SITE_SOURCES_TABLE_M_DB_SITES_002
 
-// START_BLOCK_DEFINE_SITE_PAGES_TABLE_M_DB_SITES_003
-// START_CONTRACT: sitePagesTable
-//   PURPOSE: Fetched page records linked to a curated source.
-//   INPUTS: (none — table definition)
-//   OUTPUTS: pgTable schema for site_pages
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-DB]
-// END_CONTRACT: sitePagesTable
+// ─── Site Pages ─────────────────────────────────────────────────────────────
+
 export const sitePagesTable = pgTable("site_pages", {
   pageId: text("page_id").primaryKey(),
   sourceId: text("source_id")
@@ -97,16 +71,9 @@ export const sitePagesTable = pgTable("site_pages", {
   lastModified: text("last_modified"),
   etag: text("etag"),
 });
-// END_BLOCK_DEFINE_SITE_PAGES_TABLE_M_DB_SITES_003
 
-// START_BLOCK_DEFINE_SITE_CHUNKS_TABLE_M_DB_SITES_004
-// START_CONTRACT: siteChunksTable
-//   PURPOSE: Text chunks derived from fetched pages for embedding and retrieval.
-//   INPUTS: (none — table definition)
-//   OUTPUTS: pgTable schema for site_chunks
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-DB]
-// END_CONTRACT: siteChunksTable
+// ─── Site Chunks ────────────────────────────────────────────────────────────
+
 export const siteChunksTable = pgTable("site_chunks", {
   chunkId: text("chunk_id").primaryKey(),
   pageId: text("page_id")
@@ -122,36 +89,22 @@ export const siteChunksTable = pgTable("site_chunks", {
   startOffset: integer("start_offset").notNull(),
   endOffset: integer("end_offset").notNull(),
 });
-// END_BLOCK_DEFINE_SITE_CHUNKS_TABLE_M_DB_SITES_004
 
-// START_BLOCK_DEFINE_SITE_CHUNK_EMBEDDINGS_TABLE_M_DB_SITES_005
-// START_CONTRACT: siteChunkEmbeddingsTable
-//   PURPOSE: Embedding vectors for site chunks, using pgvector for similarity search.
-//   INPUTS: (none — table definition)
-//   OUTPUTS: pgTable schema for site_chunk_embeddings
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-DB]
-// END_CONTRACT: siteChunkEmbeddingsTable
+// ─── Site Chunk Embeddings ──────────────────────────────────────────────────
+
 export const siteChunkEmbeddingsTable = pgTable("site_chunk_embeddings", {
   chunkId: text("chunk_id")
     .primaryKey()
     .references(() => siteChunksTable.chunkId, { onDelete: "cascade" }),
-  embedding: vector(1024)("embedding").notNull(),
+  embedding: vector("embedding", { dimensions: 1024 }).notNull(),
   embeddingModel: text("embedding_model").notNull(),
   embeddingVersion: text("embedding_version").notNull(),
   indexVersion: text("index_version").notNull(),
   embeddedAt: timestamp("embedded_at", { withTimezone: true }).notNull(),
 });
-// END_BLOCK_DEFINE_SITE_CHUNK_EMBEDDINGS_TABLE_M_DB_SITES_005
 
-// START_BLOCK_DEFINE_SITE_CRAWL_JOBS_TABLE_M_DB_SITES_006
-// START_CONTRACT: siteCrawlJobsTable
-//   PURPOSE: Crawl job tracking for site ingestion orchestration.
-//   INPUTS: (none — table definition)
-//   OUTPUTS: pgTable schema for site_crawl_jobs
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-DB]
-// END_CONTRACT: siteCrawlJobsTable
+// ─── Site Crawl Jobs ────────────────────────────────────────────────────────
+
 export const siteCrawlJobsTable = pgTable("site_crawl_jobs", {
   crawlJobId: text("crawl_job_id").primaryKey(),
   sourceId: text("source_id")
@@ -165,9 +118,22 @@ export const siteCrawlJobsTable = pgTable("site_crawl_jobs", {
   pagesFetched: integer("pages_fetched").notNull().default(0),
   error: text("error"),
 });
-// END_BLOCK_DEFINE_SITE_CRAWL_JOBS_TABLE_M_DB_SITES_006
 
-// START_BLOCK_DEFINE_INFERRED_TYPES_M_DB_SITES_007
+// ─── Usage Counters ─────────────────────────────────────────────────────────
+
+export const usageCountersTable = pgTable(
+  "usage_counters",
+  {
+    userId: text("user_id").notNull(),
+    toolName: text("tool_name").notNull(),
+    callCount: integer("call_count").notNull().default(0),
+    lastCalledAt: timestamp("last_called_at", { withTimezone: true }),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.toolName] })],
+);
+
+// ─── Inferred Types ─────────────────────────────────────────────────────────
+
 export type SiteSourceSelect = InferSelectModel<typeof siteSourcesTable>;
 export type SiteSourceInsert = InferInsertModel<typeof siteSourcesTable>;
 
@@ -182,4 +148,3 @@ export type SiteChunkEmbeddingInsert = InferInsertModel<typeof siteChunkEmbeddin
 
 export type SiteCrawlJobSelect = InferSelectModel<typeof siteCrawlJobsTable>;
 export type SiteCrawlJobInsert = InferInsertModel<typeof siteCrawlJobsTable>;
-// END_BLOCK_DEFINE_INFERRED_TYPES_M_DB_SITES_007

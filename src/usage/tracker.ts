@@ -21,21 +21,10 @@
 
 import { eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { integer, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 import type { Logger } from "../logger/index";
+import { usageCountersTable } from "../db/schema";
 
-// START_BLOCK_DEFINE_DRIZZLE_SCHEMA_M_USAGE_TRACKER_001
-export const usageCountersTable = pgTable(
-  "usage_counters",
-  {
-    userId: text("user_id").notNull(),
-    toolName: text("tool_name").notNull(),
-    callCount: integer("call_count").notNull().default(0),
-    lastCalledAt: timestamp("last_called_at", { withTimezone: true }),
-  },
-  (table) => [primaryKey({ columns: [table.userId, table.toolName] })],
-);
-// END_BLOCK_DEFINE_DRIZZLE_SCHEMA_M_USAGE_TRACKER_001
+export { usageCountersTable };
 
 // START_BLOCK_DEFINE_TYPES_M_USAGE_TRACKER_002
 export type UserUsageStats = {

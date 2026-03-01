@@ -1,21 +1,14 @@
-// FILE: src/db/sites-schema.test.ts
+// FILE: src/db/schema.test.ts
 // VERSION: 1.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Verify M-DB sites schema exports, table shapes, types, vector custom type, and bootstrap logic.
-//   SCOPE: Unit test schema table definitions, inferred types, vector serialization, and bootstrapSitesSchema with mocked DB.
-//   DEPENDS: M-DB, M-SITE-SOURCES, M-LOGGER
-//   LINKS: M-DB, M-SITE-SOURCES
+//   PURPOSE: Verify unified schema exports, table shapes, inferred types, and bootstrap logic.
+//   SCOPE: Unit test all table definitions and inferred types from src/db/schema.ts.
+//   DEPENDS: M-DB, M-SITE-SOURCES, M-LOGGER, M-API-KEY-REPOSITORY, M-USAGE-TRACKER
+//   LINKS: M-DB, M-SITE-SOURCES, M-API-KEY-REPOSITORY, M-USAGE-TRACKER
 // END_MODULE_CONTRACT
 //
-// START_MODULE_MAP
-//   SchemaExportTests - Verify all 5 tables and inferred types are exported from sites-schema.
-//   VectorCustomTypeTests - Verify vector toDriver/fromDriver round-trip.
-//   BootstrapTests - Verify bootstrapSitesSchema calls execute for DDL + seed, handles errors.
-//   CrawlConfigHelperTests - Verify getDefaultCrawlInterval and getDefaultMaxPages tier defaults.
-// END_MODULE_MAP
-//
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial test suite for sites schema and bootstrap.
+//   LAST_CHANGE: v1.0.0 - Consolidated from sites-schema.test.ts; added apiKeysTable and usageCountersTable tests.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -23,12 +16,13 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Logger } from "../logger/index";
 import { SITE_SOURCES_RESPONSE } from "../tools/site-sources";
 import {
+  apiKeysTable,
   siteSourcesTable,
   sitePagesTable,
   siteChunksTable,
   siteChunkEmbeddingsTable,
   siteCrawlJobsTable,
-  vector,
+  usageCountersTable,
   type SiteSourceSelect,
   type SiteSourceInsert,
   type SitePageSelect,
@@ -39,7 +33,7 @@ import {
   type SiteChunkEmbeddingInsert,
   type SiteCrawlJobSelect,
   type SiteCrawlJobInsert,
-} from "./sites-schema";
+} from "./schema";
 import {
   bootstrapSitesSchema,
   SitesBootstrapError,
@@ -47,7 +41,7 @@ import {
   getDefaultMaxPages,
 } from "./sites-bootstrap";
 
-// START_BLOCK_TEST_FIXTURES_M_DB_SITES_TEST_001
+// START_BLOCK_TEST_FIXTURES_M_DB_SCHEMA_TEST_001
 function createNoopLogger(): Logger {
   const noop = (): void => {};
   let loggerRef: Logger;
@@ -78,9 +72,25 @@ function createMockDb(overrides?: {
 
   return { mock, executeCalls };
 }
-// END_BLOCK_TEST_FIXTURES_M_DB_SITES_TEST_001
+// END_BLOCK_TEST_FIXTURES_M_DB_SCHEMA_TEST_001
 
-// START_BLOCK_SCHEMA_EXPORT_TESTS_M_DB_SITES_TEST_002
+// START_BLOCK_API_KEYS_TABLE_TESTS_M_DB_SCHEMA_TEST_002
+describe("apiKeysTable exports", () => {
+  it("exports apiKeysTable with expected columns", () => {
+    expect(apiKeysTable).toBeDefined();
+    const cols = apiKeysTable;
+    expect(cols.id).toBeDefined();
+    expect(cols.key_hash).toBeDefined();
+    expect(cols.key_prefix).toBeDefined();
+    expect(cols.label).toBeDefined();
+    expect(cols.expires_at).toBeDefined();
+    expect(cols.revoked_at).toBeDefined();
+    expect(cols.created_at).toBeDefined();
+  });
+});
+// END_BLOCK_API_KEYS_TABLE_TESTS_M_DB_SCHEMA_TEST_002
+
+// START_BLOCK_SCHEMA_EXPORT_TESTS_M_DB_SCHEMA_TEST_003
 describe("sites-schema table exports", () => {
   it("exports siteSourcesTable with expected columns", () => {
     expect(siteSourcesTable).toBeDefined();
@@ -152,22 +162,22 @@ describe("sites-schema table exports", () => {
     expect(cols.error).toBeDefined();
   });
 });
-// END_BLOCK_SCHEMA_EXPORT_TESTS_M_DB_SITES_TEST_002
+// END_BLOCK_SCHEMA_EXPORT_TESTS_M_DB_SCHEMA_TEST_003
 
-// START_BLOCK_VECTOR_CUSTOM_TYPE_TESTS_M_DB_SITES_TEST_003
-describe("vector custom type", () => {
-  it("exports vector function", () => {
-    expect(typeof vector).toBe("function");
-  });
-
-  it("creates a column builder when called with dimensions", () => {
-    const col = vector(1024);
-    expect(typeof col).toBe("function");
+// START_BLOCK_USAGE_COUNTERS_TABLE_TESTS_M_DB_SCHEMA_TEST_004
+describe("usageCountersTable exports", () => {
+  it("exports usageCountersTable with expected columns", () => {
+    expect(usageCountersTable).toBeDefined();
+    const cols = usageCountersTable;
+    expect(cols.userId).toBeDefined();
+    expect(cols.toolName).toBeDefined();
+    expect(cols.callCount).toBeDefined();
+    expect(cols.lastCalledAt).toBeDefined();
   });
 });
-// END_BLOCK_VECTOR_CUSTOM_TYPE_TESTS_M_DB_SITES_TEST_003
+// END_BLOCK_USAGE_COUNTERS_TABLE_TESTS_M_DB_SCHEMA_TEST_004
 
-// START_BLOCK_TYPE_CONFORMANCE_TESTS_M_DB_SITES_TEST_004
+// START_BLOCK_TYPE_CONFORMANCE_TESTS_M_DB_SCHEMA_TEST_005
 describe("inferred types", () => {
   it("SiteSourceSelect type conforms to expected shape", () => {
     // Compile-time verification — if this block compiles, types are correct
@@ -304,9 +314,9 @@ describe("inferred types", () => {
     expect(_t).toBeDefined();
   });
 });
-// END_BLOCK_TYPE_CONFORMANCE_TESTS_M_DB_SITES_TEST_004
+// END_BLOCK_TYPE_CONFORMANCE_TESTS_M_DB_SCHEMA_TEST_005
 
-// START_BLOCK_BOOTSTRAP_TESTS_M_DB_SITES_TEST_005
+// START_BLOCK_BOOTSTRAP_TESTS_M_DB_SCHEMA_TEST_006
 describe("bootstrapSitesSchema", () => {
   it("executes DDL statements for all tables plus seed inserts", async () => {
     const { mock, executeCalls } = createMockDb();
@@ -344,9 +354,9 @@ describe("bootstrapSitesSchema", () => {
     expect(err instanceof Error).toBe(true);
   });
 });
-// END_BLOCK_BOOTSTRAP_TESTS_M_DB_SITES_TEST_005
+// END_BLOCK_BOOTSTRAP_TESTS_M_DB_SCHEMA_TEST_006
 
-// START_BLOCK_CRAWL_CONFIG_HELPER_TESTS_M_DB_SITES_TEST_006
+// START_BLOCK_CRAWL_CONFIG_HELPER_TESTS_M_DB_SCHEMA_TEST_007
 describe("getDefaultCrawlInterval", () => {
   it("returns 1440 for tier 0 (daily)", () => {
     expect(getDefaultCrawlInterval(0)).toBe(1440);
@@ -382,4 +392,4 @@ describe("getDefaultMaxPages", () => {
     expect(getDefaultMaxPages(99)).toBe(50);
   });
 });
-// END_BLOCK_CRAWL_CONFIG_HELPER_TESTS_M_DB_SITES_TEST_006
+// END_BLOCK_CRAWL_CONFIG_HELPER_TESTS_M_DB_SCHEMA_TEST_007

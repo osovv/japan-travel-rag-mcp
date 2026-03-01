@@ -23,9 +23,11 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { desc, eq, sql } from "drizzle-orm";
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import type { DbClient } from "../db/index";
+import { apiKeysTable } from "../db/schema";
 import type { Logger } from "../logger/index";
+
+export { apiKeysTable };
 
 const API_KEYS_TABLE_NAME = "api_keys";
 const MAX_LABEL_LENGTH = 128;
@@ -33,16 +35,6 @@ const CREATE_API_KEY_MAX_ATTEMPTS = 3;
 const API_KEY_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RAW_API_KEY_PATTERN = /^(?<prefix>jp_[a-f0-9]{12})_(?<secret>[a-f0-9]{64})$/;
-
-export const apiKeysTable = pgTable(API_KEYS_TABLE_NAME, {
-  id: text("id").primaryKey(),
-  key_hash: text("key_hash").notNull().unique(),
-  key_prefix: text("key_prefix").notNull(),
-  label: text("label").notNull(),
-  expires_at: timestamp("expires_at", { withTimezone: true, mode: "date" }),
-  revoked_at: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
-  created_at: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-});
 
 type ApiKeyStoreErrorDetails = {
   field?: string;
