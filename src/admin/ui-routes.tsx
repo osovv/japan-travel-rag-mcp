@@ -1,31 +1,42 @@
 // FILE: src/admin/ui-routes.tsx
-// VERSION: 2.3.0
+// VERSION: 2.4.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Render admin login and authenticated operator diagnostics surfaces without legacy API-key route handling.
-//   SCOPE: Route /admin/login and /admin/ops requests, enforce admin session checks, and render safe HTML diagnostics from runtime config.
-//   DEPENDS: M-ADMIN-AUTH, M-LOGGER, M-CONFIG
-//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-LOGGER, M-CONFIG
+//   PURPOSE: Render admin login, operator diagnostics, and Sites Management surfaces with session-protected routing.
+//   SCOPE: Route /admin/login, /admin/ops, and /admin/sites/* requests, enforce admin session checks, render safe HTML diagnostics and sites CRUD UI from runtime config and database.
+//   DEPENDS: M-ADMIN-AUTH, M-ADMIN-SITES, M-LOGGER, M-CONFIG, M-DB
+//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-ADMIN-SITES, M-LOGGER, M-CONFIG, M-DB
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   AdminUiError - Typed admin UI error wrapper with ADMIN_UI_ERROR code.
-//   AdminUiDependencies - Dependency contract for auth helpers, config, and logger.
-//   renderAdminLayout - Render admin shell with Ops Diagnostics navigation.
+//   AdminUiDependencies - Dependency contract for auth helpers, config, logger, and optional db handle.
+//   renderAdminLayout - Render admin shell with Ops Diagnostics and Sites Management navigation.
 //   renderOpsStatus - Render operator diagnostics panel derived from runtime config.
-//   handleAdminRequest - Route login and ops diagnostics while enforcing session checks.
+//   handleAdminRequest - Route login, ops diagnostics, and sites management CRUD while enforcing session checks.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.3.0 - Rebased ops diagnostics on AppConfig.logto fields, removed legacy config.oauth references, and masked Logto client secret in rendered status output.
+//   LAST_CHANGE: v2.4.0 - Extend admin routes with Sites Management pages (list, create, edit, toggle, delete) and sidebar navigation; add db dependency for sites routes.
+//   v2.3.0 - Rebased ops diagnostics on AppConfig.logto fields, removed legacy config.oauth references, and masked Logto client secret in rendered status output.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   authenticateAdmin as authenticateAdminHelper,
   clearAdminSession as clearAdminSessionHelper,
   requireAdminSession as requireAdminSessionHelper,
 } from "./auth";
+import {
+  fetchSitesPageData,
+  handleCreateSource,
+  handleUpdateSource,
+  handleDeleteSource,
+  handleToggleSourceStatus,
+  renderSitesContent,
+  renderSourceForm,
+} from "./sites-page";
 
 const ADMIN_ROOT_PATH = "/admin";
 const ADMIN_LOGIN_PATH = "/admin/login";
@@ -34,7 +45,7 @@ const HX_REQUEST_HEADER = "HX-Request";
 const HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 const OPS_TAB_LABEL = "Ops Diagnostics";
 
-type ActiveTab = "ops";
+type ActiveTab = "ops" | "sites";
 
 type RenderAdminLayoutParams = {
   pageTitle: string;
@@ -65,6 +76,7 @@ type RenderOpsStatusModel = {
 type ResolvedAdminUiDependencies = {
   config: AppConfig;
   logger: Logger;
+  db: NodePgDatabase | null;
   authenticateAdmin: typeof authenticateAdminHelper;
   requireAdminSession: typeof requireAdminSessionHelper;
   clearAdminSession: typeof clearAdminSessionHelper;
@@ -73,6 +85,7 @@ type ResolvedAdminUiDependencies = {
 export type AdminUiDependencies = {
   config: AppConfig;
   logger: Logger;
+  db?: NodePgDatabase;
   authenticateAdmin?: typeof authenticateAdminHelper;
   requireAdminSession?: typeof requireAdminSessionHelper;
   clearAdminSession?: typeof clearAdminSessionHelper;
@@ -236,6 +249,7 @@ function resolveDependencies(deps: AdminUiDependencies): ResolvedAdminUiDependen
   return {
     config: deps.config,
     logger: deps.logger,
+    db: deps.db ?? null,
     authenticateAdmin: deps.authenticateAdmin ?? authenticateAdminHelper,
     requireAdminSession: deps.requireAdminSession ?? requireAdminSessionHelper,
     clearAdminSession: deps.clearAdminSession ?? clearAdminSessionHelper,
@@ -441,8 +455,8 @@ function renderLoginDocument(errorMessage?: string): string {
 export function renderAdminLayout(params: RenderAdminLayoutParams): string {
   // START_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
   const escapedPageTitle = escapeHtml(params.pageTitle);
-  const isOpsTab = params.activeTab === "ops";
-  const opsTabClass = isOpsTab ? "nav-link nav-link-active" : "nav-link";
+  const opsTabClass = params.activeTab === "ops" ? "nav-link nav-link-active" : "nav-link";
+  const sitesTabClass = params.activeTab === "sites" ? "nav-link nav-link-active" : "nav-link";
 
   return [
     `<!doctype html>`,
@@ -483,6 +497,7 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
     `<p class="brand">Admin Console</p>`,
     `<nav>`,
     `<a class="${opsTabClass}" href="${ADMIN_OPS_PATH}">${OPS_TAB_LABEL}</a>`,
+    `<a class="${sitesTabClass}" href="/admin/sites">Sites Management</a>`,
     `</nav>`,
     `</aside>`,
     `<main class="content">`,
@@ -624,6 +639,169 @@ export async function handleAdminRequest(
       );
     }
     // END_BLOCK_HANDLE_ADMIN_OPS_ROUTE_M_ADMIN_UI_118
+
+    // START_BLOCK_HANDLE_ADMIN_SITES_ROUTES_M_ADMIN_UI_130
+
+    // Guard: sites routes require a database connection
+    if (pathname.startsWith("/admin/sites") && resolvedDeps.db === null) {
+      return buildHtmlResponse(
+        503,
+        renderAdminLayout({
+          pageTitle: "Admin - Sites Management",
+          activeTab: "sites",
+          contentHtml: `<section class="card"><h2>Unavailable</h2><p class="warning">Sites management requires database connection.</p></section>`,
+        }),
+      );
+    }
+
+    // GET /admin/sites — Show sites list page
+    if (pathname === "/admin/sites" && method === "GET") {
+      // START_BLOCK_HANDLE_SITES_LIST_ROUTE_M_ADMIN_UI_131
+      const db = resolvedDeps.db!;
+      const data = await fetchSitesPageData(db, logger);
+      const contentHtml = renderSitesContent(data);
+      return buildHtmlResponse(
+        200,
+        renderAdminLayout({
+          pageTitle: "Admin - Sites Management",
+          activeTab: "sites",
+          contentHtml,
+        }),
+      );
+      // END_BLOCK_HANDLE_SITES_LIST_ROUTE_M_ADMIN_UI_131
+    }
+
+    // GET /admin/sites/new — Show create source form
+    if (pathname === "/admin/sites/new" && method === "GET") {
+      // START_BLOCK_HANDLE_SITES_NEW_ROUTE_M_ADMIN_UI_132
+      const formHtml = renderSourceForm({ mode: "create" });
+      return buildHtmlResponse(
+        200,
+        renderAdminLayout({
+          pageTitle: "Admin - Add Source",
+          activeTab: "sites",
+          contentHtml: formHtml,
+        }),
+      );
+      // END_BLOCK_HANDLE_SITES_NEW_ROUTE_M_ADMIN_UI_132
+    }
+
+    // POST /admin/sites — Handle create source submission
+    if (pathname === "/admin/sites" && method === "POST") {
+      // START_BLOCK_HANDLE_SITES_CREATE_ROUTE_M_ADMIN_UI_133
+      const db = resolvedDeps.db!;
+      const formData = await request.formData();
+      const input = {
+        source_id: asFormString(formData.get("source_id")),
+        name: asFormString(formData.get("name")),
+        domain: asFormString(formData.get("domain")),
+        tier: Number(asFormString(formData.get("tier"))),
+        language: asFormString(formData.get("language")),
+        focus: asFormString(formData.get("focus")),
+        crawl_interval_minutes: Number(asFormString(formData.get("crawl_interval_minutes"))),
+        max_pages: Number(asFormString(formData.get("max_pages"))),
+      };
+      const result = await handleCreateSource(db, logger, input);
+      if (!result.success) {
+        const formHtml = renderSourceForm({ mode: "create", errors: result.errors });
+        return buildHtmlResponse(
+          400,
+          renderAdminLayout({
+            pageTitle: "Admin - Add Source",
+            activeTab: "sites",
+            contentHtml: formHtml,
+          }),
+        );
+      }
+      return buildRedirectResponse("/admin/sites");
+      // END_BLOCK_HANDLE_SITES_CREATE_ROUTE_M_ADMIN_UI_133
+    }
+
+    // Routes with :id parameter — /admin/sites/:id/(edit|toggle|delete)
+    const sitesMatch = pathname.match(/^\/admin\/sites\/([^/]+)\/(edit|toggle|delete)$/);
+    if (sitesMatch) {
+      const sourceId = decodeURIComponent(sitesMatch[1]);
+      const action = sitesMatch[2];
+      const db = resolvedDeps.db!;
+
+      // GET /admin/sites/:id/edit — Show edit source form
+      if (action === "edit" && method === "GET") {
+        // START_BLOCK_HANDLE_SITES_EDIT_GET_ROUTE_M_ADMIN_UI_134
+        const data = await fetchSitesPageData(db, logger);
+        const source = data.sources.find((s) => s.source_id === sourceId);
+        if (!source) {
+          return buildHtmlResponse(
+            404,
+            renderAdminLayout({
+              pageTitle: "Admin - Source Not Found",
+              activeTab: "sites",
+              contentHtml: `<section class="card"><h2>Not Found</h2><p class="warning">Source <code>${escapeHtml(sourceId)}</code> does not exist.</p></section>`,
+            }),
+          );
+        }
+        const formHtml = renderSourceForm({ mode: "edit", source });
+        return buildHtmlResponse(
+          200,
+          renderAdminLayout({
+            pageTitle: "Admin - Edit Source",
+            activeTab: "sites",
+            contentHtml: formHtml,
+          }),
+        );
+        // END_BLOCK_HANDLE_SITES_EDIT_GET_ROUTE_M_ADMIN_UI_134
+      }
+
+      // POST /admin/sites/:id/edit — Handle edit source submission
+      if (action === "edit" && method === "POST") {
+        // START_BLOCK_HANDLE_SITES_EDIT_POST_ROUTE_M_ADMIN_UI_135
+        const formData = await request.formData();
+        const input = {
+          name: asFormString(formData.get("name")),
+          domain: asFormString(formData.get("domain")),
+          tier: Number(asFormString(formData.get("tier"))),
+          language: asFormString(formData.get("language")),
+          focus: asFormString(formData.get("focus")),
+          crawl_interval_minutes: Number(asFormString(formData.get("crawl_interval_minutes"))),
+          max_pages: Number(asFormString(formData.get("max_pages"))),
+        };
+        const result = await handleUpdateSource(db, logger, sourceId, input);
+        if (!result.success) {
+          const data = await fetchSitesPageData(db, logger);
+          const source = data.sources.find((s) => s.source_id === sourceId);
+          const formHtml = renderSourceForm({ mode: "edit", source, errors: result.errors });
+          return buildHtmlResponse(
+            400,
+            renderAdminLayout({
+              pageTitle: "Admin - Edit Source",
+              activeTab: "sites",
+              contentHtml: formHtml,
+            }),
+          );
+        }
+        return buildRedirectResponse("/admin/sites");
+        // END_BLOCK_HANDLE_SITES_EDIT_POST_ROUTE_M_ADMIN_UI_135
+      }
+
+      // POST /admin/sites/:id/toggle — Handle pause/resume toggle
+      if (action === "toggle" && method === "POST") {
+        // START_BLOCK_HANDLE_SITES_TOGGLE_ROUTE_M_ADMIN_UI_136
+        const formData = await request.formData();
+        const newStatus = asFormString(formData.get("status")) === "paused" ? "paused" : "active";
+        await handleToggleSourceStatus(db, logger, sourceId, newStatus);
+        return buildRedirectResponse("/admin/sites");
+        // END_BLOCK_HANDLE_SITES_TOGGLE_ROUTE_M_ADMIN_UI_136
+      }
+
+      // POST /admin/sites/:id/delete — Handle delete source
+      if (action === "delete" && method === "POST") {
+        // START_BLOCK_HANDLE_SITES_DELETE_ROUTE_M_ADMIN_UI_137
+        await handleDeleteSource(db, logger, sourceId);
+        return buildRedirectResponse("/admin/sites");
+        // END_BLOCK_HANDLE_SITES_DELETE_ROUTE_M_ADMIN_UI_137
+      }
+    }
+
+    // END_BLOCK_HANDLE_ADMIN_SITES_ROUTES_M_ADMIN_UI_130
 
     // START_BLOCK_RETURN_ADMIN_ROUTE_ERRORS_M_ADMIN_UI_120
     return buildHtmlResponse(404, "<h1>Not Found</h1>");
