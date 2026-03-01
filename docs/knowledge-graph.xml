@@ -1,7 +1,7 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.10.0">
-    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management, per-source-cleanup, quality-gate, source-adapter</keywords>
-    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, worker-driven curated-sites crawl/index pipeline with layered per-source cleanup and quality gating, attributed local retrieval, admin sites management CRUD, and persistent OAuth token storage.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.11.0">
+    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management, per-source-cleanup, quality-gate, source-adapter, cleanup-registry, adapter-matrix</keywords>
+    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, worker-driven curated-sites crawl/index pipeline with layered per-source cleanup and quality gating, attributed local retrieval, admin sites management CRUD, persistent OAuth token storage, and planned Layer B adapter coverage expansion for all active curated sources.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
       <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
@@ -86,6 +86,58 @@
       </annotations>
     </M-SITES-INDEX-REPOSITORY>
 
+    <M-SITES-PARSER-CLEANUP-COMMON NAME="SitesParserCleanupCommon" TYPE="UTILITY" STATUS="planned">
+      <purpose>Shared deterministic cleanup primitives for image placeholders, social-share rows, legal/footer boilerplate, and whitespace normalization.</purpose>
+      <path>src/sites/parser/cleanup/common.ts</path>
+      <depends>M-LOGGER</depends>
+      <annotations>
+        <fn-stripSvgPlaceholders description="Remove markdown image placeholders encoded as data:image/svg+xml and similar non-content artifacts." />
+        <fn-stripSocialShareRows description="Remove standalone share button rows and share-link lists." />
+        <fn-stripLegalFooterRows description="Remove standalone legal/footer boilerplate lines (copyright, all-rights-reserved, cookie banners)." />
+        <fn-normalizeCleanupWhitespace description="Collapse excessive blank lines and trim normalized output." />
+      </annotations>
+    </M-SITES-PARSER-CLEANUP-COMMON>
+
+    <M-SITES-PARSER-CLEANUP-PROFILES NAME="SitesParserCleanupProfiles" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Composable cleanup profile packs for editorial, transit-official, and community source families.</purpose>
+      <path>src/sites/parser/cleanup/profiles.ts</path>
+      <depends>M-SITES-PARSER-CLEANUP-COMMON, M-LOGGER</depends>
+      <annotations>
+        <fn-applyEditorialProfile description="Apply conservative profile for guide/editorial sources (insidekyoto, trulytokyo, kansai_odyssey, invisible_tourist, japan_unravelled, japan_guide)." />
+        <fn-applyTransitOfficialProfile description="Apply conservative profile for transit/official sources (navitime, jorudan, jreast, smart_ex)." />
+        <fn-applyCommunityProfile description="Apply community profile for reddit_japantravel while preserving user narrative content." />
+      </annotations>
+    </M-SITES-PARSER-CLEANUP-PROFILES>
+
+    <M-SITES-PARSER-CLEANUP-ADAPTERS-REMAINING NAME="SitesParserRemainingAdapters" TYPE="CORE_LOGIC" STATUS="planned">
+      <purpose>Layer B source adapters for all curated sources except wrenjapan, implemented with fixture-backed deterministic rules.</purpose>
+      <path>src/sites/parser/cleanup/adapters</path>
+      <depends>M-SITES-PARSER-CLEANUP-PROFILES, M-LOGGER</depends>
+      <annotations>
+        <fn-insidekyotoAdapter description="Source-specific cleanup for insidekyoto fixture patterns and gallery placeholders." />
+        <fn-trulytokyoAdapter description="Source-specific cleanup for trulytokyo booking/image placeholder patterns." />
+        <fn-kansaiOdysseyAdapter description="Source-specific cleanup for kansai_odyssey category/menu boilerplate." />
+        <fn-invisibleTouristAdapter description="Source-specific cleanup for invisible_tourist share/newsletter blocks." />
+        <fn-japanUnravelledAdapter description="Source-specific cleanup for japan_unravelled Substack share blocks." />
+        <fn-japanGuideAdapter description="Conservative source-specific cleanup for japan_guide reference pages." />
+        <fn-redditJapantravelAdapter description="Source-specific cleanup for reddit_japantravel shell/legal/share rows." />
+        <fn-navitimeAdapter description="Source-specific cleanup for navitime route tool shell noise." />
+        <fn-jorudanAdapter description="Source-specific cleanup for jorudan transit-service shell rows." />
+        <fn-jreastAdapter description="Source-specific cleanup for jreast official-site shell rows." />
+        <fn-smartExAdapter description="Source-specific cleanup for smart_ex booking/tutorial shell rows." />
+      </annotations>
+    </M-SITES-PARSER-CLEANUP-ADAPTERS-REMAINING>
+
+    <M-SITES-PARSER-CLEANUP-REGISTRY NAME="SitesParserCleanupRegistry" TYPE="UTILITY" STATUS="planned">
+      <purpose>Deterministic source_id-to-adapter registry for wrenjapan plus all remaining curated sources.</purpose>
+      <path>src/sites/parser/cleanup/registry.ts</path>
+      <depends>M-SITES-PARSER-CLEANUP-ADAPTERS-REMAINING, M-LOGGER</depends>
+      <annotations>
+        <fn-getCleanupAdapter description="Resolve source adapter by source_id from stable registry map." />
+        <const-SUPPORTED_CLEANUP_SOURCE_IDS description="Stable source_id list covered by Layer B adapter registry." />
+      </annotations>
+    </M-SITES-PARSER-CLEANUP-REGISTRY>
+
     <M-SITES-PARSER NAME="SitesParser" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Parse Spider crawl payload into canonical page records with layered content cleanup (global → source adapter → quality gate) and discriminated union output (accepted vs skipped).</purpose>
       <path>src/sites/parser/index.ts</path>
@@ -94,15 +146,41 @@
         <path-cleanup-global>src/sites/parser/cleanup/global.ts</path-cleanup-global>
         <path-cleanup-quality-gate>src/sites/parser/cleanup/quality-gate.ts</path-cleanup-quality-gate>
         <path-cleanup-types>src/sites/parser/cleanup/types.ts</path-cleanup-types>
+        <path-cleanup-common>src/sites/parser/cleanup/common.ts</path-cleanup-common>
+        <path-cleanup-profiles>src/sites/parser/cleanup/profiles.ts</path-cleanup-profiles>
+        <path-cleanup-registry>src/sites/parser/cleanup/registry.ts</path-cleanup-registry>
         <path-adapter-wrenjapan>src/sites/parser/cleanup/adapters/wrenjapan.ts</path-adapter-wrenjapan>
+        <path-adapter-insidekyoto>src/sites/parser/cleanup/adapters/insidekyoto.ts</path-adapter-insidekyoto>
+        <path-adapter-trulytokyo>src/sites/parser/cleanup/adapters/trulytokyo.ts</path-adapter-trulytokyo>
+        <path-adapter-kansai-odyssey>src/sites/parser/cleanup/adapters/kansai-odyssey.ts</path-adapter-kansai-odyssey>
+        <path-adapter-invisible-tourist>src/sites/parser/cleanup/adapters/invisible-tourist.ts</path-adapter-invisible-tourist>
+        <path-adapter-japan-unravelled>src/sites/parser/cleanup/adapters/japan-unravelled.ts</path-adapter-japan-unravelled>
+        <path-adapter-japan-guide>src/sites/parser/cleanup/adapters/japan-guide.ts</path-adapter-japan-guide>
+        <path-adapter-reddit-japantravel>src/sites/parser/cleanup/adapters/reddit-japantravel.ts</path-adapter-reddit-japantravel>
+        <path-adapter-navitime>src/sites/parser/cleanup/adapters/navitime.ts</path-adapter-navitime>
+        <path-adapter-jorudan>src/sites/parser/cleanup/adapters/jorudan.ts</path-adapter-jorudan>
+        <path-adapter-jreast>src/sites/parser/cleanup/adapters/jreast.ts</path-adapter-jreast>
+        <path-adapter-smart-ex>src/sites/parser/cleanup/adapters/smart-ex.ts</path-adapter-smart-ex>
       </paths>
-      <depends>M-LOGGER</depends>
+      <depends>M-LOGGER, M-SITES-PARSER-CLEANUP-REGISTRY</depends>
       <annotations>
         <fn-parseCrawlItem description="Normalize crawl item to deterministic page representation; returns discriminated union { status: 'accepted', page: ParsedPage } | { status: 'skipped', reason: SkipReason, ... }." />
         <fn-runCleanupPipeline description="Orchestrate Layer A (global) → Layer B (source adapter) → Layer C (quality gate) and return CleanupResult." />
+        <fn-getCleanupAdapter description="Resolve source adapter for Layer B from registry covering all active curated source_ids." />
         <fn-globalCleanup description="Apply universal noise removal: data-URI images, empty formatting fragments, social-share rows, whitespace normalization." />
         <fn-qualityGate description="Compute post-cleanup metrics (clean_char_count) and decide accept vs skip with reason code." />
         <fn-wrenjapanAdapter description="Source-specific cleanup for wrenjapan: strip nav/menu, newsletter promos, image placeholders, footer navigation." />
+        <fn-insidekyotoAdapter description="Source-specific cleanup for insidekyoto fixture patterns and gallery placeholders." />
+        <fn-trulytokyoAdapter description="Source-specific cleanup for trulytokyo booking/image placeholder patterns." />
+        <fn-kansaiOdysseyAdapter description="Source-specific cleanup for kansai_odyssey category/menu boilerplate." />
+        <fn-invisibleTouristAdapter description="Source-specific cleanup for invisible_tourist share/newsletter blocks." />
+        <fn-japanUnravelledAdapter description="Source-specific cleanup for japan_unravelled Substack share blocks." />
+        <fn-japanGuideAdapter description="Conservative source-specific cleanup for japan_guide reference pages." />
+        <fn-redditJapantravelAdapter description="Source-specific cleanup for reddit_japantravel shell/legal/share rows." />
+        <fn-navitimeAdapter description="Source-specific cleanup for navitime route tool shell noise." />
+        <fn-jorudanAdapter description="Source-specific cleanup for jorudan transit-service shell rows." />
+        <fn-jreastAdapter description="Source-specific cleanup for jreast official-site shell rows." />
+        <fn-smartExAdapter description="Source-specific cleanup for smart_ex booking/tutorial shell rows." />
         <type-ParsedPage description="Canonical page record: source_id, url, canonical_url, title, clean_text, text_hash, http_status, fetched_at." />
         <type-ParserResult description="Discriminated union: { status: 'accepted', page: ParsedPage } | { status: 'skipped', reason: SkipReason, source_id, url, metrics? }." />
         <type-SkipReason description="String enum: EMPTY_CONTENT, EMPTY_AFTER_CLEANUP, TOO_SHORT_AFTER_CLEANUP." />
@@ -448,6 +526,10 @@
       <CrossLink FROM="M-SPIDER-DIRECT-FIXTURE-FETCHER" TO="M-SITES-PARSER" REL="provides_fixture_inputs_for" />
       <CrossLink FROM="M-SPIDER-BATCH-FIXTURE-FETCHER" TO="M-SPIDER-DIRECT-FIXTURE-FETCHER" REL="orchestrates_calls_to" />
       <CrossLink FROM="M-SPIDER-BATCH-FIXTURE-FETCHER" TO="M-SITES-PARSER" REL="provides_fixture_inputs_for" />
+      <CrossLink FROM="M-SITES-PARSER-CLEANUP-COMMON" TO="M-SITES-PARSER-CLEANUP-PROFILES" REL="provides_primitives_for" />
+      <CrossLink FROM="M-SITES-PARSER-CLEANUP-PROFILES" TO="M-SITES-PARSER-CLEANUP-ADAPTERS-REMAINING" REL="composes_rules_for" />
+      <CrossLink FROM="M-SITES-PARSER-CLEANUP-ADAPTERS-REMAINING" TO="M-SITES-PARSER-CLEANUP-REGISTRY" REL="registers_adapters_for" />
+      <CrossLink FROM="M-SITES-PARSER-CLEANUP-REGISTRY" TO="M-SITES-PARSER" REL="resolves_adapter_for" />
       <CrossLink FROM="M-VOYAGE-PROXY-CLIENT" TO="M-SITES-INGESTION" REL="integrates_with" />
       <CrossLink FROM="M-VOYAGE-PROXY-CLIENT" TO="M-SITES-SEARCH" REL="embeds_for" />
       <CrossLink FROM="M-SITES-PARSER" TO="M-SITES-INGESTION" REL="parses_for" />
@@ -551,6 +633,13 @@
         <step-5>M-SITES-CHUNKER splits accepted content and M-VOYAGE-PROXY-CLIENT creates embeddings.</step-5>
         <step-6>M-SITES-INDEX-REPOSITORY persists pages/chunks/embeddings for active index_version.</step-6>
       </DF-SITES-INGESTION>
+
+      <DF-CLEANUP-ADAPTER-MATRIX NAME="all-source cleanup adapter selection flow">
+        <step-1>M-SITES-PARSER receives source_id from ingestion context.</step-1>
+        <step-2>M-SITES-PARSER-CLEANUP-REGISTRY resolves adapter for one of: wrenjapan, insidekyoto, trulytokyo, kansai_odyssey, invisible_tourist, japan_unravelled, japan_guide, reddit_japantravel, navitime, jorudan, jreast, smart_ex.</step-2>
+        <step-3>Resolved adapter applies deterministic Layer B rules; unknown sources fall back to Layer A + Layer C only.</step-3>
+        <step-4>Fixture matrix tests validate noise removal and content preservation per source before rollout recrawl.</step-4>
+      </DF-CLEANUP-ADAPTER-MATRIX>
 
       <DF-SITES-SEARCH NAME="search_sites local tool flow">
         <step-1>Authenticated MCP client calls `search_sites` via M-FASTMCP-RUNTIME local tool route.</step-1>
