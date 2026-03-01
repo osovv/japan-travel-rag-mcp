@@ -1,8 +1,8 @@
 // FILE: src/admin/sites-page.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Query curated site source data with per-source index statistics and recent crawl job summaries for the Sites Management admin page.
-//   SCOPE: Define page data types (SiteSourceRow, CrawlJobRow, SitesPageData), fetch aggregated stats via Drizzle raw SQL, and return structured page model.
+//   PURPOSE: Query curated site source data with per-source index statistics and recent crawl job summaries for the Sites Management admin page, and render HTML views for the sites list and source create/edit forms.
+//   SCOPE: Define page data types (SiteSourceRow, CrawlJobRow, SitesPageData), fetch aggregated stats via Drizzle raw SQL, return structured page model, and render server-side HTML for sites management UI.
 //   DEPENDS: M-DB, M-LOGGER
 //   LINKS: M-ADMIN-SITES, M-DB, M-LOGGER
 // END_MODULE_CONTRACT
@@ -19,10 +19,14 @@
 //   handleUpdateSource - Validate input and UPDATE an existing site source row.
 //   handleDeleteSource - CASCADE delete a source and all dependent rows in FK order.
 //   handleToggleSourceStatus - Toggle a source status between active and paused.
+//   escapeHtml - Escape user-controlled text for safe HTML rendering (XSS prevention).
+//   renderSitesContent - Render the main sites management page with sources table, actions, and recent crawl jobs.
+//   renderSourceForm - Render create/edit form for a site source with Zod validation error display.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Add CRUD operations (handleCreateSource, handleUpdateSource, handleDeleteSource, handleToggleSourceStatus) with Zod validation schemas.
+//   LAST_CHANGE: v1.2.0 - Add escapeHtml, renderSitesContent, and renderSourceForm HTML rendering functions for sites management UI.
+//   v1.1.0 - Add CRUD operations (handleCreateSource, handleUpdateSource, handleDeleteSource, handleToggleSourceStatus) with Zod validation schemas.
 //   v1.0.0 - Initial creation with data layer types and fetchSitesPageData for M-ADMIN-SITES.
 // END_CHANGE_SUMMARY
 
@@ -756,4 +760,319 @@ export async function handleToggleSourceStatus(
     throw sitesError;
   }
   // END_BLOCK_TOGGLE_SOURCE_STATUS_M_ADMIN_SITES_019
+}
+
+// START_CONTRACT: escapeHtml
+//   PURPOSE: Escape user-controlled text before interpolation into HTML output to prevent XSS.
+//   INPUTS: { value: string - Raw text value that may contain special characters }
+//   OUTPUTS: { string - HTML-escaped text safe for text and attribute contexts }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-SITES]
+// END_CONTRACT: escapeHtml
+// START_BLOCK_ESCAPE_HTML_FOR_SITES_RENDERING_M_ADMIN_SITES_020
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+// END_BLOCK_ESCAPE_HTML_FOR_SITES_RENDERING_M_ADMIN_SITES_020
+
+// START_BLOCK_DEFINE_FORMAT_DATE_HELPER_M_ADMIN_SITES_021
+function formatDate(date: Date | null): string {
+  if (date === null) {
+    return "--";
+  }
+  return date.toISOString().replace("T", " ").slice(0, 19);
+}
+// END_BLOCK_DEFINE_FORMAT_DATE_HELPER_M_ADMIN_SITES_021
+
+// START_BLOCK_DEFINE_SITES_PAGE_STYLES_M_ADMIN_SITES_022
+const SITES_PAGE_STYLES = [
+  `<style>`,
+  `.badge { display:inline-block; font-size:0.78rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:999px; }`,
+  `.badge-active { background:#dcfce7; color:#166534; }`,
+  `.badge-paused { background:#f1f5f9; color:#475569; }`,
+  `.badge-completed { background:#dcfce7; color:#166534; }`,
+  `.badge-running { background:#dbeafe; color:#1e40af; }`,
+  `.badge-failed { background:#fef2f2; color:#991b1b; }`,
+  `.badge-pending { background:#fefce8; color:#854d0e; }`,
+  `.btn { display:inline-block; font-size:0.82rem; font-weight:600; padding:0.35rem 0.7rem; border-radius:0.4rem; border:1px solid transparent; cursor:pointer; text-decoration:none; text-align:center; font-family:inherit; line-height:1.4; }`,
+  `.btn-accent { background:var(--accent); color:#fff; }`,
+  `.btn-accent:hover { opacity:0.9; }`,
+  `.btn-warning { background:#f59e0b; color:#fff; }`,
+  `.btn-warning:hover { opacity:0.9; }`,
+  `.btn-danger { background:var(--danger, #991b1b); color:#fff; }`,
+  `.btn-danger:hover { opacity:0.9; }`,
+  `.btn-outline { background:transparent; border-color:var(--line); color:var(--fg); }`,
+  `.btn-outline:hover { background:#f8fafc; }`,
+  `.btn-sm { font-size:0.75rem; padding:0.25rem 0.5rem; }`,
+  `.actions-cell { display:flex; gap:0.35rem; align-items:center; flex-wrap:nowrap; }`,
+  `.actions-cell form { margin:0; }`,
+  `.form-group { display:grid; gap:0.3rem; margin-bottom:0.85rem; }`,
+  `.form-group label { font-weight:600; font-size:0.88rem; }`,
+  `.form-group input, .form-group select { width:100%; padding:0.55rem 0.65rem; border:1px solid var(--line); border-radius:0.4rem; font:inherit; background:#fff; }`,
+  `.form-group input:focus, .form-group select:focus { outline:2px solid var(--accent); outline-offset:1px; }`,
+  `.form-group input[readonly] { background:#f1f5f9; color:#64748b; cursor:not-allowed; }`,
+  `.field-error { color:var(--danger, #991b1b); font-size:0.82rem; }`,
+  `.form-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }`,
+  `.crawl-error-cell { max-width:20rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.82rem; color:var(--danger, #991b1b); }`,
+  `</style>`,
+].join("");
+// END_BLOCK_DEFINE_SITES_PAGE_STYLES_M_ADMIN_SITES_022
+
+// START_CONTRACT: renderSitesContent
+//   PURPOSE: Render the main sites management page content with sources table (columns: Source ID, Name, Domain, Tier, Language, Status, Pages, Chunks, Embeddings, Last Crawl, Actions), recent crawl jobs table, and an Add Source button.
+//   INPUTS: { data: SitesPageData - Page data model with sources and recentCrawlJobs arrays }
+//   OUTPUTS: { string - HTML content fragment for the sites management page }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-SITES]
+// END_CONTRACT: renderSitesContent
+export function renderSitesContent(data: SitesPageData): string {
+  // START_BLOCK_RENDER_SITES_MANAGEMENT_PAGE_CONTENT_M_ADMIN_SITES_023
+  const sourceRows = data.sources
+    .map((s) => {
+      const statusClass = s.status === "active" ? "badge-active" : "badge-paused";
+      const toggleTarget = s.status === "active" ? "paused" : "active";
+      const toggleLabel = s.status === "active" ? "Pause" : "Resume";
+      const sid = escapeHtml(s.source_id);
+
+      return [
+        `<tr>`,
+        `<td><code>${sid}</code></td>`,
+        `<td>${escapeHtml(s.name)}</td>`,
+        `<td>${escapeHtml(s.domain)}</td>`,
+        `<td>${s.tier}</td>`,
+        `<td>${escapeHtml(s.language)}</td>`,
+        `<td><span class="badge ${statusClass}">${escapeHtml(s.status)}</span></td>`,
+        `<td>${s.page_count}</td>`,
+        `<td>${s.chunk_count}</td>`,
+        `<td>${s.embedding_count}</td>`,
+        `<td>${escapeHtml(formatDate(s.last_crawl_at))}</td>`,
+        `<td>`,
+        `<div class="actions-cell">`,
+        `<a href="/admin/sites/${sid}/edit" class="btn btn-accent btn-sm">Edit</a>`,
+        `<form method="post" action="/admin/sites/${sid}/toggle">`,
+        `<input type="hidden" name="status" value="${escapeHtml(toggleTarget)}" />`,
+        `<button type="submit" class="btn btn-warning btn-sm">${escapeHtml(toggleLabel)}</button>`,
+        `</form>`,
+        `<form method="post" action="/admin/sites/${sid}/delete" onsubmit="return confirm('Delete source ${sid} and ALL its pages, chunks, and embeddings? This cannot be undone.')">`,
+        `<button type="submit" class="btn btn-danger btn-sm">Delete</button>`,
+        `</form>`,
+        `</div>`,
+        `</td>`,
+        `</tr>`,
+      ].join("");
+    })
+    .join("");
+
+  const crawlJobRows = data.recentCrawlJobs
+    .map((j) => {
+      const jobStatusClass =
+        j.status === "completed"
+          ? "badge-completed"
+          : j.status === "running"
+            ? "badge-running"
+            : j.status === "failed"
+              ? "badge-failed"
+              : "badge-pending";
+
+      return [
+        `<tr>`,
+        `<td><code>${escapeHtml(j.crawl_job_id)}</code></td>`,
+        `<td><code>${escapeHtml(j.source_id)}</code></td>`,
+        `<td><span class="badge ${jobStatusClass}">${escapeHtml(j.status)}</span></td>`,
+        `<td>${escapeHtml(formatDate(j.started_at))}</td>`,
+        `<td>${escapeHtml(formatDate(j.finished_at))}</td>`,
+        `<td>${j.pages_fetched}</td>`,
+        `<td>${j.error !== null ? `<span class="crawl-error-cell" title="${escapeHtml(j.error)}">${escapeHtml(j.error)}</span>` : "--"}</td>`,
+        `</tr>`,
+      ].join("");
+    })
+    .join("");
+
+  return [
+    SITES_PAGE_STYLES,
+    `<section id="sites-management" class="stack">`,
+    `<section class="card">`,
+    `<h2>Sites Management</h2>`,
+    `<p class="muted">Manage curated site sources, view index statistics, and monitor crawl jobs.</p>`,
+    `</section>`,
+    `<section class="card table-wrap">`,
+    `<h3>Site Sources (${data.sources.length})</h3>`,
+    `<table class="diag-table">`,
+    `<thead>`,
+    `<tr>`,
+    `<th>Source ID</th>`,
+    `<th>Name</th>`,
+    `<th>Domain</th>`,
+    `<th>Tier</th>`,
+    `<th>Language</th>`,
+    `<th>Status</th>`,
+    `<th>Pages</th>`,
+    `<th>Chunks</th>`,
+    `<th>Embeddings</th>`,
+    `<th>Last Crawl</th>`,
+    `<th>Actions</th>`,
+    `</tr>`,
+    `</thead>`,
+    `<tbody>`,
+    sourceRows || `<tr><td colspan="11" class="muted" style="text-align:center;">No site sources configured.</td></tr>`,
+    `</tbody>`,
+    `</table>`,
+    `<div style="margin-top:0.75rem;">`,
+    `<a href="/admin/sites/new" class="btn btn-accent">Add Source</a>`,
+    `</div>`,
+    `</section>`,
+    `<section class="card table-wrap">`,
+    `<h3>Recent Crawl Jobs</h3>`,
+    `<table class="diag-table">`,
+    `<thead>`,
+    `<tr>`,
+    `<th>Crawl Job ID</th>`,
+    `<th>Source ID</th>`,
+    `<th>Status</th>`,
+    `<th>Started At</th>`,
+    `<th>Finished At</th>`,
+    `<th>Pages Fetched</th>`,
+    `<th>Error</th>`,
+    `</tr>`,
+    `</thead>`,
+    `<tbody>`,
+    crawlJobRows || `<tr><td colspan="7" class="muted" style="text-align:center;">No crawl jobs recorded.</td></tr>`,
+    `</tbody>`,
+    `</table>`,
+    `</section>`,
+    `</section>`,
+  ].join("");
+  // END_BLOCK_RENDER_SITES_MANAGEMENT_PAGE_CONTENT_M_ADMIN_SITES_023
+}
+
+// START_CONTRACT: renderSourceForm
+//   PURPOSE: Render create or edit form for a site source with field validation error display and PRG-compatible form actions.
+//   INPUTS: { params: { mode: "create" | "edit" - Form mode, source?: SiteSourceRow - Existing source data for edit mode, errors?: Record<string, string[]> - Per-field Zod validation errors } }
+//   OUTPUTS: { string - HTML content fragment for the source create/edit form }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-ADMIN-SITES]
+// END_CONTRACT: renderSourceForm
+export function renderSourceForm(params: {
+  mode: "create" | "edit";
+  source?: SiteSourceRow;
+  errors?: Record<string, string[]>;
+}): string {
+  // START_BLOCK_RENDER_SOURCE_CREATE_EDIT_FORM_M_ADMIN_SITES_024
+  const { mode, source, errors } = params;
+  const isEdit = mode === "edit";
+  const title = isEdit ? "Edit Source" : "Add New Source";
+  const action = isEdit && source
+    ? `/admin/sites/${escapeHtml(source.source_id)}/edit`
+    : "/admin/sites";
+
+  const val = (field: keyof SiteSourceRow): string => {
+    if (source && source[field] !== null && source[field] !== undefined) {
+      return escapeHtml(String(source[field]));
+    }
+    return "";
+  };
+
+  const fieldErrors = (field: string): string => {
+    if (!errors || !errors[field]) {
+      return "";
+    }
+    return errors[field]
+      .map((msg) => `<p class="field-error">${escapeHtml(msg)}</p>`)
+      .join("");
+  };
+
+  const tierOptions = [0, 1, 2]
+    .map((t) => {
+      const selected = source && source.tier === t ? " selected" : "";
+      return `<option value="${t}"${selected}>Tier ${t}</option>`;
+    })
+    .join("");
+
+  return [
+    SITES_PAGE_STYLES,
+    `<section id="source-form" class="stack">`,
+    `<section class="card">`,
+    `<h2>${escapeHtml(title)}</h2>`,
+    isEdit && source
+      ? `<p class="muted">Editing source <code>${escapeHtml(source.source_id)}</code>.</p>`
+      : `<p class="muted">Create a new curated site source for crawling and indexing.</p>`,
+    `</section>`,
+    `<section class="card">`,
+    `<form method="post" action="${escapeHtml(action)}">`,
+
+    // source_id field
+    `<div class="form-group">`,
+    `<label for="source_id">Source ID</label>`,
+    isEdit
+      ? `<input type="text" id="source_id" name="source_id" value="${val("source_id")}" readonly />`
+      : `<input type="text" id="source_id" name="source_id" value="${val("source_id")}" required placeholder="e.g. japan_guide" pattern="^[a-z0-9_]+$" minlength="3" maxlength="50" />`,
+    fieldErrors("source_id"),
+    `</div>`,
+
+    // name field
+    `<div class="form-group">`,
+    `<label for="name">Name</label>`,
+    `<input type="text" id="name" name="name" value="${val("name")}" required maxlength="200" placeholder="e.g. Japan Guide" />`,
+    fieldErrors("name"),
+    `</div>`,
+
+    // domain field
+    `<div class="form-group">`,
+    `<label for="domain">Domain</label>`,
+    `<input type="text" id="domain" name="domain" value="${val("domain")}" required maxlength="500" placeholder="e.g. https://www.japan-guide.com" />`,
+    fieldErrors("domain"),
+    `</div>`,
+
+    // tier field
+    `<div class="form-group">`,
+    `<label for="tier">Tier</label>`,
+    `<select id="tier" name="tier" required>`,
+    tierOptions,
+    `</select>`,
+    fieldErrors("tier"),
+    `</div>`,
+
+    // language field
+    `<div class="form-group">`,
+    `<label for="language">Language</label>`,
+    `<input type="text" id="language" name="language" value="${val("language")}" required maxlength="20" placeholder="e.g. en" />`,
+    fieldErrors("language"),
+    `</div>`,
+
+    // focus field
+    `<div class="form-group">`,
+    `<label for="focus">Focus</label>`,
+    `<input type="text" id="focus" name="focus" value="${val("focus")}" required maxlength="500" placeholder="e.g. General Japan travel information" />`,
+    fieldErrors("focus"),
+    `</div>`,
+
+    // crawl_interval_minutes field
+    `<div class="form-group">`,
+    `<label for="crawl_interval_minutes">Crawl Interval (minutes)</label>`,
+    `<input type="number" id="crawl_interval_minutes" name="crawl_interval_minutes" value="${val("crawl_interval_minutes") || "1440"}" required min="60" />`,
+    fieldErrors("crawl_interval_minutes"),
+    `</div>`,
+
+    // max_pages field
+    `<div class="form-group">`,
+    `<label for="max_pages">Max Pages</label>`,
+    `<input type="number" id="max_pages" name="max_pages" value="${val("max_pages") || "100"}" required min="1" max="1000" />`,
+    fieldErrors("max_pages"),
+    `</div>`,
+
+    // form actions
+    `<div class="form-actions">`,
+    `<button type="submit" class="btn btn-accent">${isEdit ? "Save Changes" : "Create Source"}</button>`,
+    `<a href="/admin/sites" class="btn btn-outline">Cancel</a>`,
+    `</div>`,
+    `</form>`,
+    `</section>`,
+    `</section>`,
+  ].join("");
+  // END_BLOCK_RENDER_SOURCE_CREATE_EDIT_FORM_M_ADMIN_SITES_024
 }
