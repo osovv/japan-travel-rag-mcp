@@ -719,7 +719,7 @@ export async function handleAdminRequest(
 
     // Routes with :id parameter — /admin/sites/:id/(edit|toggle|delete)
     const sitesMatch = pathname.match(/^\/admin\/sites\/([^/]+)\/(edit|toggle|delete)$/);
-    if (sitesMatch) {
+    if (sitesMatch && sitesMatch[1] && sitesMatch[2]) {
       const sourceId = decodeURIComponent(sitesMatch[1]);
       const action = sitesMatch[2];
       const db = resolvedDeps.db!;

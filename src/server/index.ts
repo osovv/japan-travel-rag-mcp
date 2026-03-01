@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 3.3.0
+// VERSION: 3.4.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server with MCP, admin, and portal surfaces, and start HTTP stream transport on /mcp.
 //   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler/sites search service dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -15,8 +15,9 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.3.0 - Wired SitesSearchService (VoyageProxyClient, SitesIndexRepository) into FastMCP runtime dependencies with bootstrapSitesSchema.
-//   PREVIOUS: v3.2.0 - Wired usageTracker into portal and FastMCP runtime dependencies after DB initialization.
+//   LAST_CHANGE: v3.4.0 - Pass db handle into AdminUiDependencies for sites management routes.
+//   v3.3.0 - Wired SitesSearchService (VoyageProxyClient, SitesIndexRepository) into FastMCP runtime dependencies with bootstrapSitesSchema.
+//   v3.2.0 - Wired usageTracker into portal and FastMCP runtime dependencies after DB initialization.
 // END_CHANGE_SUMMARY
 
 import { type FastMCP } from "fastmcp";
@@ -263,6 +264,7 @@ export async function main(): Promise<FastMCP> {
     const adminDeps = {
       config,
       logger: logger.child({ route: "admin", component: "adminUiRoutes" }),
+      db: dbClient.db,
     };
     const adminHandler = async (request: Request): Promise<Response> => {
       return handleAdminRequest(request, adminDeps);
