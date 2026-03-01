@@ -1,0 +1,321 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_POSTGRESQL",
+      "label": "PostgreSQL",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "grafana-postgresql-datasource",
+      "pluginName": "PostgreSQL"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "grafana-postgresql-datasource",
+      "name": "PostgreSQL",
+      "version": "1.0.0"
+    }
+  ],
+  "id": null,
+  "uid": "japan-travel-rag-content-pipeline",
+  "title": "Japan Travel RAG - Content Pipeline",
+  "description": "Crawl and indexing pipeline monitoring",
+  "tags": ["japan-travel-rag", "pipeline"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Crawl Jobs by Status",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true },
+        "pieType": "pie",
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "right" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT status, COUNT(*) AS count FROM site_crawl_jobs GROUP BY status ORDER BY count DESC;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Crawl Jobs Timeline",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": { "mode": "normal" }
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT date_trunc('day', started_at) AS time, status, COUNT(*) AS jobs FROM site_crawl_jobs WHERE $__timeFilter(started_at) GROUP BY time, status ORDER BY time;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Recent Crawl Jobs",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Status" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-text" }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "completed": { "text": "completed", "color": "green" }, "failed": { "text": "failed", "color": "red" }, "pending": { "text": "pending", "color": "yellow" }, "running": { "text": "running", "color": "blue" } } }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Started", "desc": true }]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT j.crawl_job_id AS \"Job ID\", s.name AS \"Source\", j.provider AS \"Provider\", j.status AS \"Status\", j.started_at AS \"Started\", j.finished_at AS \"Finished\", CASE WHEN j.started_at IS NOT NULL AND j.finished_at IS NOT NULL THEN ROUND(EXTRACT(EPOCH FROM (j.finished_at - j.started_at))::numeric, 1) ELSE NULL END AS \"Duration (s)\", j.pages_fetched AS \"Pages Fetched\", j.error AS \"Error\" FROM site_crawl_jobs j JOIN site_sources s ON j.source_id = s.source_id ORDER BY j.started_at DESC NULLS LAST LIMIT 25;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Pages per Source",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "xTickLabelRotation": 0,
+        "legend": { "displayMode": "hidden" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT s.name AS \"Source\", COUNT(p.page_id) AS \"Pages\" FROM site_sources s LEFT JOIN site_pages p ON s.source_id = p.source_id GROUP BY s.source_id, s.name ORDER BY \"Pages\" DESC;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Pages Fetched Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          },
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "hidden" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT date_trunc('day', fetched_at) AS time, COUNT(*) AS \"Pages\" FROM site_pages WHERE $__timeFilter(fetched_at) GROUP BY time ORDER BY time;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Chunk Size Distribution",
+      "type": "histogram",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "bucketSize": 50,
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "hidden" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT token_estimate AS \"Token Estimate\" FROM site_chunks;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Avg Chunks per Page",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 24 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          },
+          "color": { "mode": "thresholds" },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT ROUND(COUNT(c.chunk_id)::numeric / NULLIF(COUNT(DISTINCT c.page_id), 0), 1) AS \"Avg Chunks/Page\" FROM site_chunks c;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Embedding Coverage",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 24 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "green", "value": 90 }
+            ]
+          },
+          "color": { "mode": "thresholds" },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT CASE WHEN COUNT(c.chunk_id) = 0 THEN 0 ELSE ROUND(COUNT(e.chunk_id)::numeric / COUNT(c.chunk_id)::numeric * 100, 1) END AS \"Coverage %\" FROM site_chunks c LEFT JOIN site_chunk_embeddings e ON c.chunk_id = e.chunk_id;",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Failed Jobs Detail",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Started", "desc": true }]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT j.crawl_job_id AS \"Job ID\", s.name AS \"Source\", j.provider AS \"Provider\", j.started_at AS \"Started\", j.finished_at AS \"Finished\", j.pages_fetched AS \"Pages Fetched\", j.error AS \"Error\" FROM site_crawl_jobs j JOIN site_sources s ON j.source_id = s.source_id WHERE j.status = 'failed' ORDER BY j.started_at DESC NULLS LAST;",
+          "format": "table"
+        }
+      ]
+    }
+  ],
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": []
+}
