@@ -1,0 +1,847 @@
+openapi: 3.0.1
+info:
+  title: Spider Cloud API
+  description: API for web crawling and scraping services.
+  version: 1.0.0
+servers:
+  - url: https://api.spider.cloud
+paths:
+  /crawl:
+    post:
+      summary: Base crawl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestParams'
+          text/csv:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: string
+          application/jsonl:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Successful scrape initiation (streaming supported)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/jsonl:
+              schema:
+                type: string
+
+  /scrape:
+    post:
+      summary: Base crawl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestParams'
+          text/csv:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: string
+          application/jsonl:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Successful crawl initiation (streaming supported)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/jsonl:
+              schema:
+                type: string
+
+  /unblocker:
+    post:
+      summary: Base crawl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestParams'
+          text/csv:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: string
+          application/jsonl:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Successful unblocker initiation (streaming supported)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/jsonl:
+              schema:
+                type: string
+
+
+  /links:
+    post:
+      summary: Crawl only output links
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestParams'
+          text/csv:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: string
+          application/jsonl:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Successful extraction of links (streaming supported)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  links:
+                    type: array
+                    items:
+                      type: string
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/jsonl:
+              schema:
+                type: string
+
+  /search:
+    post:
+      summary: Search and crawl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequestParams'
+          text/csv:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: string
+          application/jsonl:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Successful search and crawl initiation (streaming supported)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/jsonl:
+              schema:
+                type: string
+
+  /screenshot:
+    post:
+      summary: Take screenshot of website
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScreenshotRequestParams'
+          text/csv:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: string
+          application/jsonl:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Successful screenshot taken (streaming supported)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image_url:
+                    type: string
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/jsonl:
+              schema:
+                type: string
+
+  /transform:
+    post:
+      summary: Transform endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestParams'
+          text/csv:
+            schema:
+              type: string
+          application/xml:
+            schema:
+              type: string
+          application/jsonl:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Successful transformation (streaming supported)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: string
+            text/csv:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            application/jsonl:
+              schema:
+                type: string
+
+  /ai/crawl:
+    post:
+      summary: AI crawl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RequestParams"
+                - $ref: "#/components/schemas/AIRequestExtras"
+      responses:
+        "200":
+          description: Successful AI crawl
+
+  /ai/scrape:
+    post:
+      summary: AI scrape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RequestParams"
+                - $ref: "#/components/schemas/AIRequestExtras"
+      responses:
+        "200":
+          description: Successful AI scrape
+
+  /ai/search:
+    post:
+      summary: AI search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/SearchRequestParams"
+                - $ref: "#/components/schemas/AIRequestExtras"
+      responses:
+        "200":
+          description: Successful AI search
+
+  /ai/browser:
+    post:
+      summary: AI browser automation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RequestParams"
+                - $ref: "#/components/schemas/AIRequestExtras"
+      responses:
+        "200":
+          description: Successful AI browser automation
+
+  /ai/links:
+    post:
+      summary: AI links extraction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RequestParams"
+                - $ref: "#/components/schemas/AIRequestExtras"
+      responses:
+        "200":
+          description: Successful AI links extraction
+
+components:
+  schemas:
+    RequestParams:
+      type: object
+      properties:
+        url:
+          type: string
+        proxy_enabled:
+          type: boolean
+        smart_mode:
+          type: boolean
+        webhook:
+          $ref: '#/components/schemas/Webhook'
+        authorization:
+          type: string
+        cookies:
+          type: string
+        refresh_token:
+          type: string
+        hard_limit:
+          type: integer
+        cache:
+          description: "Use HTTP caching. Defaults to true. Standard routes skip browser when cached; AI routes always use browser."
+          default: true
+          oneOf:
+            - type: boolean
+            - type: object
+              properties:
+                maxAge:
+                  type: integer
+                  description: "Freshness window in ms (default: 172800000 = 2 days)"
+                allowStale:
+                  type: boolean
+                skipBrowser:
+                  type: boolean
+                  description: "Skip browser if cached HTML exists (default: true for standard routes, false for AI routes)"
+                period:
+                  type: string
+                  description: "RFC3339 timestamp cutoff"
+        budget:
+          type: object
+        store_data:
+          type: boolean
+        use_chrome:
+          type: boolean
+        root_selector:
+          type: string
+        exclude_selector:
+          type: string
+        run_in_background:
+          type: boolean
+        return_format:
+          $ref: '#/components/schemas/Content'
+        request:
+          $ref: '#/components/schemas/RequestType'
+        depth:
+          type: integer
+        encoding:
+          type: string
+        locale:
+          type: string
+        request_timeout:
+          type: integer
+        delay:
+          type: integer
+        stealth:
+          type: boolean
+        headers:
+          type: object
+        viewport:
+          type: object
+        device:
+          $ref: '#/components/schemas/DeviceType'
+        readability:
+          type: boolean
+        subdomains:
+          type: boolean
+        tld:
+          type: boolean
+        user_agent:
+          type: string
+        blacklist:
+          type: array
+          items:
+            type: string
+        whitelist:
+          type: array
+          items:
+            type: string
+        full_resources:
+          type: boolean
+        metadata:
+          type: boolean
+        fingerprint:
+          type: boolean
+        gpt_config:
+          $ref: '#/components/schemas/GPTConfigs'
+        anti_bot:
+          type: boolean
+        respect_robots:
+          type: boolean
+        chunking_alg:
+          $ref: '#/components/schemas/ChunkingAlgorithm'
+        skip_config_checks:
+          type: boolean
+        text:
+          type: string
+        website_limit:
+          type: integer
+        sitemap:
+          type: boolean
+        sitemap_path:
+          type: string
+        country_code:
+          type: string
+        wait_for:
+          type: object
+        execution_scripts:
+          type: object
+        disable_intercept:
+          type: boolean
+        external_domains:
+          type: array
+          items:
+            type: string
+        css_extraction_map:
+          type: object
+        scroll:
+          type: integer
+        automation_scripts:
+          type: object
+        return_headers:
+          type: boolean
+        return_cookies:
+          type: boolean
+        return_page_links:
+          type: boolean
+        return_json_data:
+          type: boolean
+        return_embeddings:
+          type: boolean
+        virtual_display:
+          type: boolean
+        redirect_policy:
+          $ref: '#/components/schemas/RedirectPolicy'
+        preserve_host:
+          type: boolean
+        filter_output_images:
+          type: boolean
+        filter_output_svg:
+          type: boolean
+        filter_output_main_only:
+          type: boolean
+        remote_proxy:
+          type: string
+        concurrency_limit:
+          type: integer
+
+    ScreenshotRequestParams:
+      type: object
+      properties:
+        base:
+          $ref: '#/components/schemas/RequestParams'
+        binary:
+          type: boolean
+        full_page:
+          type: boolean
+        block_images:
+          type: boolean
+        omit_background:
+          type: boolean
+        cdp_params:
+          $ref: '#/components/schemas/CaptureScreenshotParams'
+
+    SearchRequestParams:
+      type: object
+      properties:
+        base:
+          $ref: '#/components/schemas/RequestParams'
+        search:
+          type: string
+        search_limit:
+          type: integer
+        fetch_page_content:
+          type: boolean
+        location:
+          type: string
+        country:
+          type: string
+        language:
+          type: string
+        num:
+          type: integer
+        page:
+          type: integer
+
+    AIRequestExtras:
+      type: object
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+        extraction_schema:
+          type: object
+        cleaning_intent:
+          type: string
+          enum:
+            - extraction
+            - action
+            - general
+
+    DeviceType:
+      type: string
+      enum:
+        - mobile
+        - tablet
+        - desktop
+
+    GPTConfigs:
+      type: object
+      properties:
+        prompt:
+          type: string
+        max_tokens:
+          type: integer
+        temperature:
+          type: number
+        user:
+          type: string
+        top_p:
+          type: number
+        prompt_url_map:
+          type: object
+        extra_ai_data:
+          type: boolean
+        paths_map:
+          type: boolean
+        screenshot:
+          type: boolean
+        api_key:
+          type: string
+        cache:
+          type: object
+        json_schema:
+          type: object
+
+    ChunkingAlgorithm:
+      type: string
+      enum:
+        - No
+        - ByWords
+        - ByLines
+        - ByCharacterLength
+        - BySentence
+
+    RedirectPolicy:
+      type: string
+      enum:
+        - Loose
+        - Strict
+
+    RequestType:
+      type: string
+      enum:
+        - http
+        - chrome
+        - SmartMode
+
+    ReturnFormat:
+      type: string
+      enum:
+        - raw
+        - bytes
+        - text
+        - html2text
+        - markdown
+        - commonmark
+        - xml
+        - empty
+
+    Content:
+      oneOf:
+        - type: string
+          items:
+            $ref: '#/components/schemas/ReturnFormat'
+        - type: array
+          items:
+            $ref: '#/components/schemas/ReturnFormat'
+
+    Webhook:
+      type: object
+      properties:
+        destination:
+          type: string
+        on_credits_depleted:
+          type: boolean
+        on_credits_half_depleted:
+          type: boolean
+        on_website_status:
+          type: boolean
+        on_find:
+          type: boolean
+        on_find_metadata:
+          type: boolean
+
+    CaptureScreenshotParams:
+      type: object
+      properties:
+        format:
+          type: string
+        quality:
+          type: integer
+        clip:
+          type: object
+        from_surface:
+          type: boolean
+        capture_beyond_viewport:
+          type: boolean
+
+    FeedbackType:
+      type: object
+      properties:
+        comment:
+          type: string
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+
+    WebsitesType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          required: true
+        domain:
+          type: string
+        proxy_enabled:
+          type: boolean
+        crawl_budget:
+          type: object
+        full_resources:
+          type: boolean
+        metadata:
+          type: boolean
+        anti_bot:
+          type: boolean
+        limit:
+          type: integer
+        request:
+          type: string
+          enum: [http, headless, smart]
+        cron:
+          type: string
+          enum: [daily, weekly, monthly]
+        gpt_config:
+          type: object
+        return_format:
+          type: string
+        whitelist:
+          type: array
+          items:
+            type: string
+          maxItems: 50
+          uniqueItems: true
+        blacklist:
+          type: array
+          items:
+            type: string
+          maxItems: 50
+          uniqueItems: true
+
+    PagesType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        domain:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        pathname:
+          type: string
+        fts:
+          type: string
+        scheme:
+          type: string
+        last_checked_at:
+          type: string
+        screenshot:
+          type: boolean
+        status_code:
+          type: number
+
+    PagesMetadataType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        domain:
+          type: string
+        resource_type:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        file_size:
+          type: number
+        embedding:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        pathname:
+          type: string
+        keywords:
+          type: array
+          items:
+            type: string
+        labels:
+          type: array
+          items:
+            type: string
+        extracted_data:
+          type: object
+        fts:
+          type: string
+        page_insights:
+          type: object
+
+    ChatQueryType:
+      type: object
+      properties:
+        customPrompt:
+          type: string
+        messages:
+          type: array
+          items:
+            type: object
+        previewToken:
+          type: string
+        url:
+          type: string
+
+    ContactsType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+        full_name:
+          type: string
+        title:
+          type: string
+        email:
+          type: string
+        phone_number:
+          type: string
+        url:
+          type: string
+        last_checked_at:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        fts:
+          type: string

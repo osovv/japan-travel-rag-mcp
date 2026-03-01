@@ -393,6 +393,28 @@
       </annotations>
     </M-DB>
 
+    <M-SPIDER-DIRECT-FIXTURE-FETCHER NAME="SpiderDirectFixtureFetcher" TYPE="UTILITY" STATUS="active">
+      <purpose>Direct Spider `/scrape` fixture fetch script for curated parser tests, using fetch and local JSON output without proxy routing.</purpose>
+      <path>scripts/spider-direct-scrape-fixture.ts</path>
+      <depends>none</depends>
+      <annotations>
+        <fn-main description="Validate CLI/env, fetch scrape payload from Spider API, and write normalized fixture envelope to disk." />
+        <fn-parseArgs description="Parse --url/--out/--return-format arguments for script execution." />
+        <fn-fetchScrapeFixture description="Execute direct POST https://api.spider.cloud/scrape with Authorization bearer token." />
+      </annotations>
+    </M-SPIDER-DIRECT-FIXTURE-FETCHER>
+
+    <M-SPIDER-BATCH-FIXTURE-FETCHER NAME="SpiderBatchFixtureFetcher" TYPE="UTILITY" STATUS="active">
+      <purpose>Batch fixture collector that reads URL list files, maps URLs to source/domain fixture folders, and invokes direct Spider scrape fetches.</purpose>
+      <path>scripts/spider-batch-scrape-fixtures.sh</path>
+      <depends>M-SPIDER-DIRECT-FIXTURE-FETCHER</depends>
+      <annotations>
+        <fn-main description="Process URL list, compute output paths, call direct scrape script, and print batch summary." />
+        <fn-resolve_source_folder description="Map known hosts to source_id folders with host fallback." />
+        <fn-short_hash description="Generate stable short hash suffix for unique fixture filenames." />
+      </annotations>
+    </M-SPIDER-BATCH-FIXTURE-FETCHER>
+
     <CrossLinks>
       <CrossLink FROM="M-CONFIG" TO="M-LOGGER" REL="configures" />
       <CrossLink FROM="M-CONFIG" TO="M-AUTH-PROXY" REL="configures" />
@@ -404,6 +426,9 @@
       <CrossLink FROM="M-TOOLS-CONTRACTS" TO="M-FASTMCP-RUNTIME" REL="provides_local_tool_contracts_for" />
       <CrossLink FROM="M-TG-CHAT-RAG-CLIENT" TO="M-TOOL-PROXY" REL="integrates_with" />
       <CrossLink FROM="M-SPIDER-CLOUD-CLIENT" TO="M-SITES-INGESTION" REL="integrates_with" />
+      <CrossLink FROM="M-SPIDER-DIRECT-FIXTURE-FETCHER" TO="M-SITES-PARSER" REL="provides_fixture_inputs_for" />
+      <CrossLink FROM="M-SPIDER-BATCH-FIXTURE-FETCHER" TO="M-SPIDER-DIRECT-FIXTURE-FETCHER" REL="orchestrates_calls_to" />
+      <CrossLink FROM="M-SPIDER-BATCH-FIXTURE-FETCHER" TO="M-SITES-PARSER" REL="provides_fixture_inputs_for" />
       <CrossLink FROM="M-VOYAGE-PROXY-CLIENT" TO="M-SITES-INGESTION" REL="integrates_with" />
       <CrossLink FROM="M-VOYAGE-PROXY-CLIENT" TO="M-SITES-SEARCH" REL="embeds_for" />
       <CrossLink FROM="M-SITES-PARSER" TO="M-SITES-INGESTION" REL="parses_for" />

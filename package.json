@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "fixtures:spider:scrape": "bun run scripts/spider-direct-scrape-fixture.ts",
+    "fixtures:spider:batch": "bash scripts/spider-batch-scrape-fixtures.sh"
   },
   "devDependencies": {
     "@types/bun": "latest"
