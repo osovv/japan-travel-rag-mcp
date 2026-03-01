@@ -962,7 +962,7 @@
       <justification>Operational controls are required for production reliability, safety, and predictable operating cost.</justification>
     </Phase-9>
 
-    <Phase-10 name="AdminSitesManagement" status="pending">
+    <Phase-10 name="AdminSitesManagement" status="done">
       <step-1>Implement M-ADMIN-SITES data layer: fetchSitesPageData with per-source aggregated stats (page_count, chunk_count, embedding_count, last_crawl_at) and recent crawl jobs query.</step-1>
       <step-2>Implement M-ADMIN-SITES CRUD operations: handleCreateSource with Zod validation (CreateSourceInputSchema), handleUpdateSource (UpdateSourceInputSchema), handleDeleteSource with cascade delete, handleToggleSourceStatus.</step-2>
       <step-3>Implement M-ADMIN-SITES rendering: renderSitesContent (sources table with stats + action buttons + recent crawl jobs), renderSourceForm (create/edit form with validation error display).</step-3>

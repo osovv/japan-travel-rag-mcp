@@ -233,7 +233,7 @@
       </annotations>
     </M-ADMIN-UI>
 
-    <M-ADMIN-SITES NAME="AdminSitesPage" TYPE="UI_COMPONENT" STATUS="planned">
+    <M-ADMIN-SITES NAME="AdminSitesPage" TYPE="UI_COMPONENT" STATUS="active">
       <purpose>Query curated site source data with per-source index statistics and render Sites Management admin page with full CRUD, pause/resume, and cascade delete.</purpose>
       <path>src/admin/sites-page.ts</path>
       <depends>M-DB, M-LOGGER</depends>
