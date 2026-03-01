@@ -1,7 +1,7 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.8.0">
-    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search</keywords>
-    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, and worker-driven curated-sites crawl/index pipeline with attributed local retrieval.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.9.0">
+    <keywords>japan-travel, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management</keywords>
+    <annotation>Portal-first architecture with seven MCP tools (4 proxied + 3 local), shareable onboarding UX, worker-driven curated-sites crawl/index pipeline with attributed local retrieval, and admin sites management CRUD.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
       <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
@@ -223,15 +223,35 @@
     </M-USAGE-TRACKER>
 
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
-      <purpose>Server-rendered admin login and ops routes guarded by AdminAuth.</purpose>
+      <purpose>Server-rendered admin login, ops diagnostics, and sites management routes guarded by AdminAuth.</purpose>
       <path>src/admin/ui-routes.tsx</path>
-      <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
+      <depends>M-ADMIN-AUTH, M-ADMIN-SITES, M-CONFIG, M-LOGGER, M-DB</depends>
       <annotations>
-        <fn-handleAdminRequest description="Dispatch /admin/login and /admin/ops route handling." />
-        <fn-renderAdminLayout description="Render top-level admin HTML shell." />
+        <fn-handleAdminRequest description="Dispatch /admin/login, /admin/ops, and /admin/sites/* route handling." />
+        <fn-renderAdminLayout description="Render top-level admin HTML shell with sidebar (Ops Diagnostics + Sites Management tabs)." />
         <fn-renderOpsStatus description="Render runtime diagnostics for operators." />
       </annotations>
     </M-ADMIN-UI>
+
+    <M-ADMIN-SITES NAME="AdminSitesPage" TYPE="UI_COMPONENT" STATUS="planned">
+      <purpose>Query curated site source data with per-source index statistics and render Sites Management admin page with full CRUD, pause/resume, and cascade delete.</purpose>
+      <path>src/admin/sites-page.ts</path>
+      <depends>M-DB, M-LOGGER</depends>
+      <annotations>
+        <fn-fetchSitesPageData description="Query all sources with aggregated stats (page_count, chunk_count, embedding_count, last_crawl_at) and recent crawl jobs." />
+        <fn-renderSitesContent description="Render sources table with status badges, stats, and action buttons." />
+        <fn-renderSourceForm description="Render create/edit form with Zod validation error display." />
+        <fn-handleCreateSource description="Validate and INSERT new source into site_sources." />
+        <fn-handleUpdateSource description="Validate and UPDATE existing source metadata." />
+        <fn-handleDeleteSource description="CASCADE delete source with all related embeddings, chunks, pages, and crawl jobs." />
+        <fn-handleToggleSourceStatus description="Toggle source status between active and paused." />
+        <type-SiteSourceRow description="Source metadata + aggregated stats." />
+        <type-CrawlJobRow description="Recent crawl job summary." />
+        <type-SitesPageData description="Full page data model: sources list + recent crawl jobs." />
+        <schema-CreateSourceInputSchema description="Zod schema for create source validation." />
+        <schema-UpdateSourceInputSchema description="Zod schema for edit source validation." />
+      </annotations>
+    </M-ADMIN-SITES>
 
     <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
       <purpose>Server-rendered landing + portal per-page routes for external tester onboarding with progressive enhancement and per-user usage statistics display.</purpose>
@@ -269,7 +289,7 @@
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" STATUS="active">
       <purpose>Bootstrap API runtime config/dependencies, then start FastMCP HTTP stream runtime with MCP, admin, portal surfaces, usage tracking, and local tools.</purpose>
       <path>src/server/index.ts</path>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
       <annotations>
         <fn-main description="Initialize API runtime dependencies, mount route handlers, and start server lifecycle." />
       </annotations>
@@ -353,6 +373,8 @@
       <CrossLink FROM="M-TOOL-PROXY" TO="M-FASTMCP-RUNTIME" REL="handles_tool_execution_for" />
       <CrossLink FROM="M-SITES-SEARCH" TO="M-FASTMCP-RUNTIME" REL="handles_local_tool_execution_for" />
       <CrossLink FROM="M-ADMIN-AUTH" TO="M-ADMIN-UI" REL="authorizes" />
+      <CrossLink FROM="M-ADMIN-SITES" TO="M-ADMIN-UI" REL="renders_for" />
+      <CrossLink FROM="M-DB" TO="M-ADMIN-SITES" REL="persists_for" />
       <CrossLink FROM="M-PORTAL-IDENTITY" TO="M-PORTAL-PROVISIONING" REL="provisions_through" />
       <CrossLink FROM="M-PORTAL-AUTH" TO="M-PORTAL-UI" REL="authorizes" />
       <CrossLink FROM="M-PORTAL-PROVISIONING" TO="M-PORTAL-UI" REL="supports_onboarding" />
@@ -452,8 +474,15 @@
       <DF-ADMIN-ROOT-AUTH NAME="admin root auth flow">
         <step-1>Operator posts token to `/admin/login`.</step-1>
         <step-2>M-ADMIN-AUTH verifies `ROOT_AUTH_TOKEN` and issues session cookie.</step-2>
-        <step-3>M-ADMIN-UI serves protected `/admin/ops` route.</step-3>
+        <step-3>M-ADMIN-UI serves protected `/admin/ops` and `/admin/sites/*` routes.</step-3>
       </DF-ADMIN-ROOT-AUTH>
+
+      <DF-ADMIN-SITES-CRUD NAME="admin sites management CRUD flow">
+        <step-1>Authenticated admin operator navigates to `/admin/sites` via sidebar.</step-1>
+        <step-2>M-ADMIN-UI dispatches to M-ADMIN-SITES.fetchSitesPageData which queries site_sources with per-source stats.</step-2>
+        <step-3>Create/Edit/Delete/Pause/Resume operations modify site_sources and cascade-related tables.</step-3>
+        <step-4>All mutations use PRG pattern (POST → redirect → GET) for safe browser navigation.</step-4>
+      </DF-ADMIN-SITES-CRUD>
     </DataFlows>
   </Project>
 </KnowledgeGraph>

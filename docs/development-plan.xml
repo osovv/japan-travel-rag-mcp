@@ -1,4 +1,4 @@
-<DevelopmentPlan VERSION="1.2.0">
+<DevelopmentPlan VERSION="1.3.0">
   <Context>
     <purpose>Deliver a shareable end-to-end onboarding flow plus curated-site retrieval: portal onboarding, fixed MCP tool surface (4 proxied + 3 local), worker-based crawl/index pipeline, and attributed evidence retrieval for travel agents.</purpose>
     <scope>Keep existing proxied tg-chat tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), keep `/admin/*` root-token protected, keep portal-first onboarding on `/` and `/portal/*`, and add local curated-site tools (`get_site_sources`, `search_sites`, `get_page_chunk`) backed by PostgreSQL index refreshed by worker crawl/index jobs.</scope>
@@ -501,7 +501,7 @@
 
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="1">
       <contract>
-        <purpose>Render admin login and ops pages with simple root-token auth workflow.</purpose>
+        <purpose>Render admin login, ops diagnostics, and sites management pages with root-token auth workflow and HTMX progressive enhancement.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
         </inputs>
@@ -513,12 +513,51 @@
         </errors>
       </contract>
       <interface>
-        <export-handleAdminRequest PURPOSE="Handle `/admin/login` and `/admin/ops` endpoints." />
-        <export-renderAdminLayout PURPOSE="Render HTML layout for admin pages." />
+        <export-handleAdminRequest PURPOSE="Handle `/admin/login`, `/admin/ops`, and `/admin/sites/*` endpoints." />
+        <export-renderAdminLayout PURPOSE="Render HTML layout for admin pages with sidebar (Ops Diagnostics + Sites Management tabs)." />
         <export-renderOpsStatus PURPOSE="Render runtime diagnostic fragment." />
       </interface>
-      <depends>M-ADMIN-AUTH, M-CONFIG, M-LOGGER</depends>
+      <depends>M-ADMIN-AUTH, M-ADMIN-SITES, M-CONFIG, M-LOGGER, M-DB</depends>
     </M-ADMIN-UI>
+
+    <M-ADMIN-SITES NAME="AdminSitesPage" TYPE="UI_COMPONENT" LAYER="4" ORDER="5">
+      <contract>
+        <purpose>Query curated site source data with per-source index statistics from PostgreSQL and render Sites Management admin page with full CRUD, pause/resume, and cascade delete operations.</purpose>
+        <inputs>
+          <param-1 name="db" type="NodePgDatabase" />
+          <param-2 name="sourceInput" type="object" />
+          <param-3 name="sourceId" type="string" />
+        </inputs>
+        <outputs>
+          <param-1 name="sitesPageData" type="SitesPageData" />
+          <param-2 name="contentHtml" type="string" />
+        </outputs>
+        <errors>
+          <error-ADMIN_SITES_ERROR code="ADMIN_SITES_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-fetchSitesPageData PURPOSE="Query all sources with aggregated per-source stats (page_count, chunk_count, embedding_count, last_crawl_at) and recent crawl jobs." />
+        <export-renderSitesContent PURPOSE="Render sources table with status badges, stats columns, and action buttons (edit/pause/resume/delete)." />
+        <export-renderSourceForm PURPOSE="Render create/edit form with Zod-validated fields (source_id, name, domain, tier, language, focus, crawl_interval_minutes, max_pages)." />
+        <export-handleCreateSource PURPOSE="Validate and INSERT new source into site_sources table." />
+        <export-handleUpdateSource PURPOSE="Validate and UPDATE existing source metadata fields." />
+        <export-handleDeleteSource PURPOSE="CASCADE delete source with all related embeddings, chunks, pages, and crawl jobs." />
+        <export-handleToggleSourceStatus PURPOSE="Toggle source status between active and paused." />
+        <export-CreateSourceInputSchema PURPOSE="Zod schema for create source validation (source_id required, 3-50 chars, alphanumeric+underscore)." />
+        <export-UpdateSourceInputSchema PURPOSE="Zod schema for edit source validation (source_id not editable)." />
+        <type-SiteSourceRow PURPOSE="Source metadata + aggregated stats (page_count, chunk_count, embedding_count, last_crawl_at)." />
+        <type-CrawlJobRow PURPOSE="Recent crawl job summary (crawl_job_id, source_id, status, started_at, finished_at, pages_fetched, error)." />
+        <type-SitesPageData PURPOSE="Full page data model: sources list + recent crawl jobs." />
+      </interface>
+      <depends>M-DB, M-LOGGER</depends>
+      <notes>
+        <note-1>Delete cascade order: site_chunk_embeddings → site_chunks → site_pages → site_crawl_jobs → site_sources.</note-1>
+        <note-2>source_id is immutable after creation (validated on create, excluded from edit form).</note-2>
+        <note-3>Form validation uses Zod: domain format, tier 0-2, crawl_interval min 60, max_pages 1-1000.</note-3>
+        <note-4>Rendering follows existing admin pattern: raw HTML strings, no JSX, inline CSS, HTMX progressive enhancement.</note-4>
+      </notes>
+    </M-ADMIN-SITES>
 
     <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
       <contract>
@@ -604,7 +643,7 @@
       <interface>
         <export-main PURPOSE="Load config, create API dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
     </M-SERVER>
 
     <M-WORKER-ENTRYPOINT NAME="WorkerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="2">
@@ -741,6 +780,16 @@
       <step-2>M-ADMIN-AUTH verifies against `ROOT_AUTH_TOKEN` and issues session cookie.</step-2>
       <step-3>Protected `/admin/ops` routes require valid admin session and never use portal/MCP auth paths.</step-3>
     </DF-ADMIN-ROOT-AUTH>
+
+    <DF-ADMIN-SITES-CRUD NAME="admin sites management CRUD flow">
+      <step-1>Authenticated admin operator navigates to `/admin/sites` via sidebar.</step-1>
+      <step-2>M-ADMIN-UI dispatches to M-ADMIN-SITES.fetchSitesPageData which queries site_sources with per-source stats via aggregate subqueries.</step-2>
+      <step-3>M-ADMIN-SITES.renderSitesContent generates sources table with stats, status badges, and action buttons.</step-3>
+      <step-4>Create: operator opens `/admin/sites/new`, fills form, POST validated by CreateSourceInputSchema, INSERT into site_sources, redirect to list.</step-4>
+      <step-5>Edit: operator opens `/admin/sites/:id/edit`, modifies fields, POST validated by UpdateSourceInputSchema, UPDATE site_sources row, redirect to list.</step-5>
+      <step-6>Pause/Resume: operator clicks action button, POST to `/admin/sites/:id/pause` or `/admin/sites/:id/resume`, UPDATE site_sources.status, redirect to list.</step-6>
+      <step-7>Delete: operator clicks delete with confirmation, POST to `/admin/sites/:id/delete`, cascade DELETE (embeddings → chunks → pages → crawl_jobs → source), redirect to list.</step-7>
+    </DF-ADMIN-SITES-CRUD>
   </DataFlows>
 
   <MentalTests>
@@ -823,6 +872,24 @@
       <step-3>Verify no public MCP tool exposes manual refresh action.</step-3>
       <result>Pass when v1 crawl-only policy is enforced in both contracts and runtime behavior.</result>
     </MT-11>
+
+    <MT-12 NAME="admin sites management CRUD test">
+      <step-1>Authenticated admin opens `/admin/sites` and sees all seeded sources with page/chunk stats.</step-1>
+      <step-2>Admin creates a new source via `/admin/sites/new` with valid fields; source appears in list.</step-2>
+      <step-3>Admin edits source metadata via `/admin/sites/:id/edit`; changes are reflected.</step-3>
+      <step-4>Admin pauses a source; worker skips it on next tick; admin resumes it; worker processes it again.</step-4>
+      <step-5>Admin deletes a source; all related embeddings, chunks, pages, and crawl jobs are cascade-deleted.</step-5>
+      <step-6>Admin submits invalid create form (e.g., tier=5, empty domain); validation errors are shown without side effects.</step-6>
+      <result>Pass when all CRUD operations work correctly, cascade delete removes all related data, and validation prevents invalid entries.</result>
+    </MT-12>
+
+    <MT-13 NAME="admin sites HTMX progressive enhancement test">
+      <step-1>Admin clicks "Sites Management" sidebar link with HTMX enabled.</step-1>
+      <step-2>Server detects HX-Request header and returns content fragment only.</step-2>
+      <step-3>HTMX swaps main content area without full page reload.</step-3>
+      <step-4>Same page works with JavaScript disabled (full page navigation).</step-4>
+      <result>Pass when page works with both HTMX fragment swap and full page load.</result>
+    </MT-13>
   </MentalTests>
 
   <ImplementationOrder>
@@ -894,6 +961,16 @@
       <step-3>Stabilize cost/performance via source budgets and cadence tuning.</step-3>
       <justification>Operational controls are required for production reliability, safety, and predictable operating cost.</justification>
     </Phase-9>
+
+    <Phase-10 name="AdminSitesManagement" status="pending">
+      <step-1>Implement M-ADMIN-SITES data layer: fetchSitesPageData with per-source aggregated stats (page_count, chunk_count, embedding_count, last_crawl_at) and recent crawl jobs query.</step-1>
+      <step-2>Implement M-ADMIN-SITES CRUD operations: handleCreateSource with Zod validation (CreateSourceInputSchema), handleUpdateSource (UpdateSourceInputSchema), handleDeleteSource with cascade delete, handleToggleSourceStatus.</step-2>
+      <step-3>Implement M-ADMIN-SITES rendering: renderSitesContent (sources table with stats + action buttons + recent crawl jobs), renderSourceForm (create/edit form with validation error display).</step-3>
+      <step-4>Update M-ADMIN-UI: extend ActiveTab union with "sites", add Sites Management sidebar link, add route handling for GET/POST /admin/sites, /admin/sites/new, /admin/sites/:id/edit, /admin/sites/:id/pause, /admin/sites/:id/resume, /admin/sites/:id/delete.</step-4>
+      <step-5>Update M-SERVER: pass db handle into AdminUiDependencies so admin routes can query site tables.</step-5>
+      <step-6>Add tests for M-ADMIN-SITES: data queries return correct aggregates, CRUD operations work, cascade delete removes all related records, Zod validation rejects invalid inputs, rendering produces expected HTML structure.</step-6>
+      <justification>Admin sites management enables operators to add/edit/remove curated sources and monitor index health without direct database access.</justification>
+    </Phase-10>
   </ImplementationOrder>
 
   <RiskAssessment>

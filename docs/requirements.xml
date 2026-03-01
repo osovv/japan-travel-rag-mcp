@@ -1,4 +1,4 @@
-<RequirementsAnalysis VERSION="0.8.0">
+<RequirementsAnalysis VERSION="0.9.0">
   <UseCases>
     <UC-001>
       <Actor>External MCP Client</Actor>
@@ -153,6 +153,13 @@
       <Goal>Isolate interactive MCP/UI runtime from long-running crawl/index jobs</Goal>
       <AcceptanceCriteria>API entrypoint serves MCP/admin/portal surfaces without worker loops; worker entrypoint runs scheduling/ingestion/index jobs without exposing API routes</AcceptanceCriteria>
     </UC-022>
+
+    <UC-023>
+      <Actor>Platform Operator</Actor>
+      <Action>Opens `/admin/sites` to list, create, edit, delete, pause, and resume curated site sources with per-source index statistics</Action>
+      <Goal>Manage curated site source registry through admin UI without direct database access</Goal>
+      <AcceptanceCriteria>Admin sites page lists all sources with per-source stats (page count, chunk count, last crawl); operator can create new sources with validated fields (source_id, name, domain, tier, language, focus, crawl_interval, max_pages); operator can edit existing source metadata; operator can pause/resume sources; operator can delete sources with full cascade (embeddings, chunks, pages, crawl jobs); all actions require valid admin session; page supports HTMX progressive enhancement</AcceptanceCriteria>
+    </UC-023>
   </UseCases>
 
   <DeferredUseCases>
