@@ -119,31 +119,31 @@ describe("M-SITES-CHUNKER", () => {
       const text = "Tokyo is the capital of Japan.";
       const result = chunkPage(text, createNoopLogger());
       expect(result).toHaveLength(1);
-      expect(result[0].chunk_text).toBe(text);
+      expect(result[0]!.chunk_text).toBe(text);
     });
 
     it("should set chunk_index to 0 for single chunk", () => {
       const result = chunkPage("Short text.", createNoopLogger());
-      expect(result[0].chunk_index).toBe(0);
+      expect(result[0]!.chunk_index).toBe(0);
     });
 
     it("should set correct char_count", () => {
       const text = "Hello world.";
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].char_count).toBe(text.length);
+      expect(result[0]!.char_count).toBe(text.length);
     });
 
     it("should set token_estimate based on char count / 4", () => {
       const text = "12345678"; // 8 chars = ceil(8/4) = 2 tokens
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].token_estimate).toBe(2);
+      expect(result[0]!.token_estimate).toBe(2);
     });
 
     it("should set start_offset to 0 and end_offset to text length", () => {
       const text = "Simple text content.";
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].start_offset).toBe(0);
-      expect(result[0].end_offset).toBe(text.length);
+      expect(result[0]!.start_offset).toBe(0);
+      expect(result[0]!.end_offset).toBe(text.length);
     });
   });
   // END_BLOCK_SINGLE_SMALL_CHUNK_TESTS_M_SITES_CHUNKER_TEST_004
@@ -196,7 +196,7 @@ describe("M-SITES-CHUNKER", () => {
       const result = chunkPage(text, createNoopLogger());
       // The tiny segment should be merged, so we get 1 chunk
       expect(result).toHaveLength(1);
-      expect(result[0].chunk_text).toContain("Short.");
+      expect(result[0]!.chunk_text).toContain("Short.");
     });
 
     it("should merge first tiny segment forward when it is the first segment", () => {
@@ -205,7 +205,7 @@ describe("M-SITES-CHUNKER", () => {
       const text = tiny + "\n\n" + normal;
       const result = chunkPage(text, createNoopLogger());
       expect(result).toHaveLength(1);
-      expect(result[0].chunk_text).toContain("Hi.");
+      expect(result[0]!.chunk_text).toContain("Hi.");
     });
 
     it("should not merge segments above min_merge_tokens", () => {
@@ -258,7 +258,7 @@ describe("M-SITES-CHUNKER", () => {
       expect(result.length).toBeGreaterThanOrEqual(1);
       // The single unsplittable word should trigger a warning
       expect(warns.length).toBeGreaterThanOrEqual(1);
-      expect(warns[0].message).toContain("exceeds max_tokens");
+      expect(warns[0]!.message).toContain("exceeds max_tokens");
     });
   });
   // END_BLOCK_OVERSIZED_SPLIT_TESTS_M_SITES_CHUNKER_TEST_007
@@ -276,10 +276,10 @@ describe("M-SITES-CHUNKER", () => {
 
       if (result.length > 1) {
         // Second chunk should contain some text from end of first chunk (overlap)
-        const firstChunkEnd = result[0].chunk_text.slice(-40);
+        const firstChunkEnd = result[0]!.chunk_text.slice(-40);
         // The overlap means second chunk should start with content that appeared in first chunk
         // This is a structural check — overlap means shared content exists
-        expect(result[1].chunk_text.length).toBeGreaterThan(0);
+        expect(result[1]!.chunk_text.length).toBeGreaterThan(0);
       }
     });
   });
@@ -290,14 +290,14 @@ describe("M-SITES-CHUNKER", () => {
     it("should have start_offset 0 for first chunk", () => {
       const text = "Hello world. This is a test document.";
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].start_offset).toBe(0);
+      expect(result[0]!.start_offset).toBe(0);
     });
 
     it("should have end_offset equal to start_offset + chunk length for simple cases", () => {
       const text = "Simple text content for testing offsets.";
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].end_offset).toBe(
-        result[0].start_offset + result[0].chunk_text.length,
+      expect(result[0]!.end_offset).toBe(
+        result[0]!.start_offset + result[0]!.chunk_text.length,
       );
     });
 
@@ -309,8 +309,8 @@ describe("M-SITES-CHUNKER", () => {
       const result = chunkPage(text, createNoopLogger());
 
       for (let i = 1; i < result.length; i++) {
-        expect(result[i].start_offset).toBeGreaterThanOrEqual(
-          result[i - 1].start_offset,
+        expect(result[i]!.start_offset).toBeGreaterThanOrEqual(
+          result[i - 1]!.start_offset,
         );
       }
     });
@@ -322,26 +322,26 @@ describe("M-SITES-CHUNKER", () => {
     it("should estimate tokens as ceil(charCount / 4)", () => {
       const text = "abcdefghijklmnop"; // 16 chars = 4 tokens
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].token_estimate).toBe(4);
+      expect(result[0]!.token_estimate).toBe(4);
     });
 
     it("should round up for non-divisible lengths", () => {
       const text = "abcde"; // 5 chars = ceil(5/4) = 2 tokens
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].token_estimate).toBe(2);
+      expect(result[0]!.token_estimate).toBe(2);
     });
 
     it("should handle single character", () => {
       const text = "a"; // 1 char = ceil(1/4) = 1 token
       const result = chunkPage(text, createNoopLogger());
-      expect(result[0].token_estimate).toBe(1);
+      expect(result[0]!.token_estimate).toBe(1);
     });
 
     it("should match char_count / 4 ceiling", () => {
       const text = "Hello, this is a test of token estimation for chunking.";
       const result = chunkPage(text, createNoopLogger());
       const expected = Math.ceil(text.length / 4);
-      expect(result[0].token_estimate).toBe(expected);
+      expect(result[0]!.token_estimate).toBe(expected);
     });
   });
   // END_BLOCK_TOKEN_ESTIMATION_TESTS_M_SITES_CHUNKER_TEST_010
@@ -356,7 +356,7 @@ describe("M-SITES-CHUNKER", () => {
       const result = chunkPage(text, createNoopLogger());
 
       for (let i = 0; i < result.length; i++) {
-        expect(result[i].chunk_index).toBe(i);
+        expect(result[i]!.chunk_index).toBe(i);
       }
     });
 
@@ -365,7 +365,7 @@ describe("M-SITES-CHUNKER", () => {
       const result = chunkPage(text, createNoopLogger());
 
       for (let i = 0; i < result.length; i++) {
-        expect(result[i].chunk_index).toBe(i);
+        expect(result[i]!.chunk_index).toBe(i);
       }
     });
   });
@@ -489,7 +489,7 @@ describe("M-SITES-CHUNKER", () => {
 
       // Chunk indices should be sequential
       for (let i = 0; i < result.length; i++) {
-        expect(result[i].chunk_index).toBe(i);
+        expect(result[i]!.chunk_index).toBe(i);
       }
     });
 
@@ -524,7 +524,7 @@ describe("M-SITES-CHUNKER", () => {
       const text = "Just a single line of text without any breaks or headers.";
       const result = chunkPage(text, createNoopLogger());
       expect(result).toHaveLength(1);
-      expect(result[0].chunk_text).toBe(text);
+      expect(result[0]!.chunk_text).toBe(text);
     });
 
     it("should handle text with many consecutive newlines", () => {
@@ -537,7 +537,7 @@ describe("M-SITES-CHUNKER", () => {
       const text = "Line one.\nLine two.";
       const result = chunkPage(text, createNoopLogger());
       expect(result).toHaveLength(1);
-      expect(result[0].chunk_text).toBe("Line one.\nLine two.");
+      expect(result[0]!.chunk_text).toBe("Line one.\nLine two.");
     });
 
     it("should preserve chunk_text content integrity", () => {

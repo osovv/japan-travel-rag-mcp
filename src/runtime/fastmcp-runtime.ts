@@ -97,6 +97,9 @@ export function extractUserIdFromSession(session: RuntimeSessionAuth): string | 
       }
 
       const payloadSegment = parts[1];
+      if (!payloadSegment) {
+        continue;
+      }
       const decoded = atob(payloadSegment.replace(/-/g, "+").replace(/_/g, "/"));
       const payload: unknown = JSON.parse(decoded);
 

@@ -79,6 +79,7 @@ function createTestConfig(proxyOverrides?: Partial<AppConfig["proxy"]>): AppConf
     rootAuthToken: "root-token",
     databaseUrl: "postgres://localhost:5432/test",
     oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    devMode: false,
 
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
@@ -267,8 +268,8 @@ describe("M-VOYAGE-PROXY-CLIENT deterministic embedding contract", () => {
     });
 
     expect(result.data).toHaveLength(2);
-    expect(result.data[0].embedding).toEqual([0.1, 0.2, 0.3]);
-    expect(result.data[1].embedding).toEqual([0.4, 0.5, 0.6]);
+    expect(result.data[0]!.embedding).toEqual([0.1, 0.2, 0.3]);
+    expect(result.data[1]!.embedding).toEqual([0.4, 0.5, 0.6]);
     expect(result.model).toBe("voyage-4");
     expect(result.usage.total_tokens).toBe(42);
 

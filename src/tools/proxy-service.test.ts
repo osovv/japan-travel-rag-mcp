@@ -38,6 +38,9 @@ function buildTestConfig(): AppConfig {
     port: 3000,
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-secret",
+    databaseUrl: "postgres://localhost:5432/test",
+    oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    devMode: false,
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
       bearerToken: "service-token",
@@ -55,7 +58,17 @@ function buildTestConfig(): AppConfig {
       sessionSecret: "test-portal-session-secret",
       logtoAppId: "test-portal-app-id",
       logtoAppSecret: "test-portal-app-secret",
+      logtoM2mAppId: "test-m2m-app-id",
+      logtoM2mAppSecret: "test-m2m-app-secret",
+      logtoManagementApiResource: "https://test-mgmt-api.example.com",
+      mcpUserRoleId: "test-mcp-user-role-id",
       sessionTtlSeconds: 604800,
+    },
+    proxy: {
+      baseUrl: "https://proxy.example.com/",
+      secret: "test-proxy-secret",
+      voyageApiKey: "test-voyage-key",
+      spiderApiKey: "test-spider-key",
     },
   };
   // END_BLOCK_BUILD_STATIC_APP_CONFIG_FIXTURE_M_TOOL_PROXY_TEST_001
@@ -129,6 +142,7 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
     const proxyService = createToolProxyService(config, logger, client);
     const rawArgs = {
       query: "tokyo ramen",
+      country_code: "jp",
       top_k: 5,
       filters: {
         authors: ["alice", "bob"],
@@ -136,12 +150,13 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
       },
     };
 
-    const result = await proxyService.executeTool("search_messages", rawArgs);
+    const result = await proxyService.executeTool("search_messages", rawArgs, { chatIds: ["chat-alpha", "chat-bravo"] });
 
     expect(callLog).toHaveLength(1);
     expect(callLog[0]?.toolName).toBe("search_messages");
     expect(callLog[0]?.payload).toEqual({
       query: "tokyo ramen",
+      country_code: "jp",
       top_k: 5,
       filters: {
         authors: ["alice", "bob"],
@@ -168,7 +183,7 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
 
     const proxyService = createToolProxyService(config, logger, client);
     const error = await assertProxyExecutionError(
-      () => proxyService.executeTool("list_chats", {}),
+      () => proxyService.executeTool("list_chats", {}, { chatIds: [] }),
       "UNSUPPORTED_TOOL",
     );
 
@@ -190,7 +205,7 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
 
     const proxyService = createToolProxyService(config, logger, client);
     const error = await assertProxyExecutionError(
-      () => proxyService.executeTool("get_message_context", { message_uid: " " }),
+      () => proxyService.executeTool("get_message_context", { message_uid: " " }, { chatIds: [] }),
       "VALIDATION_ERROR",
     );
 
@@ -217,10 +232,11 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
       () =>
         proxyService.executeTool("search_messages", {
           query: "kyoto",
+          country_code: "jp",
           filters: {
             chat_ids: ["chat-override"],
           },
-        }),
+        }, { chatIds: [] }),
       "VALIDATION_ERROR",
     );
 
@@ -249,7 +265,7 @@ describe("M-TOOL-PROXY deterministic orchestration", () => {
       () =>
         proxyService.executeTool("get_related_messages", {
           message_uid: "msg-002",
-        }),
+        }, { chatIds: [] }),
       "UPSTREAM_ERROR",
     );
 

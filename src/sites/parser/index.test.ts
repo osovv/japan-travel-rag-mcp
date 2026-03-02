@@ -483,7 +483,7 @@ describe("M-SITES-PARSER", () => {
       const item = makeCrawlItem({ status_code: 301 });
       parseCrawlItem(item, TEST_SOURCE_ID, logger);
       expect(warns.length).toBe(1);
-      expect(warns[0].message).toContain("301");
+      expect(warns[0]!.message).toContain("301");
     });
 
     it("should still produce a ParsedPage for non-200 status", () => {

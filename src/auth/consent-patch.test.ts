@@ -225,7 +225,7 @@ describe("patchOAuthProxyConsent", () => {
   it("patched generateConsentScreen returns portal-styled HTML", () => {
     const mockProxy = {
       consentManager: {
-        generateConsentScreen: () => "<p>original</p>",
+        generateConsentScreen: (_data?: unknown) => "<p>original</p>",
       },
     };
 

@@ -95,6 +95,7 @@ function createMockAppConfig(port: number): AppConfig {
     rootAuthToken: "root-auth-token-smoke",
     databaseUrl: "postgres://localhost:5432/test",
     oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    devMode: false,
 
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
@@ -617,8 +618,9 @@ describe("M-FASTMCP-RUNTIME smoke checks", () => {
       });
 
       expect(response.isError).not.toBe(true);
-      expect(response.content).toHaveLength(1);
-      const textContent = response.content[0] as { type: string; text: string };
+      const content = response.content as { type: string; text: string }[];
+      expect(content).toHaveLength(1);
+      const textContent = content[0]!;
       expect(textContent.type).toBe("text");
 
       const parsed = JSON.parse(textContent.text);

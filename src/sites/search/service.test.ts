@@ -134,7 +134,7 @@ describe("SitesSearchService", () => {
 
       // Verify searchHybrid was called with embedded query
       expect(mockSearchHybrid).toHaveBeenCalledTimes(1);
-      const hybridCall = mockSearchHybrid.mock.calls[0][0] as Record<string, unknown>;
+      const hybridCall = (mockSearchHybrid.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
       expect(hybridCall.query_embedding).toEqual([0.5, 0.6, 0.7]);
       expect(hybridCall.query_text).toBe("best temples in Kyoto");
       expect(hybridCall.top_k).toBe(5);
@@ -154,7 +154,7 @@ describe("SitesSearchService", () => {
         chunk_id: "chunk-001",
         score: 0.95,
       });
-      expect(result.results[1].result_id).toBe("sr:chunk-002");
+      expect(result.results[1]!.result_id).toBe("sr:chunk-002");
     });
 
     it("should pass source_ids filter to hybrid search", async () => {
@@ -173,7 +173,7 @@ describe("SitesSearchService", () => {
       };
       await service.searchSites(params);
 
-      const hybridCall = mockSearchHybrid.mock.calls[0][0] as Record<string, unknown>;
+      const hybridCall = (mockSearchHybrid.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
       expect(hybridCall.source_ids).toEqual(["src-001", "src-003"]);
     });
 
@@ -210,8 +210,8 @@ describe("SitesSearchService", () => {
       });
 
       const result = await service.searchSites({ query: "generic", top_k: 5 });
-      expect(result.results[0].tier).toBeUndefined();
-      expect(result.results[0].domain).toBeUndefined();
+      expect(result.results[0]!.tier).toBeUndefined();
+      expect(result.results[0]!.domain).toBeUndefined();
     });
   });
   // END_BLOCK_SEARCH_SITES_TESTS_M_SITES_SEARCH_TEST_004
@@ -437,8 +437,8 @@ describe("SitesSearchService", () => {
 
       const result = await service.searchSites({ query: "test", top_k: 5 });
 
-      expect(result.results[0].snippet.length).toBeLessThanOrEqual(MAX_SNIPPET_LENGTH);
-      expect(result.results[0].snippet.length).toBe(MAX_SNIPPET_LENGTH);
+      expect(result.results[0]!.snippet.length).toBeLessThanOrEqual(MAX_SNIPPET_LENGTH);
+      expect(result.results[0]!.snippet.length).toBe(MAX_SNIPPET_LENGTH);
     });
 
     it("should not truncate snippet shorter than MAX_SNIPPET_LENGTH", async () => {
@@ -463,7 +463,7 @@ describe("SitesSearchService", () => {
 
       const result = await service.searchSites({ query: "test", top_k: 5 });
 
-      expect(result.results[0].snippet).toBe(shortSnippet);
+      expect(result.results[0]!.snippet).toBe(shortSnippet);
     });
 
     it("should truncate chunk_excerpt to MAX_CHUNK_EXCERPT_LENGTH in getPageChunk", async () => {

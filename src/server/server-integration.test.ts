@@ -166,6 +166,7 @@ function createMockAppConfig(): AppConfig {
     rootAuthToken: "root-auth-token-integration",
     databaseUrl: "postgresql://localhost:5432/test",
     oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    devMode: false,
 
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",

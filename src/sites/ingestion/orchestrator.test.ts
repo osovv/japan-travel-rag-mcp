@@ -197,18 +197,18 @@ describe("runScheduledIngestion", () => {
 
     // Verify upsertPage was called
     expect(calls.upsertPage).toHaveLength(1);
-    expect(calls.upsertPage[0].input.source_id).toBe("src-001");
+    expect(calls.upsertPage[0]!.input.source_id).toBe("src-001");
 
     // Verify upsertChunks was called
     expect(calls.upsertChunks).toHaveLength(1);
-    expect(calls.upsertChunks[0].pageId).toBe("page-001");
+    expect(calls.upsertChunks[0]!.pageId).toBe("page-001");
 
     // Verify upsertEmbeddings was called
     expect(calls.upsertEmbeddings).toHaveLength(1);
 
     // Verify chunk counts match embedding counts
-    const chunkCount = calls.upsertChunks[0].chunks.length;
-    const embeddingCount = calls.upsertEmbeddings[0].embeddings.length;
+    const chunkCount = calls.upsertChunks[0]!.chunks.length;
+    const embeddingCount = calls.upsertEmbeddings[0]!.embeddings.length;
     expect(chunkCount).toBe(embeddingCount);
     expect(result.chunks_created).toBe(chunkCount);
     expect(result.embeddings_created).toBe(embeddingCount);
@@ -332,8 +332,8 @@ describe("error isolation", () => {
     expect(result.pages_fetched).toBe(1);
     // Error accumulated for first source
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].source_id).toBe("fail-src");
-    expect(result.errors[0].error).toContain("Crawl failed for source 1");
+    expect(result.errors[0]!.source_id).toBe("fail-src");
+    expect(result.errors[0]!.error).toContain("Crawl failed for source 1");
   });
 
   it("accumulates page-level errors without stopping other pages in the source", async () => {
@@ -362,7 +362,7 @@ describe("error isolation", () => {
     // 2 good pages + 1 failed parse
     expect(calls.upsertPage).toHaveLength(2);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].source_id).toBe("src-001");
+    expect(result.errors[0]!.source_id).toBe("src-001");
   });
 
   it("accumulates embedding errors per page without stopping other pages", async () => {
@@ -400,7 +400,7 @@ describe("error isolation", () => {
     expect(result.pages_fetched).toBe(2);
     // First page embedding fails, second succeeds
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].error).toContain("Voyage API error");
+    expect(result.errors[0]!.error).toContain("Voyage API error");
     // Second page should have embeddings
     expect(result.embeddings_created).toBeGreaterThan(0);
   });
@@ -439,7 +439,7 @@ describe("error isolation", () => {
 
     expect(result.sources_processed).toBe(1);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].error).toContain("DB connection lost");
+    expect(result.errors[0]!.error).toContain("DB connection lost");
   });
 
   it("tracks empty-content pages as structured skips, not errors", async () => {
@@ -482,7 +482,7 @@ describe("error isolation", () => {
 
     const skipInfoLogs = infoCalls.filter((call) => call.blockName === "PAGE_SKIPPED");
     expect(skipInfoLogs).toHaveLength(1);
-    expect(skipInfoLogs[0].extra?.reason).toBe("EMPTY_CONTENT");
+    expect(skipInfoLogs[0]!.extra?.reason).toBe("EMPTY_CONTENT");
 
     const pageErrorLogs = errorCalls.filter((call) => call.blockName === "PAGE_PROCESSING_ERROR");
     expect(pageErrorLogs).toHaveLength(0);
@@ -527,7 +527,7 @@ describe("runTargetedRecrawl", () => {
     expect(capturedRequest!.return_format).toBe("markdown");
 
     // Verify source_id was passed through
-    expect(calls.upsertPage[0].input.source_id).toBe("src-target");
+    expect(calls.upsertPage[0]!.input.source_id).toBe("src-target");
   });
 
   it("handles crawl failure in targeted recrawl", async () => {
@@ -555,9 +555,9 @@ describe("runTargetedRecrawl", () => {
     expect(result.chunks_created).toBe(0);
     expect(result.embeddings_created).toBe(0);
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0].source_id).toBe("src-fail");
-    expect(result.errors[0].url).toBe("https://example.com/broken");
-    expect(result.errors[0].error).toContain("Targeted crawl failed");
+    expect(result.errors[0]!.source_id).toBe("src-fail");
+    expect(result.errors[0]!.url).toBe("https://example.com/broken");
+    expect(result.errors[0]!.error).toContain("Targeted crawl failed");
   });
 
   it("handles empty-content page as structured skip in targeted recrawl", async () => {
@@ -604,7 +604,7 @@ describe("result counters", () => {
 
     await orchestrator.runScheduledIngestion([makeSource()]);
 
-    const chunks = calls.upsertChunks[0].chunks;
+    const chunks = calls.upsertChunks[0]!.chunks;
     for (const chunk of chunks) {
       expect(chunk.chunk_id).toMatch(/^pg-001:\d+$/);
     }
@@ -625,7 +625,7 @@ describe("result counters", () => {
 
     await orchestrator.runScheduledIngestion([makeSource()]);
 
-    const chunks = calls.upsertChunks[0].chunks;
+    const chunks = calls.upsertChunks[0]!.chunks;
     for (const chunk of chunks) {
       expect(chunk.chunking_version).toBe("v1");
       expect(chunk.index_version).toBe(INDEX_VERSION);
@@ -647,7 +647,7 @@ describe("result counters", () => {
 
     await orchestrator.runScheduledIngestion([makeSource()]);
 
-    const embeddings = calls.upsertEmbeddings[0].embeddings;
+    const embeddings = calls.upsertEmbeddings[0]!.embeddings;
     for (const emb of embeddings) {
       expect(emb.embedding_model).toBe("voyage-4");
       expect(emb.index_version).toBe(INDEX_VERSION);
@@ -669,8 +669,8 @@ describe("result counters", () => {
 
     const result = await orchestrator.runScheduledIngestion([makeSource()]);
 
-    const chunkCount = calls.upsertChunks[0].chunks.length;
-    const embeddingCount = calls.upsertEmbeddings[0].embeddings.length;
+    const chunkCount = calls.upsertChunks[0]!.chunks.length;
+    const embeddingCount = calls.upsertEmbeddings[0]!.embeddings.length;
     expect(chunkCount).toBe(embeddingCount);
     expect(result.chunks_created).toBe(result.embeddings_created);
   });
@@ -690,7 +690,7 @@ describe("result counters", () => {
 
     await orchestrator.runScheduledIngestion([makeSource()]);
 
-    const chunks = calls.upsertChunks[0].chunks;
+    const chunks = calls.upsertChunks[0]!.chunks;
     for (const chunk of chunks) {
       expect(chunk.content_hash).toMatch(/^[0-9a-f]{64}$/);
     }
@@ -758,10 +758,10 @@ describe("provider outage detection (skipOnProviderOutage)", () => {
     // 3 Spider errors + 2 skipped = 5 errors
     expect(result.errors).toHaveLength(5);
     // The 4th and 5th errors should have PROVIDER_OUTAGE code
-    expect(result.errors[3].code).toBe("PROVIDER_OUTAGE");
-    expect(result.errors[4].code).toBe("PROVIDER_OUTAGE");
-    expect(result.errors[3].source_id).toBe("src-004");
-    expect(result.errors[4].source_id).toBe("src-005");
+    expect(result.errors[3]!.code).toBe("PROVIDER_OUTAGE");
+    expect(result.errors[4]!.code).toBe("PROVIDER_OUTAGE");
+    expect(result.errors[3]!.source_id).toBe("src-004");
+    expect(result.errors[4]!.source_id).toBe("src-005");
   });
 
   it("resets consecutive 5xx counter on successful crawl", async () => {
@@ -869,8 +869,8 @@ describe("pauseSource / resumeSource", () => {
     await pauseSource(mockDb, "src-001");
 
     expect(queryCalls).toHaveLength(1);
-    expect(queryCalls[0].sql).toContain("UPDATE site_sources SET status");
-    expect(queryCalls[0].params).toEqual(["paused", "src-001"]);
+    expect(queryCalls[0]!.sql).toContain("UPDATE site_sources SET status");
+    expect(queryCalls[0]!.params).toEqual(["paused", "src-001"]);
   });
 
   it("resumeSource calls db.query with correct SQL", async () => {
@@ -884,8 +884,8 @@ describe("pauseSource / resumeSource", () => {
     await resumeSource(mockDb, "src-002");
 
     expect(queryCalls).toHaveLength(1);
-    expect(queryCalls[0].sql).toContain("UPDATE site_sources SET status");
-    expect(queryCalls[0].params).toEqual(["active", "src-002"]);
+    expect(queryCalls[0]!.sql).toContain("UPDATE site_sources SET status");
+    expect(queryCalls[0]!.params).toEqual(["active", "src-002"]);
   });
 });
 // END_BLOCK_SOURCE_CONTROLS_TESTS_M_SITES_INGESTION_TEST_008
@@ -919,11 +919,11 @@ describe("ingestion observability logging", () => {
 
     const summaryLogs = infoCalls.filter(c => c.blockName === "SOURCE_INGESTION_SUMMARY");
     expect(summaryLogs).toHaveLength(1);
-    expect(summaryLogs[0].extra?.source_id).toBe("src-log-test");
-    expect(typeof summaryLogs[0].extra?.pages_fetched).toBe("number");
-    expect(typeof summaryLogs[0].extra?.chunks_created).toBe("number");
-    expect(typeof summaryLogs[0].extra?.embeddings_created).toBe("number");
-    expect(typeof summaryLogs[0].extra?.duration_ms).toBe("number");
+    expect(summaryLogs[0]!.extra?.source_id).toBe("src-log-test");
+    expect(typeof summaryLogs[0]!.extra?.pages_fetched).toBe("number");
+    expect(typeof summaryLogs[0]!.extra?.chunks_created).toBe("number");
+    expect(typeof summaryLogs[0]!.extra?.embeddings_created).toBe("number");
+    expect(typeof summaryLogs[0]!.extra?.duration_ms).toBe("number");
   });
 
   it("logs tick summary after full ingestion run", async () => {
@@ -953,12 +953,12 @@ describe("ingestion observability logging", () => {
 
     const tickLogs = infoCalls.filter(c => c.blockName === "INGESTION_TICK_SUMMARY");
     expect(tickLogs).toHaveLength(1);
-    expect(tickLogs[0].extra?.total_sources).toBe(2);
-    expect(typeof tickLogs[0].extra?.total_pages).toBe("number");
-    expect(typeof tickLogs[0].extra?.total_chunks).toBe("number");
-    expect(typeof tickLogs[0].extra?.total_embeddings).toBe("number");
-    expect(typeof tickLogs[0].extra?.total_duration_ms).toBe("number");
-    expect(typeof tickLogs[0].extra?.errors_count).toBe("number");
+    expect(tickLogs[0]!.extra?.total_sources).toBe(2);
+    expect(typeof tickLogs[0]!.extra?.total_pages).toBe("number");
+    expect(typeof tickLogs[0]!.extra?.total_chunks).toBe("number");
+    expect(typeof tickLogs[0]!.extra?.total_embeddings).toBe("number");
+    expect(typeof tickLogs[0]!.extra?.total_duration_ms).toBe("number");
+    expect(typeof tickLogs[0]!.extra?.errors_count).toBe("number");
   });
 });
 // END_BLOCK_OBSERVABILITY_TESTS_M_SITES_INGESTION_TEST_009

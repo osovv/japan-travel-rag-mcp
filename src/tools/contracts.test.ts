@@ -104,6 +104,7 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
   it("accepts search_messages payloads that satisfy strict field contracts", () => {
     const input = {
       query: "tokyo coffee roasters",
+      country_code: "JP",
       top_k: 20,
       filters: {
         date_from: "2026-01-01T00:00:00.000Z",
@@ -120,9 +121,11 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
     expect(
       validateSearchMessagesInputPublic({
         query: "kyoto breakfast",
+        country_code: "JP",
       }),
     ).toEqual({
       query: "kyoto breakfast",
+      country_code: "JP",
       top_k: 10,
     });
   });
@@ -132,6 +135,7 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
       () =>
         validateSearchMessagesInputPublic({
           query: "osaka",
+          country_code: "JP",
           top_k: 5,
           filters: {
             chat_ids: ["chat-1"],
@@ -146,6 +150,7 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
       () =>
         validateSearchMessagesInputPublic({
           query: "sapporo ramen",
+          country_code: "JP",
           filters: 123,
         }),
       "filters",
@@ -157,6 +162,7 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
       () =>
         validateSearchMessagesInputPublic({
           query: "nara",
+          country_code: "JP",
           top_k: 3,
           unknown_flag: true,
         }),
@@ -199,18 +205,18 @@ describe("M-TOOLS-CONTRACTS deterministic tool contracts", () => {
 
   it("enforces deterministic array constraints for list_sources", () => {
     assertSchemaValidationError(
-      () => validateListSourcesInput({ message_uids: [] }),
+      () => validateListSourcesInput({ message_uids: [], country_code: "JP" }),
       "list_sources requires message_uids array with at least one message UID.",
     );
 
     assertSchemaValidationError(
-      () => validateListSourcesInput({ message_uids: ["ok-id", ""] }),
+      () => validateListSourcesInput({ message_uids: ["ok-id", ""], country_code: "JP" }),
       "list_sources requires each message_uids entry to be a non-empty string.",
     );
 
     const tooManyMessageUids = Array.from({ length: 101 }, (_, index) => `uid-${index + 1}`);
     assertSchemaValidationError(
-      () => validateListSourcesInput({ message_uids: tooManyMessageUids }),
+      () => validateListSourcesInput({ message_uids: tooManyMessageUids, country_code: "JP" }),
       "list_sources supports at most 100 message_uids per request.",
     );
   });
@@ -234,7 +240,7 @@ describe("M-TOOLS-CONTRACTS local tool contracts", () => {
     const schemaKeys = Object.keys(LOCAL_TOOL_INPUT_JSON_SCHEMAS).sort();
     expect(schemaKeys).toEqual(["get_page_chunk", "search_sites"]);
     expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.search_sites.additionalProperties).toBe(false);
-    expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.search_sites.required).toEqual(["query"]);
+    expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.search_sites.required).toEqual(["query", "country_code"]);
     expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.get_page_chunk.additionalProperties).toBe(false);
     expect(LOCAL_TOOL_INPUT_JSON_SCHEMAS.get_page_chunk.required).toEqual(["chunk_id"]);
   });
@@ -256,6 +262,7 @@ describe("M-TOOLS-CONTRACTS local tool contracts", () => {
   it("accepts search_sites payloads with all fields", () => {
     const input = {
       query: "best ramen in tokyo",
+      country_code: "JP",
       top_k: 15,
       source_ids: ["src-001", "src-002"],
     };
@@ -264,38 +271,42 @@ describe("M-TOOLS-CONTRACTS local tool contracts", () => {
 
   it("fills search_sites top_k default when omitted", () => {
     expect(
-      validateSearchSitesInput({ query: "onsen guide" }),
+      validateSearchSitesInput({ query: "onsen guide", country_code: "JP" }),
     ).toEqual({
       query: "onsen guide",
+      country_code: "JP",
       top_k: 10,
     });
   });
 
   it("accepts search_sites with source_ids omitted", () => {
-    const result = validateSearchSitesInput({ query: "shinkansen tips", top_k: 5 });
-    expect(result).toEqual({ query: "shinkansen tips", top_k: 5 });
+    const result = validateSearchSitesInput({ query: "shinkansen tips", country_code: "JP", top_k: 5 });
+    expect(result).toEqual({ query: "shinkansen tips", country_code: "JP", top_k: 5 });
   });
 
   it("accepts search_sites with empty source_ids array", () => {
     const result = validateSearchSitesInput({
       query: "kyoto temples",
+      country_code: "JP",
       source_ids: [],
     });
     expect(result).toEqual({
       query: "kyoto temples",
+      country_code: "JP",
       top_k: 10,
       source_ids: [],
     });
   });
 
   it("trims search_sites query whitespace", () => {
-    const result = validateSearchSitesInput({ query: "  sushi etiquette  " });
+    const result = validateSearchSitesInput({ query: "  sushi etiquette  ", country_code: "JP" });
     expect(result.query).toBe("sushi etiquette");
   });
 
   it("trims search_sites source_ids entry whitespace", () => {
     const result = validateSearchSitesInput({
       query: "tokyo hotels",
+      country_code: "JP",
       source_ids: ["  src-trimmed  "],
     });
     expect(result.source_ids).toEqual(["src-trimmed"]);
@@ -303,70 +314,70 @@ describe("M-TOOLS-CONTRACTS local tool contracts", () => {
 
   it("rejects search_sites when query is missing", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({}),
+      () => validateSearchSitesInput({ country_code: "JP" }),
       "expected string, received undefined",
     );
   });
 
   it("rejects search_sites when query is empty string", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "" }),
+      () => validateSearchSitesInput({ query: "", country_code: "JP" }),
       "search_sites requires non-empty string field query.",
     );
   });
 
   it("rejects search_sites when query is whitespace-only", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "   " }),
+      () => validateSearchSitesInput({ query: "   ", country_code: "JP" }),
       "search_sites requires non-empty string field query.",
     );
   });
 
   it("rejects search_sites when top_k is below minimum", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "test", top_k: 0 }),
+      () => validateSearchSitesInput({ query: "test", country_code: "JP", top_k: 0 }),
       "search_sites top_k must be an integer between 1 and 30.",
     );
   });
 
   it("rejects search_sites when top_k exceeds maximum", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "test", top_k: 31 }),
+      () => validateSearchSitesInput({ query: "test", country_code: "JP", top_k: 31 }),
       "search_sites top_k must be an integer between 1 and 30.",
     );
   });
 
   it("rejects search_sites when top_k is not an integer", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "test", top_k: 5.5 }),
+      () => validateSearchSitesInput({ query: "test", country_code: "JP", top_k: 5.5 }),
       "int",
     );
   });
 
   it("rejects search_sites when source_ids contains empty string", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "test", source_ids: ["good-id", ""] }),
+      () => validateSearchSitesInput({ query: "test", country_code: "JP", source_ids: ["good-id", ""] }),
       "search_sites requires each source_ids entry to be a non-empty string.",
     );
   });
 
   it("rejects search_sites when source_ids contains whitespace-only entry", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "test", source_ids: ["  "] }),
+      () => validateSearchSitesInput({ query: "test", country_code: "JP", source_ids: ["  "] }),
       "search_sites requires each source_ids entry to be a non-empty string.",
     );
   });
 
   it("rejects search_sites when unknown keys are provided", () => {
     assertSchemaValidationError(
-      () => validateSearchSitesInput({ query: "test", unknown_key: true }),
+      () => validateSearchSitesInput({ query: "test", country_code: "JP", unknown_key: true }),
       "Unrecognized key",
     );
   });
 
   it("accepts search_sites at boundary top_k values", () => {
-    expect(validateSearchSitesInput({ query: "test", top_k: 1 }).top_k).toBe(1);
-    expect(validateSearchSitesInput({ query: "test", top_k: 30 }).top_k).toBe(30);
+    expect(validateSearchSitesInput({ query: "test", country_code: "JP", top_k: 1 }).top_k).toBe(1);
+    expect(validateSearchSitesInput({ query: "test", country_code: "JP", top_k: 30 }).top_k).toBe(30);
   });
 
   // --- get_page_chunk ---

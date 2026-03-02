@@ -327,7 +327,7 @@ export function createIngestionOrchestrator(deps: IngestionDeps): IngestionOrche
     // Step 8: Upsert embeddings
     const embeddingInputs: UpsertEmbeddingInput[] = upsertChunkInputs.map((chunk, idx) => ({
       chunk_id: chunk.chunk_id,
-      embedding: embeddings[idx],
+      embedding: embeddings[idx]!,
       embedding_model: "voyage-4",
       embedding_version: "v1",
       index_version: INDEX_VERSION,

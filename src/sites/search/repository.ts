@@ -491,11 +491,10 @@ export function createSitesIndexRepository(db: NodePgDatabase, logger: Logger): 
         title: string;
       }>;
 
-      if (chunkRows.length === 0) {
+      const chunk = chunkRows[0];
+      if (!chunk) {
         return null;
       }
-
-      const chunk = chunkRows[0];
       let neighborBefore: string | undefined;
       let neighborAfter: string | undefined;
 

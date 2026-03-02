@@ -138,7 +138,7 @@ describe("M-USAGE-TRACKER", () => {
 
       // recordToolCall must not throw — it is fire-and-forget
       expect(() => {
-        tracker.recordToolCall("user-001", "search_messages");
+        tracker.recordToolCall("user-001", "search_messages", "JP");
       }).not.toThrow();
 
       // Allow the internal promise to settle
@@ -154,7 +154,7 @@ describe("M-USAGE-TRACKER", () => {
       const tracker = await createUsageTracker({ db, logger });
 
       expect(() => {
-        tracker.recordToolCall("", "");
+        tracker.recordToolCall("", "", "JP");
       }).not.toThrow();
 
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -169,7 +169,7 @@ describe("M-USAGE-TRACKER", () => {
       const tracker = await createUsageTracker({ db, logger });
 
       expect(() => {
-        tracker.recordToolCall("user-002", "get_message_context");
+        tracker.recordToolCall("user-002", "get_message_context", "JP");
       }).not.toThrow();
 
       await new Promise((resolve) => setTimeout(resolve, 50));

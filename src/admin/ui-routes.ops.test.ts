@@ -65,6 +65,9 @@ function createTestConfig(): AppConfig {
     port: 3000,
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-secret",
+    databaseUrl: "postgres://localhost:5432/test",
+    oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    devMode: false,
     logto: {
       tenantUrl: "https://travel-app.logto.app/",
       clientId: "travel-client-id",
@@ -82,7 +85,17 @@ function createTestConfig(): AppConfig {
       sessionSecret: "test-portal-session-secret",
       logtoAppId: "test-portal-app-id",
       logtoAppSecret: "test-portal-app-secret",
+      logtoM2mAppId: "test-m2m-app-id",
+      logtoM2mAppSecret: "test-m2m-app-secret",
+      logtoManagementApiResource: "https://test-mgmt-api.example.com",
+      mcpUserRoleId: "test-mcp-user-role-id",
       sessionTtlSeconds: 604800,
+    },
+    proxy: {
+      baseUrl: "https://proxy.example.com/",
+      secret: "test-proxy-secret",
+      voyageApiKey: "test-voyage-key",
+      spiderApiKey: "test-spider-key",
     },
   };
   // END_BLOCK_BUILD_APP_CONFIG_FIXTURE_FOR_ADMIN_UI_TESTS_M_ADMIN_UI_TEST_002

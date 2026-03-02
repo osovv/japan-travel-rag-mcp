@@ -150,15 +150,15 @@ describe("mapSourcesToIngestion", () => {
     const result = mapSourcesToIngestion(response);
 
     expect(result).toHaveLength(2);
-    expect(result[0].source_id).toBe("test_source_1");
-    expect(result[0].domain).toBe("example.com");
-    expect(result[0].max_pages).toBe(200);
-    expect(result[0].crawl_interval_minutes).toBe(1440);
+    expect(result[0]!.source_id).toBe("test_source_1");
+    expect(result[0]!.domain).toBe("example.com");
+    expect(result[0]!.max_pages).toBe(200);
+    expect(result[0]!.crawl_interval_minutes).toBe(1440);
 
-    expect(result[1].source_id).toBe("test_source_2");
-    expect(result[1].domain).toBe("example.org");
-    expect(result[1].max_pages).toBe(150);
-    expect(result[1].crawl_interval_minutes).toBe(4320);
+    expect(result[1]!.source_id).toBe("test_source_2");
+    expect(result[1]!.domain).toBe("example.org");
+    expect(result[1]!.max_pages).toBe(150);
+    expect(result[1]!.crawl_interval_minutes).toBe(4320);
   });
 
   test("should use defaults when crawl_interval_minutes and max_pages are undefined", () => {
@@ -179,8 +179,8 @@ describe("mapSourcesToIngestion", () => {
 
     const result = mapSourcesToIngestion(response);
     expect(result).toHaveLength(1);
-    expect(result[0].max_pages).toBe(50);
-    expect(result[0].crawl_interval_minutes).toBe(10080);
+    expect(result[0]!.max_pages).toBe(50);
+    expect(result[0]!.crawl_interval_minutes).toBe(10080);
   });
 
   test("should return empty array when all sources are paused", () => {
@@ -286,12 +286,12 @@ describe("runSchedulerTick", () => {
     await runSchedulerTick(mockDb, mockOrchestrator, mockLogger);
 
     expect(mockOrchestrator.runScheduledIngestion).toHaveBeenCalledTimes(1);
-    const callArgs = (mockOrchestrator.runScheduledIngestion as ReturnType<typeof mock>).mock.calls[0];
+    const callArgs = (mockOrchestrator.runScheduledIngestion as ReturnType<typeof mock>).mock.calls[0]!;
     expect(callArgs[0]).toHaveLength(2);
-    expect(callArgs[0][0].source_id).toBe("src_alpha");
-    expect(callArgs[0][0].domain).toBe("alpha.com");
-    expect(callArgs[0][0].max_pages).toBe(200);
-    expect(callArgs[0][1].source_id).toBe("src_beta");
+    expect(callArgs[0]![0].source_id).toBe("src_alpha");
+    expect(callArgs[0]![0].domain).toBe("alpha.com");
+    expect(callArgs[0]![0].max_pages).toBe(200);
+    expect(callArgs[0]![1].source_id).toBe("src_beta");
 
     // Logger should have been called
     expect(mockLogger.info).toHaveBeenCalled();

@@ -102,7 +102,7 @@ function extractTitle(metadata: SpiderCrawlItem["metadata"], content: string, ur
 
   // 2. Try first heading in content (markdown: # Heading)
   const headingMatch = content.match(/^#{1,6}\s+(.+)$/m);
-  if (headingMatch) {
+  if (headingMatch?.[1]) {
     const headingText = headingMatch[1].trim();
     if (headingText.length > 0) {
       return headingText;
@@ -115,8 +115,8 @@ function extractTitle(metadata: SpiderCrawlItem["metadata"], content: string, ur
     const pathSegments = parsedUrl.pathname
       .split("/")
       .filter((s) => s.length > 0);
-    if (pathSegments.length > 0) {
-      const lastSegment = pathSegments[pathSegments.length - 1];
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    if (lastSegment) {
       // Remove file extension and replace hyphens/underscores with spaces
       return lastSegment
         .replace(/\.[^.]+$/, "")

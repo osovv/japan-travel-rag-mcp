@@ -134,7 +134,7 @@ export async function runSchedulerTick(
   // START_BLOCK_EXECUTE_SCHEDULER_TICK_M_WORKER_ENTRYPOINT_005
   const functionName = "runSchedulerTick";
 
-  const sourcesResponse = await getSiteSources(db, logger);
+  const sourcesResponse = await getSiteSources(db, logger, "jp");
   const activeSources = mapSourcesToIngestion(sourcesResponse);
 
   if (activeSources.length === 0) {
@@ -249,7 +249,7 @@ export async function main(): Promise<void> {
     });
 
     // Step 9: Read initial sources from DB
-    const initialSources = await getSiteSources(dbClient.db, logger.child({ component: "siteSources" }));
+    const initialSources = await getSiteSources(dbClient.db, logger.child({ component: "siteSources" }), "jp");
     const initialActive = mapSourcesToIngestion(initialSources);
 
     logger.info(

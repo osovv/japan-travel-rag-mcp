@@ -368,14 +368,14 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
       const results = await repo.searchHybrid(sampleHybridSearchParams());
 
       expect(results).toHaveLength(1);
-      expect(results[0].chunk_id).toBe("c1");
-      expect(results[0].source_id).toBe("src-001");
-      expect(results[0].page_url).toBe("https://example.com/page1");
-      expect(results[0].title).toBe("Page 1");
-      expect(results[0].snippet).toBe("Tokyo ramen is amazing.");
-      expect(results[0].score).toBe(0.85);
-      expect(results[0].tier).toBe(1);
-      expect(results[0].domain).toBe("example.com");
+      expect(results[0]!.chunk_id).toBe("c1");
+      expect(results[0]!.source_id).toBe("src-001");
+      expect(results[0]!.page_url).toBe("https://example.com/page1");
+      expect(results[0]!.title).toBe("Page 1");
+      expect(results[0]!.snippet).toBe("Tokyo ramen is amazing.");
+      expect(results[0]!.score).toBe(0.85);
+      expect(results[0]!.tier).toBe(1);
+      expect(results[0]!.domain).toBe("example.com");
     });
 
     it("should return empty array when no rows", async () => {
@@ -405,8 +405,8 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
       const repo = createSitesIndexRepository(db, createNoopLogger());
 
       const results = await repo.searchHybrid(sampleHybridSearchParams());
-      expect(results[0].snippet.length).toBe(303); // 300 + "..."
-      expect(results[0].snippet.endsWith("...")).toBe(true);
+      expect(results[0]!.snippet.length).toBe(303); // 300 + "..."
+      expect(results[0]!.snippet.endsWith("...")).toBe(true);
     });
 
     it("should not truncate snippet when text is under 300 chars", async () => {
@@ -428,7 +428,7 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
       const repo = createSitesIndexRepository(db, createNoopLogger());
 
       const results = await repo.searchHybrid(sampleHybridSearchParams());
-      expect(results[0].snippet).toBe(shortText);
+      expect(results[0]!.snippet).toBe(shortText);
     });
 
     it("should call db.execute with source_ids filter when provided", async () => {
@@ -481,8 +481,8 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
 
       const results = await repo.searchHybrid(sampleHybridSearchParams());
       expect(results).toHaveLength(2);
-      expect(results[0].score).toBe(0.9);
-      expect(results[1].score).toBe(0.8);
+      expect(results[0]!.score).toBe(0.9);
+      expect(results[1]!.score).toBe(0.8);
     });
 
     it("should throw SitesIndexRepositoryError on DB failure", async () => {
@@ -530,8 +530,8 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
       const repo = createSitesIndexRepository(db, createNoopLogger());
 
       const results = await repo.searchHybrid(sampleHybridSearchParams());
-      expect(results[0].tier).toBeUndefined();
-      expect(results[0].domain).toBeUndefined();
+      expect(results[0]!.tier).toBeUndefined();
+      expect(results[0]!.domain).toBeUndefined();
     });
   });
   // END_BLOCK_SEARCH_HYBRID_TESTS_M_SITES_INDEX_REPOSITORY_TEST_009
@@ -816,7 +816,7 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
       const repo = createSitesIndexRepository(db, createNoopLogger());
 
       const results = await repo.searchHybrid(sampleHybridSearchParams());
-      expect(results[0].snippet).toBe("B".repeat(300) + "...");
+      expect(results[0]!.snippet).toBe("B".repeat(300) + "...");
     });
 
     it("should not truncate text exactly at 300 chars", async () => {
@@ -838,7 +838,7 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
       const repo = createSitesIndexRepository(db, createNoopLogger());
 
       const results = await repo.searchHybrid(sampleHybridSearchParams());
-      expect(results[0].snippet).toBe(text300);
+      expect(results[0]!.snippet).toBe(text300);
     });
   });
   // END_BLOCK_SNIPPET_TRUNCATION_TESTS_M_SITES_INDEX_REPOSITORY_TEST_012
@@ -875,7 +875,7 @@ describe("M-SITES-INDEX-REPOSITORY", () => {
       const repo = createSitesIndexRepository(db, createNoopLogger());
 
       const results = await repo.searchHybrid(sampleHybridSearchParams());
-      const result: SearchResult = results[0];
+      const result: SearchResult = results[0]!;
 
       expect(typeof result.chunk_id).toBe("string");
       expect(typeof result.source_id).toBe("string");

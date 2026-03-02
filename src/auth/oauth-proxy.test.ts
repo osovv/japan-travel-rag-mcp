@@ -59,6 +59,8 @@ function createMockAppConfig(): AppConfig {
     port: 3000,
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-auth-token-oauth-proxy-test",
+    databaseUrl: "postgres://localhost:5432/test",
+    devMode: false,
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "tg-chat-rag-token-oauth-proxy-test",
@@ -77,7 +79,17 @@ function createMockAppConfig(): AppConfig {
       sessionSecret: "test-portal-session-secret",
       logtoAppId: "test-portal-app-id",
       logtoAppSecret: "test-portal-app-secret",
+      logtoM2mAppId: "test-m2m-app-id",
+      logtoM2mAppSecret: "test-m2m-app-secret",
+      logtoManagementApiResource: "https://test-mgmt-api.example.com",
+      mcpUserRoleId: "test-mcp-user-role-id",
       sessionTtlSeconds: 604800,
+    },
+    proxy: {
+      baseUrl: "https://proxy.example.com/",
+      secret: "test-proxy-secret",
+      voyageApiKey: "test-voyage-key",
+      spiderApiKey: "test-spider-key",
     },
   };
   // END_BLOCK_BUILD_MOCK_APP_CONFIG_M_AUTH_OAUTH_PROXY_TEST_002

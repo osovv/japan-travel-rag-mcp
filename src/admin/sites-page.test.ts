@@ -292,7 +292,7 @@ describe("M-ADMIN-SITES test suite", () => {
         expect(html).toContain('placeholder="e.g. japan_guide"');
         // The source_id input in create mode should NOT have the readonly attribute.
         // We check the actual input element rather than the full HTML (which includes CSS with input[readonly]).
-        const sourceIdInputMatch = html.match(/<input[^>]*id="source_id"[^>]*>/);
+        const sourceIdInputMatch = (html as string).match(/<input[^>]*id="source_id"[^>]*>/);
         expect(sourceIdInputMatch).not.toBeNull();
         expect(sourceIdInputMatch![0]).not.toContain("readonly");
       });
@@ -331,7 +331,7 @@ describe("M-ADMIN-SITES test suite", () => {
         expect(result.success).toBe(false);
         expect(result.errors).toBeDefined();
         expect(result.errors!.source_id).toBeDefined();
-        expect(result.errors!.source_id.length).toBeGreaterThan(0);
+        expect(result.errors!.source_id!.length).toBeGreaterThan(0);
       });
 
       it("returns { success: true, sourceId } for valid input", async () => {
@@ -462,11 +462,11 @@ describe("M-ADMIN-SITES test suite", () => {
       const result = await fetchSitesPageData(db, logger);
 
       expect(result.sources.length).toBe(1);
-      expect(result.sources[0].source_id).toBe("japan_guide");
-      expect(result.sources[0].page_count).toBe(50);
+      expect(result.sources[0]!.source_id).toBe("japan_guide");
+      expect(result.sources[0]!.page_count).toBe(50);
       expect(result.recentCrawlJobs.length).toBe(1);
-      expect(result.recentCrawlJobs[0].crawl_job_id).toBe("cj_001");
-      expect(result.recentCrawlJobs[0].status).toBe("completed");
+      expect(result.recentCrawlJobs[0]!.crawl_job_id).toBe("cj_001");
+      expect(result.recentCrawlJobs[0]!.status).toBe("completed");
     });
 
     it("wraps errors in AdminSitesError", async () => {

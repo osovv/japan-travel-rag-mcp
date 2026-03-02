@@ -97,6 +97,7 @@ function structuralSplit(
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
+    if (part === undefined) continue;
 
     // Further split on markdown headers within this part.
     // A header starts at the beginning of a line with one or more #.
@@ -172,12 +173,15 @@ function mergeTinySegments(
 
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
+    if (seg === undefined) continue;
     const tokens = estimateTokens(seg.text);
 
     if (tokens < CHUNKING_CONFIG.min_merge_tokens && merged.length > 0) {
       // Merge with previous segment
       const prev = merged[merged.length - 1];
-      prev.text = prev.text + "\n\n" + seg.text;
+      if (prev !== undefined) {
+        prev.text = prev.text + "\n\n" + seg.text;
+      }
     } else if (
       tokens < CHUNKING_CONFIG.min_merge_tokens &&
       merged.length === 0 &&
@@ -185,10 +189,12 @@ function mergeTinySegments(
     ) {
       // First segment is tiny: merge with next by prepending to next
       const next = segments[i + 1];
-      segments[i + 1] = {
-        text: seg.text + "\n\n" + next.text,
-        startOffset: seg.startOffset,
-      };
+      if (next !== undefined) {
+        segments[i + 1] = {
+          text: seg.text + "\n\n" + next.text,
+          startOffset: seg.startOffset,
+        };
+      }
     } else {
       merged.push({ text: seg.text, startOffset: seg.startOffset });
     }
@@ -303,7 +309,9 @@ function splitOversizedSegment(text: string, logger: Logger): string[] {
 
   // Warn about any chunks still exceeding max_tokens
   for (let i = 0; i < overlappedChunks.length; i++) {
-    const tokens = estimateTokens(overlappedChunks[i]);
+    const chunk = overlappedChunks[i];
+    if (chunk === undefined) continue;
+    const tokens = estimateTokens(chunk);
     if (tokens > CHUNKING_CONFIG.max_tokens) {
       logger.warn(
         `Chunk still exceeds max_tokens after splitting: ${tokens} estimated tokens.`,
@@ -332,10 +340,14 @@ function applyOverlap(chunks: string[]): string[] {
   }
 
   const overlapChars = CHUNKING_CONFIG.overlap_tokens * 4; // Convert token estimate back to chars
-  const result: string[] = [chunks[0]];
+  const firstChunk = chunks[0];
+  if (firstChunk === undefined) return chunks;
+  const result: string[] = [firstChunk];
 
   for (let i = 1; i < chunks.length; i++) {
     const prevChunk = chunks[i - 1];
+    const currentChunk = chunks[i];
+    if (prevChunk === undefined || currentChunk === undefined) continue;
     // Take the tail of the previous chunk as overlap prefix
     const overlapText =
       prevChunk.length > overlapChars
@@ -347,7 +359,7 @@ function applyOverlap(chunks: string[]): string[] {
     const cleanOverlap =
       wordBoundary >= 0 ? overlapText.slice(wordBoundary + 1) : overlapText;
 
-    result.push(cleanOverlap + " " + chunks[i]);
+    result.push(cleanOverlap + " " + currentChunk);
   }
 
   return result;
@@ -422,6 +434,7 @@ export function chunkPage(text: string, logger: Logger): PageChunk[] {
 
   for (let i = 0; i < finalChunkTexts.length; i++) {
     const chunkText = finalChunkTexts[i];
+    if (chunkText === undefined) continue;
     const startOffset = findOffsetInOriginal(text, chunkText, searchFrom);
     const endOffset = startOffset + chunkText.length;
 

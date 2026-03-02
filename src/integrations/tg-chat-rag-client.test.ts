@@ -73,6 +73,9 @@ function createTestConfig(tgOverrides?: Partial<AppConfig["tgChatRag"]>): AppCon
     port: 3000,
     publicUrl: "https://travel.example.com/",
     rootAuthToken: "root-token",
+    databaseUrl: "postgres://localhost:5432/test",
+    oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    devMode: false,
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
       bearerToken: "service-bearer-token",
@@ -91,7 +94,17 @@ function createTestConfig(tgOverrides?: Partial<AppConfig["tgChatRag"]>): AppCon
       sessionSecret: "test-portal-session-secret",
       logtoAppId: "test-portal-app-id",
       logtoAppSecret: "test-portal-app-secret",
+      logtoM2mAppId: "test-m2m-app-id",
+      logtoM2mAppSecret: "test-m2m-app-secret",
+      logtoManagementApiResource: "https://test-mgmt-api.example.com",
+      mcpUserRoleId: "test-mcp-user-role-id",
       sessionTtlSeconds: 604800,
+    },
+    proxy: {
+      baseUrl: "https://proxy.example.com/",
+      secret: "test-proxy-secret",
+      voyageApiKey: "test-voyage-key",
+      spiderApiKey: "test-spider-key",
     },
   };
   // END_BLOCK_BUILD_APP_CONFIG_FIXTURE_FOR_TG_CLIENT_TESTS_M_TG_CHAT_RAG_CLIENT_TEST_002

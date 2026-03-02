@@ -79,6 +79,7 @@ function createTestConfig(proxyOverrides?: Partial<AppConfig["proxy"]>): AppConf
     rootAuthToken: "root-token",
     databaseUrl: "postgres://localhost:5432/test",
     oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    devMode: false,
 
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
@@ -415,8 +416,8 @@ describe("M-SPIDER-CLOUD-CLIENT deterministic crawl contract", () => {
 
     expect(result.status).toBe("ok");
     expect(result.data).toHaveLength(2);
-    expect(result.data[0].url).toBe("https://example.com");
-    expect(result.data[1].content).toBe("world");
+    expect(result.data[0]!.url).toBe("https://example.com");
+    expect(result.data[1]!.content).toBe("world");
   });
 
   it("throws SpiderProxyError when request.url is empty", async () => {
@@ -450,7 +451,7 @@ describe("M-SPIDER-CLOUD-CLIENT deterministic crawl contract", () => {
 
     expect(result.status).toBe("completed");
     expect(result.data).toHaveLength(1);
-    expect(result.data[0].content).toBe("Hello");
+    expect(result.data[0]!.content).toBe("Hello");
   });
 });
 

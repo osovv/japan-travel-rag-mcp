@@ -49,7 +49,9 @@ type SelectChain = { from: (table: unknown) => Promise<unknown[]> };
 function createMockDb(rows: unknown[]): NodePgDatabase {
   return {
     select: () => ({
-      from: () => Promise.resolve(rows),
+      from: () => ({
+        where: () => Promise.resolve(rows),
+      }),
     }),
   } as unknown as NodePgDatabase;
 }
@@ -57,7 +59,9 @@ function createMockDb(rows: unknown[]): NodePgDatabase {
 function createThrowingDb(error: Error): NodePgDatabase {
   return {
     select: () => ({
-      from: () => Promise.reject(error),
+      from: () => ({
+        where: () => Promise.reject(error),
+      }),
     }),
   } as unknown as NodePgDatabase;
 }
@@ -148,8 +152,13 @@ describe("SITE_SOURCES_RESPONSE seed data", () => {
 
 // START_BLOCK_INPUT_SCHEMA_TESTS_M_SITE_SOURCES_TEST_002
 describe("GetSiteSourcesInputSchema", () => {
-  it("accepts empty object", () => {
+  it("rejects empty object (country_code is required)", () => {
     const result = GetSiteSourcesInputSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts object with country_code", () => {
+    const result = GetSiteSourcesInputSchema.safeParse({ country_code: "jp" });
     expect(result.success).toBe(true);
   });
 
@@ -233,7 +242,7 @@ describe("getSiteSources", () => {
 
   it("returns seed constant when DB returns empty rows", async () => {
     const db = createMockDb([]);
-    const result = await getSiteSources(db, mockLogger);
+    const result = await getSiteSources(db, mockLogger, "jp");
     expect(result).toBe(SITE_SOURCES_RESPONSE);
   });
 
@@ -252,7 +261,7 @@ describe("getSiteSources", () => {
       },
     ];
     const db = createMockDb(dbRows);
-    const result = await getSiteSources(db, mockLogger);
+    const result = await getSiteSources(db, mockLogger, "jp");
 
     expect(result.sources).toHaveLength(1);
     expect(result.sources[0]!.source_id).toBe("test_source");
@@ -281,7 +290,7 @@ describe("getSiteSources", () => {
       },
     ];
     const db = createMockDb(dbRows);
-    const result = await getSiteSources(db, mockLogger);
+    const result = await getSiteSources(db, mockLogger, "jp");
 
     expect(result.description_and_tiers).toBe(SITE_SOURCES_RESPONSE.description_and_tiers);
   });
@@ -312,7 +321,7 @@ describe("getSiteSources", () => {
       },
     ];
     const db = createMockDb(dbRows);
-    const result = await getSiteSources(db, mockLogger);
+    const result = await getSiteSources(db, mockLogger, "jp");
 
     expect(result.sources).toHaveLength(2);
     expect(result.sources[0]!.status).toBe("paused");
@@ -321,7 +330,7 @@ describe("getSiteSources", () => {
 
   it("returns seed constant as fallback when DB throws", async () => {
     const db = createThrowingDb(new Error("connection refused"));
-    const result = await getSiteSources(db, mockLogger);
+    const result = await getSiteSources(db, mockLogger, "jp");
     expect(result).toBe(SITE_SOURCES_RESPONSE);
   });
 
@@ -340,7 +349,7 @@ describe("getSiteSources", () => {
       },
     ];
     const db = createMockDb(dbRows);
-    const result = await getSiteSources(db, mockLogger);
+    const result = await getSiteSources(db, mockLogger, "jp");
     const _typed: SiteSourcesResponse = result;
     expect(_typed.description_and_tiers).toBeDefined();
     expect(_typed.sources).toBeDefined();
