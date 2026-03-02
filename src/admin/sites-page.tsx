@@ -853,7 +853,7 @@ function formatDate(date: Date | null): string {
 // END_BLOCK_DEFINE_FORMAT_DATE_HELPER_M_ADMIN_SITES_021
 
 // START_BLOCK_DEFINE_SITES_PAGE_STYLES_M_ADMIN_SITES_022
-function SitesPageStyles(): string {
+function SitesPageStyles() {
   return (
     <style>{`
       .badge { display:inline-block; font-size:0.78rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:999px; }
@@ -893,11 +893,11 @@ function SitesPageStyles(): string {
       .country-group .country-body .diag-table { border:none; border-radius:0; }
       .country-code-label { text-transform:uppercase; letter-spacing:0.05em; }
     `}</style>
-  ) as string;
+  );
 }
 // END_BLOCK_DEFINE_SITES_PAGE_STYLES_M_ADMIN_SITES_022
 
-function SourceRow({ s }: { s: SiteSourceRow }): string {
+function SourceRow({ s }: { s: SiteSourceRow }) {
   const statusClass = s.status === "active" ? "badge-active" : "badge-paused";
   const toggleTarget = s.status === "active" ? "paused" : "active";
   const toggleLabel = s.status === "active" ? "Pause" : "Resume";
@@ -931,10 +931,10 @@ function SourceRow({ s }: { s: SiteSourceRow }): string {
         </div>
       </td>
     </tr>
-  ) as string;
+  );
 }
 
-function CountryAccordion({ cc, sources }: { cc: string; sources: SiteSourceRow[] }): string {
+function CountryAccordion({ cc, sources }: { cc: string; sources: SiteSourceRow[] }) {
   const totalPages = sources.reduce((sum, s) => sum + s.page_count, 0);
   const totalChunks = sources.reduce((sum, s) => sum + s.chunk_count, 0);
   const totalEmbeddings = sources.reduce((sum, s) => sum + s.embedding_count, 0);
@@ -972,10 +972,10 @@ function CountryAccordion({ cc, sources }: { cc: string; sources: SiteSourceRow[
         </div>
       </div>
     </details>
-  ) as string;
+  );
 }
 
-function CrawlJobRow({ j }: { j: CrawlJobRow }): string {
+function CrawlJobRow({ j }: { j: CrawlJobRow }) {
   const jobStatusClass =
     j.status === "completed"
       ? "badge-completed"
@@ -999,7 +999,7 @@ function CrawlJobRow({ j }: { j: CrawlJobRow }): string {
           : "--"}
       </td>
     </tr>
-  ) as string;
+  );
 }
 
 // START_CONTRACT: SitesContent
@@ -1009,7 +1009,7 @@ function CrawlJobRow({ j }: { j: CrawlJobRow }): string {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-SITES]
 // END_CONTRACT: SitesContent
-export function SitesContent(data: SitesPageData): string {
+export function SitesContent(data: SitesPageData) {
   // START_BLOCK_RENDER_SITES_MANAGEMENT_PAGE_CONTENT_M_ADMIN_SITES_023
 
   // Group sources by country_code preserving query order
@@ -1067,13 +1067,13 @@ export function SitesContent(data: SitesPageData): string {
         </section>
       </section>
     </>
-  ) as string;
+  );
   // END_BLOCK_RENDER_SITES_MANAGEMENT_PAGE_CONTENT_M_ADMIN_SITES_023
 }
 
-function FieldErrors({ errors, field }: { errors?: Record<string, string[]>; field: string }): string {
+function FieldErrors({ errors, field }: { errors?: Record<string, string[]>; field: string }) {
   if (!errors || !errors[field]) return "";
-  return (<>{errors[field].map((msg) => <p class="field-error" safe>{msg}</p>)}</>) as string;
+  return (<>{errors[field].map((msg) => <p class="field-error" safe>{msg}</p>)}</>);
 }
 
 // START_CONTRACT: SourceForm
@@ -1087,7 +1087,7 @@ export function SourceForm(params: {
   mode: "create" | "edit";
   source?: SiteSourceRow;
   errors?: Record<string, string[]>;
-}): string {
+}) {
   // START_BLOCK_RENDER_SOURCE_CREATE_EDIT_FORM_M_ADMIN_SITES_024
   const { mode, source, errors } = params;
   const isEdit = mode === "edit";
@@ -1188,6 +1188,6 @@ export function SourceForm(params: {
         </section>
       </section>
     </>
-  ) as string;
+  );
   // END_BLOCK_RENDER_SOURCE_CREATE_EDIT_FORM_M_ADMIN_SITES_024
 }

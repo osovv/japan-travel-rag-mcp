@@ -341,7 +341,7 @@ function formatDate(date: Date | null): string {
 
 // ─── Rendering ──────────────────────────────────────────────────────────────
 
-function CountriesPageStyles(): string {
+function CountriesPageStyles() {
   return (
     <style>{`
       .badge { display:inline-block; font-size:0.78rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:999px; }
@@ -369,7 +369,7 @@ function CountriesPageStyles(): string {
       .form-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }
       .chat-ids-cell { max-width:18rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem; }
     `}</style>
-  ) as string;
+  );
 }
 
 const STATUS_DISPLAY: Record<string, string> = {
@@ -379,7 +379,7 @@ const STATUS_DISPLAY: Record<string, string> = {
   maintenance: "Maintenance",
 };
 
-function CountryRowItem({ c }: { c: CountryRow }): string {
+function CountryRowItem({ c }: { c: CountryRow }) {
   const statusClass = `badge-${c.status}`;
   const statusLabel = STATUS_DISPLAY[c.status] ?? c.status;
   const code = Html.escapeHtml(c.country_code);
@@ -404,12 +404,12 @@ function CountryRowItem({ c }: { c: CountryRow }): string {
         </div>
       </td>
     </tr>
-  ) as string;
+  );
 }
 
-function FieldErrors({ errors, field }: { errors?: Record<string, string[]>; field: string }): string {
+function FieldErrors({ errors, field }: { errors?: Record<string, string[]>; field: string }) {
   if (!errors || !errors[field]) return "";
-  return (<>{errors[field].map((msg) => <p class="field-error" safe>{msg}</p>)}</>) as string;
+  return (<>{errors[field].map((msg) => <p class="field-error" safe>{msg}</p>)}</>);
 }
 
 // START_CONTRACT: CountriesContent
@@ -419,7 +419,7 @@ function FieldErrors({ errors, field }: { errors?: Record<string, string[]>; fie
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-COUNTRIES]
 // END_CONTRACT: CountriesContent
-export function CountriesContent(data: CountriesPageData): string {
+export function CountriesContent(data: CountriesPageData) {
   return (
     <>
       <CountriesPageStyles />
@@ -454,7 +454,7 @@ export function CountriesContent(data: CountriesPageData): string {
         </section>
       </section>
     </>
-  ) as string;
+  );
 }
 
 // START_CONTRACT: CountryForm
@@ -468,7 +468,7 @@ export function CountryForm(params: {
   mode: "create" | "edit";
   country?: CountryRow;
   errors?: Record<string, string[]>;
-}): string {
+}) {
   const { mode, country, errors } = params;
   const isEdit = mode === "edit";
   const title = isEdit ? "Edit Country" : "Add New Country";
@@ -532,5 +532,5 @@ export function CountryForm(params: {
         </section>
       </section>
     </>
-  ) as string;
+  );
 }

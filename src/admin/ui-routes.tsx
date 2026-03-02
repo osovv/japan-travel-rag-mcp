@@ -61,7 +61,7 @@ type ActiveTab = "ops" | "sites" | "countries";
 type RenderAdminLayoutParams = {
   pageTitle: string;
   activeTab: ActiveTab;
-  contentHtml: string;
+  contentHtml: JSX.Element;
 };
 
 type AuthenticateAdminResult = ReturnType<typeof authenticateAdminHelper>;
@@ -147,7 +147,7 @@ function toAdminUiError(
 // END_CONTRACT: buildHtmlResponse
 function buildHtmlResponse(
   status: number,
-  html: string,
+  html: string | JSX.Element,
   headers?: Record<string, string>,
 ): Response {
   // START_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_ADMIN_UI_103
@@ -158,7 +158,7 @@ function buildHtmlResponse(
     }
   }
 
-  return new Response(html, { status, headers: responseHeaders });
+  return new Response(html as string, { status, headers: responseHeaders });
   // END_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_ADMIN_UI_103
 }
 
@@ -335,7 +335,7 @@ function buildOpsStatusModel(config: AppConfig): RenderOpsStatusModel {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: DiagnosticsTableRows
-function DiagnosticsTableRows({ rows }: { rows: Array<[label: string, value: string]> }): string {
+function DiagnosticsTableRows({ rows }: { rows: Array<[label: string, value: string]> }) {
   // START_BLOCK_RENDER_ESCAPED_DIAGNOSTICS_TABLE_ROWS_M_ADMIN_UI_109
   return (
     <>
@@ -346,7 +346,7 @@ function DiagnosticsTableRows({ rows }: { rows: Array<[label: string, value: str
         </tr>
       ))}
     </>
-  ) as string;
+  );
   // END_BLOCK_RENDER_ESCAPED_DIAGNOSTICS_TABLE_ROWS_M_ADMIN_UI_109
 }
 
@@ -357,7 +357,7 @@ function DiagnosticsTableRows({ rows }: { rows: Array<[label: string, value: str
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI, M-CONFIG]
 // END_CONTRACT: OpsStatus
-export function OpsStatus(config: AppConfig): string {
+export function OpsStatus(config: AppConfig) {
   // START_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
   const diagnostics = buildOpsStatusModel(config);
 
@@ -388,7 +388,7 @@ export function OpsStatus(config: AppConfig): string {
         </table>
       </section>
     </section>
-  ) as string;
+  );
   // END_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
 }
 
@@ -399,7 +399,7 @@ export function OpsStatus(config: AppConfig): string {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
 // END_CONTRACT: LoginPage
-function LoginPage(errorMessage?: string): string {
+function LoginPage(errorMessage?: string) {
   // START_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_112
   return (
     <>
@@ -435,7 +435,7 @@ function LoginPage(errorMessage?: string): string {
         </body>
       </html>
     </>
-  ) as string;
+  );
   // END_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_112
 }
 
@@ -446,7 +446,7 @@ function LoginPage(errorMessage?: string): string {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
 // END_CONTRACT: AdminLayout
-export function AdminLayout(params: RenderAdminLayoutParams): string {
+export function AdminLayout(params: RenderAdminLayoutParams) {
   // START_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
   const opsTabClass = params.activeTab === "ops" ? "nav-link nav-link-active" : "nav-link";
   const sitesTabClass = params.activeTab === "sites" ? "nav-link nav-link-active" : "nav-link";
@@ -504,7 +504,7 @@ export function AdminLayout(params: RenderAdminLayoutParams): string {
         </body>
       </html>
     </>
-  ) as string;
+  );
   // END_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
 }
 

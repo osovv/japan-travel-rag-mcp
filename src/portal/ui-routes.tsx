@@ -110,7 +110,7 @@ function toPortalUiError(
 // END_CONTRACT: buildHtmlResponse
 function buildHtmlResponse(
   status: number,
-  html: string,
+  html: string | JSX.Element,
   headers?: Record<string, string>,
 ): Response {
   // START_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_PORTAL_UI_003
@@ -121,7 +121,7 @@ function buildHtmlResponse(
     }
   }
 
-  return new Response(html, { status, headers: responseHeaders });
+  return new Response(html as string, { status, headers: responseHeaders });
   // END_BLOCK_BUILD_STANDARD_HTML_RESPONSE_OBJECT_M_PORTAL_UI_003
 }
 
@@ -192,7 +192,7 @@ function getCountryDisplayName(code: string): string {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
 // END_CONTRACT: PortalStyles
-function PortalStyles(): string {
+function PortalStyles() {
   // START_BLOCK_DEFINE_PORTAL_CSS_STYLES_M_PORTAL_UI_006
   return (
     <style>{`
@@ -260,7 +260,7 @@ function PortalStyles(): string {
       .agent-note { font-size: 0.82rem; color: var(--muted); font-style: italic; margin-top: 0.5rem; }
       @media (max-width: 640px) { .portal-card { padding: 1.5rem 1rem; } .portal-wrapper { padding: 1rem 0.5rem; } }
     `}</style>
-  ) as string;
+  );
   // END_BLOCK_DEFINE_PORTAL_CSS_STYLES_M_PORTAL_UI_006
 }
 
@@ -271,7 +271,7 @@ function PortalStyles(): string {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
 // END_CONTRACT: PortalLayout
-export function PortalLayout(pageTitle: string, bodyHtml: string): string {
+export function PortalLayout(pageTitle: string, bodyHtml: string | JSX.Element) {
   // START_BLOCK_RENDER_PORTAL_LAYOUT_DOCUMENT_M_PORTAL_UI_007
   return (
     <>
@@ -289,7 +289,7 @@ export function PortalLayout(pageTitle: string, bodyHtml: string): string {
         </body>
       </html>
     </>
-  ) as string;
+  );
   // END_BLOCK_RENDER_PORTAL_LAYOUT_DOCUMENT_M_PORTAL_UI_007
 }
 
@@ -300,7 +300,7 @@ export function PortalLayout(pageTitle: string, bodyHtml: string): string {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
 // END_CONTRACT: PortalConnectionGuide
-export function PortalConnectionGuide(mcpEndpointUrl: string): string {
+export function PortalConnectionGuide(mcpEndpointUrl: string) {
   // START_BLOCK_RENDER_MCP_CONNECTION_GUIDE_CONTENT_M_PORTAL_UI_008
   const escapedUrl = Html.escapeHtml(mcpEndpointUrl);
   const escapedPlatformName = Html.escapeHtml(PLATFORM_NAME);
@@ -420,7 +420,7 @@ export function PortalConnectionGuide(mcpEndpointUrl: string): string {
         </div>
       </details>
     </>
-  ) as string;
+  );
   // END_BLOCK_RENDER_MCP_CONNECTION_GUIDE_CONTENT_M_PORTAL_UI_008
 }
 
@@ -431,7 +431,7 @@ export function PortalConnectionGuide(mcpEndpointUrl: string): string {
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
 // END_CONTRACT: ErrorPage
-function ErrorPage(message: string): string {
+function ErrorPage(message: string) {
   // START_BLOCK_RENDER_PORTAL_ERROR_PAGE_M_PORTAL_UI_009
   const body = (
     <div class="portal-center">
@@ -443,7 +443,7 @@ function ErrorPage(message: string): string {
         <a href="/portal" class="btn btn-primary btn-full">Back to Portal</a>
       </div>
     </div>
-  ) as string;
+  );
 
   return PortalLayout("Portal - Error", body);
   // END_BLOCK_RENDER_PORTAL_ERROR_PAGE_M_PORTAL_UI_009
@@ -483,7 +483,7 @@ export async function handleLandingRequest(
         <a href="/portal" class="btn btn-primary btn-full" style="margin-top: 1rem; font-size: 1.05rem; padding: 0.85rem 1.5rem;">Get Started</a>
       </div>
     </div>
-  ) as string;
+  );
 
   return buildHtmlResponse(200, PortalLayout(PLATFORM_NAME, body));
   // END_BLOCK_RENDER_LANDING_PAGE_M_PORTAL_UI_010
@@ -536,7 +536,7 @@ export async function handlePortalRootRoute(
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
 // END_CONTRACT: SocialButtons
-function SocialButtons(intent: "register" | "login"): string {
+function SocialButtons(intent: "register" | "login") {
   // START_BLOCK_RENDER_SOCIAL_PROVIDER_BUTTONS_M_PORTAL_UI_012
   const googleUrl = `/portal/auth/start?provider=google&intent=${intent}`;
 
@@ -545,7 +545,7 @@ function SocialButtons(intent: "register" | "login"): string {
       <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"></path><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.26c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"></path><path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"></path><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 2.58 9 3.58z" fill="#EA4335"></path></svg>
       {"Continue with Google"}
     </a>
-  ) as string;
+  );
   // END_BLOCK_RENDER_SOCIAL_PROVIDER_BUTTONS_M_PORTAL_UI_012
 }
 
@@ -580,7 +580,7 @@ export async function handlePortalRegisterRoute(
         <div class="alt-action">{"Already have an account? "}<a href="/portal/login">Sign in</a></div>
       </div>
     </div>
-  ) as string;
+  );
 
   return buildHtmlResponse(200, PortalLayout(`Sign Up - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_REGISTER_PAGE_M_PORTAL_UI_013
@@ -617,7 +617,7 @@ export async function handlePortalLoginRoute(
         <div class="alt-action">{"Don't have an account? "}<a href="/portal/register">Sign up</a></div>
       </div>
     </div>
-  ) as string;
+  );
 
   return buildHtmlResponse(200, PortalLayout(`Sign In - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_LOGIN_PAGE_M_PORTAL_UI_014
@@ -836,14 +836,14 @@ export async function handlePortalHomeRoute(
   );
 
   // Build usage statistics section HTML
-  let usageHtml: string = "";
+  let usageHtml: string | JSX.Element = "";
   if (statsError) {
     usageHtml = (
       <div class="section-card" style="margin-bottom: 1rem;">
         <h3>Usage Statistics</h3>
         <p style="color: #b45309;">Unable to load usage statistics at this time. Please try again later.</p>
       </div>
-    ) as string;
+    );
   } else if (stats && stats.tools.length > 0) {
     usageHtml = (
       <div class="section-card" style="margin-bottom: 1rem;">
@@ -858,18 +858,18 @@ export async function handlePortalHomeRoute(
           <tfoot><tr><td style="padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">Total</td><td style="text-align: right; padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">{String(stats.total)}</td></tr></tfoot>
         </table>
       </div>
-    ) as string;
+    );
   } else if (stats) {
     usageHtml = (
       <div class="section-card" style="margin-bottom: 1rem;">
         <h3>Usage Statistics</h3>
         <p>No usage yet. Connect your AI agent using the endpoint above to get started.</p>
       </div>
-    ) as string;
+    );
   }
 
   // Query destination lists for display with graceful degradation
-  let destinationsHtml: string = "";
+  let destinationsHtml: string | JSX.Element = "";
   try {
     const activeCountries = await getCountriesByStatus(deps.db, "active");
     const comingSoonCountries = await getCountriesByStatus(deps.db, "coming_soon");
@@ -887,7 +887,7 @@ export async function handlePortalHomeRoute(
             ))}
           </ul>
         </div>
-      ) as string;
+      );
     }
   } catch (error: unknown) {
     const cause = error instanceof Error ? error.message : String(error);
@@ -930,7 +930,7 @@ export async function handlePortalHomeRoute(
         <a href="/portal/integrations/agent-setup" class="btn btn-primary" style="margin-top: 0.75rem;">View Setup Guide</a>
       </div>
     </div>
-  ) as string;
+  );
 
   return buildHtmlResponse(200, PortalLayout(`Portal Home - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_PORTAL_HOME_PAGE_M_PORTAL_UI_017
@@ -991,7 +991,7 @@ export async function handlePortalAgentSetupRoute(
         <a href="/portal/home" class="link">{"\u2190 Back to Portal Home"}</a>
       </div>
     </div>
-  ) as string;
+  );
 
   return buildHtmlResponse(200, PortalLayout(`Agent Setup - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_AGENT_SETUP_GUIDE_PAGE_M_PORTAL_UI_018
