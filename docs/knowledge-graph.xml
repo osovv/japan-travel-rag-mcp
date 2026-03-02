@@ -1,15 +1,15 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.13.0">
-    <keywords>multi-country, country-code, country-settings, travel-platform, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management, per-source-cleanup, quality-gate, source-adapter, cleanup-registry, adapter-matrix, full-adapter-coverage, fixture-matrix-testing, platform-branding, destination-list</keywords>
-    <annotation>Multi-country travel platform with single MCP endpoint and country_code tool parameter routing. Seven MCP tools (4 proxied + 3 local) with per-country data filtering, country_settings table for runtime config, shareable onboarding UX with platform branding and destination list, worker-driven curated-sites crawl/index pipeline with layered per-source cleanup and quality gating, full Layer B adapter coverage for all 12 curated sources, attributed local retrieval, admin sites management CRUD, per-user per-country usage tracking, and persistent OAuth token storage.</annotation>
+  <Project NAME="japan-travel-rag-mcp" VERSION="1.14.0">
+    <keywords>multi-country, country-code, country-settings, travel-platform, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management, admin-countries-management, per-source-cleanup, quality-gate, source-adapter, cleanup-registry, adapter-matrix, full-adapter-coverage, fixture-matrix-testing, destination-list</keywords>
+    <annotation>Multi-country travel platform with single MCP endpoint and country_code tool parameter routing. Seven MCP tools (4 proxied + 3 local) with per-country data filtering, country_settings table for runtime config, shareable onboarding UX with destination list, worker-driven curated-sites crawl/index pipeline with layered per-source cleanup and quality gating, full Layer B adapter coverage for all 12 curated sources, attributed local retrieval, admin sites and countries management CRUD, per-user per-country usage tracking, and persistent OAuth token storage.</annotation>
 
     <M-CONFIG NAME="Config" TYPE="UTILITY" STATUS="active">
-      <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, database connection, and platform branding (PLATFORM_NAME). TG_CHAT_RAG_CHAT_IDS is deprecated.</purpose>
+      <purpose>Runtime config validation for MCP OAuth proxy settings, admin auth, portal session/identity settings, M2M provisioning credentials, and database connection.</purpose>
       <path>src/config/index.ts</path>
       <depends>none</depends>
       <annotations>
         <fn-loadConfig description="Validate env and build typed AppConfig including DATABASE_URL." />
-        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, Logto credentials, M2M provisioning credentials, databaseUrl, unified proxy keys for Spider/Voyage, and PLATFORM_NAME. TG_CHAT_RAG_CHAT_IDS is optional (deprecated, moved to country_settings)." />
+        <type-AppConfig description="App config for tg-chat-rag, admin token, portal session, public URL, Logto credentials, M2M provisioning credentials, databaseUrl, and unified proxy keys for Spider/Voyage." />
       </annotations>
     </M-CONFIG>
 
@@ -120,6 +120,15 @@
         <const-SUPPORTED_CLEANUP_SOURCE_IDS description="Stable source_id list covered by Layer B adapter registry." />
       </annotations>
     </M-CLEANUP-REGISTRY>
+
+    <M-ADAPTER-WRENJAPAN NAME="WrenjapanAdapter" TYPE="CORE_LOGIC" STATUS="active">
+      <purpose>Layer B cleanup for wrenjapan: navigation menus, newsletter promos, base64 image placeholders, site name headers, footer blocks, related articles, social share buttons, empty bold markers.</purpose>
+      <path>src/sites/parser/cleanup/adapters/wrenjapan.ts</path>
+      <depends>M-SITES-PARSER-CLEANUP-TYPES</depends>
+      <annotations>
+        <const-wrenjapanAdapter description="Source adapter instance for wrenjapan Layer B cleanup." />
+      </annotations>
+    </M-ADAPTER-WRENJAPAN>
 
     <M-ADAPTER-INSIDEKYOTO NAME="InsidekyotoAdapter" TYPE="CORE_LOGIC" STATUS="active">
       <purpose>Layer B cleanup for insidekyoto: vacation checklist, district map, author bio, affiliate disclosure, SVG placeholders.</purpose>
@@ -234,15 +243,15 @@
         <path-adapter-wrenjapan>src/sites/parser/cleanup/adapters/wrenjapan.ts</path-adapter-wrenjapan>
         <path-adapter-insidekyoto>src/sites/parser/cleanup/adapters/insidekyoto.ts</path-adapter-insidekyoto>
         <path-adapter-trulytokyo>src/sites/parser/cleanup/adapters/trulytokyo.ts</path-adapter-trulytokyo>
-        <path-adapter-kansai-odyssey>src/sites/parser/cleanup/adapters/kansai-odyssey.ts</path-adapter-kansai-odyssey>
-        <path-adapter-invisible-tourist>src/sites/parser/cleanup/adapters/invisible-tourist.ts</path-adapter-invisible-tourist>
-        <path-adapter-japan-unravelled>src/sites/parser/cleanup/adapters/japan-unravelled.ts</path-adapter-japan-unravelled>
-        <path-adapter-japan-guide>src/sites/parser/cleanup/adapters/japan-guide.ts</path-adapter-japan-guide>
-        <path-adapter-reddit-japantravel>src/sites/parser/cleanup/adapters/reddit-japantravel.ts</path-adapter-reddit-japantravel>
+        <path-adapter-kansai-odyssey>src/sites/parser/cleanup/adapters/kansai_odyssey.ts</path-adapter-kansai-odyssey>
+        <path-adapter-invisible-tourist>src/sites/parser/cleanup/adapters/invisible_tourist.ts</path-adapter-invisible-tourist>
+        <path-adapter-japan-unravelled>src/sites/parser/cleanup/adapters/japan_unravelled.ts</path-adapter-japan-unravelled>
+        <path-adapter-japan-guide>src/sites/parser/cleanup/adapters/japan_guide.ts</path-adapter-japan-guide>
+        <path-adapter-reddit-japantravel>src/sites/parser/cleanup/adapters/reddit_japantravel.ts</path-adapter-reddit-japantravel>
         <path-adapter-navitime>src/sites/parser/cleanup/adapters/navitime.ts</path-adapter-navitime>
         <path-adapter-jorudan>src/sites/parser/cleanup/adapters/jorudan.ts</path-adapter-jorudan>
         <path-adapter-jreast>src/sites/parser/cleanup/adapters/jreast.ts</path-adapter-jreast>
-        <path-adapter-smart-ex>src/sites/parser/cleanup/adapters/smart-ex.ts</path-adapter-smart-ex>
+        <path-adapter-smart-ex>src/sites/parser/cleanup/adapters/smart_ex.ts</path-adapter-smart-ex>
       </paths>
       <depends>M-LOGGER, M-CLEANUP-REGISTRY</depends>
       <annotations>
@@ -412,12 +421,12 @@
     </M-USAGE-TRACKER>
 
     <M-ADMIN-UI NAME="AdminUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
-      <purpose>Server-rendered admin login, ops diagnostics, and sites management routes guarded by AdminAuth.</purpose>
+      <purpose>Server-rendered admin login, ops diagnostics, sites management, and countries management routes guarded by AdminAuth.</purpose>
       <path>src/admin/ui-routes.tsx</path>
-      <depends>M-ADMIN-AUTH, M-ADMIN-SITES, M-CONFIG, M-LOGGER, M-DB</depends>
+      <depends>M-ADMIN-AUTH, M-ADMIN-SITES, M-ADMIN-COUNTRIES, M-CONFIG, M-LOGGER, M-DB</depends>
       <annotations>
-        <fn-handleAdminRequest description="Dispatch /admin/login, /admin/ops, and /admin/sites/* route handling." />
-        <fn-renderAdminLayout description="Render top-level admin HTML shell with sidebar (Ops Diagnostics + Sites Management tabs)." />
+        <fn-handleAdminRequest description="Dispatch /admin/login, /admin/ops, /admin/sites/*, and /admin/countries/* route handling." />
+        <fn-renderAdminLayout description="Render top-level admin HTML shell with sidebar (Ops Diagnostics, Sites Management, and Countries Management tabs)." />
         <fn-renderOpsStatus description="Render runtime diagnostics for operators." />
       </annotations>
     </M-ADMIN-UI>
@@ -442,8 +451,24 @@
       </annotations>
     </M-ADMIN-SITES>
 
+    <M-ADMIN-COUNTRIES NAME="AdminCountriesPage" TYPE="UI_COMPONENT" STATUS="active">
+      <purpose>Query country settings data with per-country source counts and render Countries Management admin page with create, edit, and delete operations.</purpose>
+      <path>src/admin/countries-page.ts</path>
+      <depends>M-DB, M-LOGGER, M-COUNTRY-SETTINGS</depends>
+      <annotations>
+        <fn-fetchCountriesPageData description="Query all countries with aggregated source counts via Drizzle raw SQL." />
+        <fn-handleCreateCountry description="Validate input and upsert a new country settings row." />
+        <fn-handleUpdateCountry description="Validate input and update an existing country settings row." />
+        <fn-handleDeleteCountry description="Delete a country if it has no linked site sources." />
+        <fn-renderCountriesContent description="Render the main countries management page content with country table." />
+        <fn-renderCountryForm description="Render create or edit form for a country." />
+        <type-CountryRow description="Country metadata + aggregated source count." />
+        <type-CountriesPageData description="Full page data model with countries array." />
+      </annotations>
+    </M-ADMIN-COUNTRIES>
+
     <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" STATUS="active">
-      <purpose>Server-rendered landing + portal per-page routes for external tester onboarding with platform branding (PLATFORM_NAME), destination list from country_settings, progressive enhancement, and per-user usage statistics display.</purpose>
+      <purpose>Server-rendered landing + portal per-page routes for external tester onboarding with hardcoded platform branding, destination list from country_settings, progressive enhancement, and per-user usage statistics display.</purpose>
       <path>src/portal/ui-routes.tsx</path>
       <depends>M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-CONFIG, M-LOGGER, M-USAGE-TRACKER, M-COUNTRY-SETTINGS</depends>
       <annotations>
@@ -652,6 +677,9 @@
       <CrossLink FROM="M-SITES-SEARCH" TO="M-FASTMCP-RUNTIME" REL="handles_local_tool_execution_for" />
       <CrossLink FROM="M-ADMIN-AUTH" TO="M-ADMIN-UI" REL="authorizes" />
       <CrossLink FROM="M-ADMIN-SITES" TO="M-ADMIN-UI" REL="renders_for" />
+      <CrossLink FROM="M-ADMIN-COUNTRIES" TO="M-ADMIN-UI" REL="renders_for" />
+      <CrossLink FROM="M-DB" TO="M-ADMIN-COUNTRIES" REL="persists_for" />
+      <CrossLink FROM="M-COUNTRY-SETTINGS" TO="M-ADMIN-COUNTRIES" REL="provides_data_for" />
       <CrossLink FROM="M-DB" TO="M-ADMIN-SITES" REL="persists_for" />
       <CrossLink FROM="M-PORTAL-IDENTITY" TO="M-PORTAL-PROVISIONING" REL="provisions_through" />
       <CrossLink FROM="M-PORTAL-AUTH" TO="M-PORTAL-UI" REL="authorizes" />
@@ -785,6 +813,14 @@
         <step-3>Create/Edit/Delete/Pause/Resume operations modify site_sources and cascade-related tables.</step-3>
         <step-4>All mutations use PRG pattern (POST → redirect → GET) for safe browser navigation.</step-4>
       </DF-ADMIN-SITES-CRUD>
+
+      <DF-ADMIN-COUNTRIES-CRUD NAME="admin countries management CRUD flow">
+        <step-1>Authenticated admin operator navigates to `/admin/countries` via sidebar.</step-1>
+        <step-2>M-ADMIN-UI dispatches to M-ADMIN-COUNTRIES.fetchCountriesPageData which queries country_settings with per-country source counts.</step-2>
+        <step-3>Create/Edit/Delete operations modify country_settings; delete is blocked if country has linked site sources.</step-3>
+        <step-4>All mutations use PRG pattern (POST → redirect → GET) for safe browser navigation.</step-4>
+      </DF-ADMIN-COUNTRIES-CRUD>
+
       <DF-COUNTRY-BOOTSTRAP NAME="country settings startup flow">
         <step-1>M-SERVER bootstraps DB and runs schema migrations including country_settings table.</step-1>
         <step-2>M-DB-SITES-BOOTSTRAP seeds Japan country row if not exists.</step-2>
