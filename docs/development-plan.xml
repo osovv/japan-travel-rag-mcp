@@ -1269,7 +1269,7 @@
       <justification>Wren-only adapter coverage is insufficient for current curated registry breadth; full source coverage is required to reduce cross-domain crawl noise while keeping deterministic, auditable parser behavior.</justification>
     </Phase-12>
 
-    <Phase-13 name="MultiTenantCountryArchitecture" status="pending">
+    <Phase-13 name="MultiTenantCountryArchitecture" status="done">
       <step-1>Add country_settings table to M-DB-SCHEMA and implement M-COUNTRY-SETTINGS repository (getCountrySettings, getCountriesByStatus, upsertCountrySettings, buildCountryCache). Test: CRUD operations, status filtering, cache construction.</step-1>
       <step-2>Add country_code column to site_sources table (M-DB-SCHEMA) with FK to country_settings and default 'jp'. Update M-SITES-INDEX-REPOSITORY searchHybrid to filter by country_code via site_sources join. Test: search filtering by country_code.</step-2>
       <step-3>Add country_code column to usage_counters table (M-DB-SCHEMA), extending composite PK to (user_id, tool_name, country_code). Update M-USAGE-TRACKER recordToolCall and getUserStats signatures. Test: per-country usage recording and stats filtering.</step-3>
