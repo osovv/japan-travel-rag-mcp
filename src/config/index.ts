@@ -1,21 +1,21 @@
 // FILE: src/config/index.ts
-// VERSION: 1.10.0
+// VERSION: 1.11.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, admin root auth, portal session/identity settings, database connection, unified proxy for Spider/Voyage API access, and platform branding.
-//   SCOPE: Parse required env values for tg-chat-rag integration (chatIds now optional/deprecated), root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, portal session/identity config, M2M provisioning credentials for self-serve onboarding, DATABASE_URL for PostgreSQL connectivity, proxy settings, and PLATFORM_NAME for portal branding.
+//   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, admin root auth, portal session/identity settings, database connection, and unified proxy for Spider/Voyage API access.
+//   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, portal session/identity config, M2M provisioning credentials for self-serve onboarding, DATABASE_URL for PostgreSQL connectivity, and proxy settings.
 //   DEPENDS: none
 //   LINKS: M-CONFIG, M-TG-CHAT-RAG-CLIENT, M-AUTH-PROXY, M-ADMIN-AUTH, M-PORTAL-AUTH, M-PORTAL-IDENTITY, M-DB
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy, portal session/identity settings, M2M provisioning credentials, database connection, proxy settings for Spider/Voyage API access, and platformName.
+//   AppConfig - Typed runtime configuration for tg-chat-rag, admin root auth, public URL, Logto OAuth proxy, portal session/identity settings, M2M provisioning credentials, database connection, and proxy settings for Spider/Voyage API access.
 //   ConfigValidationError - Typed validation error carrying CONFIG_VALIDATION_ERROR code.
 //   loadConfig - Validate process environment and return AppConfig.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.10.0 - Made TG_CHAT_RAG_CHAT_IDS optional (deprecated, moved to country_settings); added PLATFORM_NAME env var for portal branding.
-//   PREVIOUS: v1.9.0 - Added proxy section for unified Spider crawl and Voyage embedding API access.
+//   LAST_CHANGE: v1.11.0 - Removed PLATFORM_NAME env var (hardcoded in portal); removed TG_CHAT_RAG_CHAT_IDS from config (chat_ids live in country_settings only).
+//   PREVIOUS: v1.10.0 - Made TG_CHAT_RAG_CHAT_IDS optional (deprecated, moved to country_settings); added PLATFORM_NAME env var for portal branding.
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
@@ -24,11 +24,9 @@ export type AppConfig = {
   rootAuthToken: string;
   databaseUrl: string;
   oauthSessionSecret: string;
-  platformName: string;
   tgChatRag: {
     baseUrl: string;
     bearerToken: string;
-    chatIds: string[];  // Deprecated: use country_settings.settings.tg_chat_ids instead
     timeoutMs: number;
   };
   logto: {
@@ -80,7 +78,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // START_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
   const baseUrlRaw = (env.TG_CHAT_RAG_BASE_URL ?? "").trim();
   const bearerToken = (env.TG_CHAT_RAG_BEARER_TOKEN ?? "").trim();
-  const chatIdsRaw = (env.TG_CHAT_RAG_CHAT_IDS ?? "").trim();
   const portRaw = (env.PORT ?? "").trim();
   const timeoutRaw = (env.TG_CHAT_RAG_TIMEOUT_MS ?? "").trim();
   const rootAuthToken = (env.ROOT_AUTH_TOKEN ?? "").trim();
@@ -102,7 +99,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const voyageApiKey = (env.VOYAGE_API_KEY ?? "").trim();
   const spiderApiKey = (env.SPIDER_API_KEY ?? "").trim();
   const oauthSessionSecret = (env.OAUTH_SESSION_SECRET ?? "").trim();
-  const platformName = (env.PLATFORM_NAME ?? "Travel RAG").trim();
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -129,22 +125,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     errors.push("ROOT_AUTH_TOKEN is required.");
   }
   // END_BLOCK_VALIDATE_ROOT_AUTH_TOKEN_M_CONFIG_009
-
-  // START_BLOCK_PARSE_TG_CHAT_RAG_CHAT_IDS_M_CONFIG_004
-  // Deprecated: TG_CHAT_RAG_CHAT_IDS is now optional. Per-country chat_ids are stored in country_settings.settings.tg_chat_ids.
-  // Kept for backwards compatibility during migration.
-  let chatIds: string[] = [];
-  if (chatIdsRaw) {
-    const uniqueChatIds = new Set<string>();
-    for (const value of chatIdsRaw.split(",")) {
-      const trimmedValue = value.trim();
-      if (trimmedValue) {
-        uniqueChatIds.add(trimmedValue);
-      }
-    }
-    chatIds = [...uniqueChatIds];
-  }
-  // END_BLOCK_PARSE_TG_CHAT_RAG_CHAT_IDS_M_CONFIG_004
 
   // START_BLOCK_PARSE_PORT_M_CONFIG_005
   let port = 3000;
@@ -318,11 +298,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rootAuthToken,
     databaseUrl: databaseUrlRaw,
     oauthSessionSecret,
-    platformName,
     tgChatRag: {
       baseUrl: normalizedBaseUrl,
       bearerToken,
-      chatIds,
       timeoutMs,
     },
     logto: {

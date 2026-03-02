@@ -41,7 +41,7 @@ function buildTestConfig(): AppConfig {
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
       bearerToken: "service-token",
-      chatIds: ["chat-alpha", "chat-bravo"],
+
       timeoutMs: 15000,
     },
     logto: {

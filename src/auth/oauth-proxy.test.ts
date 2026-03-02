@@ -62,7 +62,7 @@ function createMockAppConfig(): AppConfig {
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "tg-chat-rag-token-oauth-proxy-test",
-      chatIds: ["jp-chat-001"],
+
       timeoutMs: 15000,
     },
     logto: {

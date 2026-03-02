@@ -79,11 +79,11 @@ function createTestConfig(proxyOverrides?: Partial<AppConfig["proxy"]>): AppConf
     rootAuthToken: "root-token",
     databaseUrl: "postgres://localhost:5432/test",
     oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
-    platformName: "Travel RAG",
+
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
       bearerToken: "service-bearer-token",
-      chatIds: ["chat-1"],
+
       timeoutMs: 15000,
     },
     logto: {

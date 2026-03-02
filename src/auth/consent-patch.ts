@@ -1,7 +1,7 @@
 // FILE: src/auth/consent-patch.ts
 // VERSION: 1.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Replace FastMCP's built-in consent screen with portal-styled HTML that matches the Japan Travel RAG portal design.
+//   PURPOSE: Replace FastMCP's built-in consent screen with portal-styled HTML that matches the TravelMind MCP portal design.
 //   SCOPE: Provide generatePortalConsentScreen, formatScopeLabel, portalConsentStyles, escapeHtml, and patchOAuthProxyConsent.
 //   DEPENDS: M-AUTH-PROXY
 //   LINKS: M-AUTH-CONSENT-PATCH, M-AUTH-PROXY
@@ -227,14 +227,14 @@ export function generatePortalConsentScreen(data: ConsentScreenData): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authorize - Japan Travel RAG</title>
+  <title>Authorize - TravelMind MCP</title>
   <style>${portalConsentStyles()}</style>
 </head>
 <body>
   <div class="portal-center">
     <div class="portal-card">
       <div class="portal-header">
-        <h1>Japan Travel RAG</h1>
+        <h1>TravelMind MCP</h1>
         <p><strong>${escapeHtml(data.clientName)}</strong> is requesting access to your account</p>
       </div>
       <div class="permissions">

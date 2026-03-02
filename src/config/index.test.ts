@@ -35,7 +35,6 @@ function createBaseEnv(overrides: EnvOverrides = {}): NodeJS.ProcessEnv {
     PORT: "3001",
     TG_CHAT_RAG_BASE_URL: "https://tg-rag.internal.example.com",
     TG_CHAT_RAG_BEARER_TOKEN: "tg-token",
-    TG_CHAT_RAG_CHAT_IDS: "chat-1,chat-2",
     TG_CHAT_RAG_TIMEOUT_MS: "15000",
     ROOT_AUTH_TOKEN: "root-secret",
     PUBLIC_URL: "https://travel.example.com",
@@ -88,7 +87,6 @@ describe("M-CONFIG runtime settings", () => {
 
     expect(config.publicUrl).toBe("https://travel.example.com/");
     expect(config.rootAuthToken).toBe("root-secret");
-    expect(config.tgChatRag.chatIds).toEqual(["chat-1", "chat-2"]);
     expect(config.logto.tenantUrl).toBe("https://tenant.logto.app/");
     expect(config.logto.clientId).toBe("logto-client-id");
     expect(config.logto.clientSecret).toBe("logto-client-secret");
@@ -109,18 +107,16 @@ describe("M-CONFIG runtime settings", () => {
     expect(config.proxy.spiderApiKey).toBe("spider-api-key-value");
   });
 
-  it("parses custom port/timeout and deduplicates chat IDs", () => {
+  it("parses custom port/timeout", () => {
     const config = loadConfig(
       createBaseEnv({
         PORT: "8088",
         TG_CHAT_RAG_TIMEOUT_MS: "31000",
-        TG_CHAT_RAG_CHAT_IDS: "chat-1, chat-2, chat-1, chat-3",
       }),
     );
 
     expect(config.port).toBe(8088);
     expect(config.tgChatRag.timeoutMs).toBe(31000);
-    expect(config.tgChatRag.chatIds).toEqual(["chat-1", "chat-2", "chat-3"]);
   });
 
   it("ignores legacy OAUTH_* env vars", () => {
@@ -141,7 +137,6 @@ describe("M-CONFIG runtime settings", () => {
       createBaseEnv({
         TG_CHAT_RAG_BASE_URL: " ",
         TG_CHAT_RAG_BEARER_TOKEN: " ",
-        TG_CHAT_RAG_CHAT_IDS: " ",
         ROOT_AUTH_TOKEN: " ",
         PUBLIC_URL: " ",
         LOGTO_TENANT_URL: " ",
@@ -166,7 +161,6 @@ describe("M-CONFIG runtime settings", () => {
     expect(error.code).toBe("CONFIG_VALIDATION_ERROR");
     expect(error.details).toContain("TG_CHAT_RAG_BASE_URL is required.");
     expect(error.details).toContain("TG_CHAT_RAG_BEARER_TOKEN is required.");
-    expect(error.details).toContain("TG_CHAT_RAG_CHAT_IDS is required.");
     expect(error.details).toContain("ROOT_AUTH_TOKEN is required.");
     expect(error.details).toContain("PUBLIC_URL is required.");
     expect(error.details).toContain("LOGTO_TENANT_URL is required.");

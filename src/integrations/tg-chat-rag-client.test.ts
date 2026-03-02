@@ -76,7 +76,7 @@ function createTestConfig(tgOverrides?: Partial<AppConfig["tgChatRag"]>): AppCon
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
       bearerToken: "service-bearer-token",
-      chatIds: ["chat-1"],
+
       timeoutMs: 15000,
       ...tgOverrides,
     },

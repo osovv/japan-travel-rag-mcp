@@ -25,7 +25,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Replace hardcoded "Japan Travel RAG" with config.platformName, add destination list from country_settings to portal home, update MCP setup guide for single-endpoint multi-country usage, add db to PortalUiDependencies.
+//   LAST_CHANGE: v1.3.0 - Hardcode platform name "TravelMind MCP" as constant, remove config.platformName dependency.
+//   v1.2.0 - Replace hardcoded "Japan Travel RAG" with config.platformName, add destination list from country_settings to portal home, update MCP setup guide for single-endpoint multi-country usage, add db to PortalUiDependencies.
 //   v1.1.0 - Add per-user usage statistics display to portal home with graceful degradation on stats query failure.
 //   v1.0.0 - Initial generation from development plan for M-PORTAL-UI with social-only OAuth pages, landing, portal home, agent setup guide, and session lifecycle handlers.
 // END_CHANGE_SUMMARY
@@ -44,6 +45,7 @@ import { provisionTesterAccess } from "./provisioning";
 // Constants
 // ---------------------------------------------------------------------------
 
+const PLATFORM_NAME = "TravelMind MCP";
 const HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 
 // ---------------------------------------------------------------------------
@@ -307,16 +309,16 @@ export function renderPortalLayout(pageTitle: string, bodyHtml: string): string 
 }
 
 // START_CONTRACT: renderPortalConnectionGuide
-//   PURPOSE: Render MCP setup instructions content for the agent setup guide page with platform branding and multi-country guidance.
-//   INPUTS: { mcpEndpointUrl: string - Fully qualified MCP endpoint URL, platformName: string - Platform display name from config }
+//   PURPOSE: Render MCP setup instructions content for the agent setup guide page with multi-country guidance.
+//   INPUTS: { mcpEndpointUrl: string - Fully qualified MCP endpoint URL }
 //   OUTPUTS: { string - HTML content fragment with MCP connection guide }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
 // END_CONTRACT: renderPortalConnectionGuide
-export function renderPortalConnectionGuide(mcpEndpointUrl: string, platformName: string): string {
+export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
   // START_BLOCK_RENDER_MCP_CONNECTION_GUIDE_CONTENT_M_PORTAL_UI_008
   const escapedUrl = escapeHtml(mcpEndpointUrl);
-  const escapedPlatformName = escapeHtml(platformName);
+  const escapedPlatformName = escapeHtml(PLATFORM_NAME);
   const serverLabel = "travel-rag-mcp";
 
   return [
@@ -495,7 +497,7 @@ export async function handleLandingRequest(
     `<div class="portal-center">`,
     `<div class="portal-card" style="text-align: center;">`,
     `<div class="portal-header">`,
-    `<h1 style="font-size: 2rem; margin-bottom: 0.75rem;">${escapeHtml(deps.config.platformName)}</h1>`,
+    `<h1 style="font-size: 2rem; margin-bottom: 0.75rem;">${escapeHtml(PLATFORM_NAME)}</h1>`,
     `<p style="font-size: 1rem; max-width: 24rem; margin: 0 auto;">Your AI-powered travel companion. Get curated recommendations, cultural insights, and local knowledge from real traveler conversations.</p>`,
     `</div>`,
     `<a href="/portal" class="btn btn-primary btn-full" style="margin-top: 1rem; font-size: 1.05rem; padding: 0.85rem 1.5rem;">Get Started</a>`,
@@ -503,7 +505,7 @@ export async function handleLandingRequest(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout(deps.config.platformName, body));
+  return buildHtmlResponse(200, renderPortalLayout(PLATFORM_NAME, body));
   // END_BLOCK_RENDER_LANDING_PAGE_M_PORTAL_UI_010
 }
 
@@ -592,7 +594,7 @@ export async function handlePortalRegisterRoute(
     `<div class="portal-card">`,
     `<div class="portal-header">`,
     `<h1>Create your account</h1>`,
-    `<p>Sign up with your social account to get started with ${escapeHtml(deps.config.platformName)}.</p>`,
+    `<p>Sign up with your social account to get started with ${escapeHtml(PLATFORM_NAME)}.</p>`,
     `</div>`,
     renderSocialButtons("register"),
     `<div class="alt-action">Already have an account? <a href="/portal/login">Sign in</a></div>`,
@@ -600,7 +602,7 @@ export async function handlePortalRegisterRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout(`Sign Up - ${deps.config.platformName}`, body));
+  return buildHtmlResponse(200, renderPortalLayout(`Sign Up - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_REGISTER_PAGE_M_PORTAL_UI_013
 }
 
@@ -629,7 +631,7 @@ export async function handlePortalLoginRoute(
     `<div class="portal-card">`,
     `<div class="portal-header">`,
     `<h1>Welcome back</h1>`,
-    `<p>Sign in with your social account to access ${escapeHtml(deps.config.platformName)}.</p>`,
+    `<p>Sign in with your social account to access ${escapeHtml(PLATFORM_NAME)}.</p>`,
     `</div>`,
     renderSocialButtons("login"),
     `<div class="alt-action">Don't have an account? <a href="/portal/register">Sign up</a></div>`,
@@ -637,7 +639,7 @@ export async function handlePortalLoginRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout(`Sign In - ${deps.config.platformName}`, body));
+  return buildHtmlResponse(200, renderPortalLayout(`Sign In - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_LOGIN_PAGE_M_PORTAL_UI_014
 }
 
@@ -924,7 +926,7 @@ export async function handlePortalHomeRoute(
     );
   }
 
-  const escapedPlatformName = escapeHtml(deps.config.platformName);
+  const escapedPlatformName = escapeHtml(PLATFORM_NAME);
 
   const body = [
     `<div class="portal-wrapper">`,
@@ -968,7 +970,7 @@ export async function handlePortalHomeRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout(`Portal Home - ${deps.config.platformName}`, body));
+  return buildHtmlResponse(200, renderPortalLayout(`Portal Home - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_PORTAL_HOME_PAGE_M_PORTAL_UI_017
 }
 
@@ -1007,8 +1009,8 @@ export async function handlePortalAgentSetupRoute(
     { userId: sessionResult.session.sub },
   );
 
-  const guideContent = renderPortalConnectionGuide(mcpEndpointUrl, deps.config.platformName);
-  const escapedPlatformName = escapeHtml(deps.config.platformName);
+  const guideContent = renderPortalConnectionGuide(mcpEndpointUrl);
+  const escapedPlatformName = escapeHtml(PLATFORM_NAME);
 
   const body = [
     `<div class="portal-wrapper">`,
@@ -1033,7 +1035,7 @@ export async function handlePortalAgentSetupRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout(`Agent Setup - ${deps.config.platformName}`, body));
+  return buildHtmlResponse(200, renderPortalLayout(`Agent Setup - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_AGENT_SETUP_GUIDE_PAGE_M_PORTAL_UI_018
 }
 

@@ -95,11 +95,11 @@ function createMockAppConfig(port: number): AppConfig {
     rootAuthToken: "root-auth-token-smoke",
     databaseUrl: "postgres://localhost:5432/test",
     oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
-    platformName: "Travel RAG",
+
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "tg-bearer-token-smoke",
-      chatIds: ["jp-chat-001"],
+
       timeoutMs: 15000,
     },
     logto: {

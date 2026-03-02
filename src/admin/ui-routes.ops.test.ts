@@ -75,7 +75,7 @@ function createTestConfig(): AppConfig {
     tgChatRag: {
       baseUrl: "https://tg-rag.example.com/",
       bearerToken: "bearer-token",
-      chatIds: ["chat-1"],
+
       timeoutMs: 15000,
     },
     portal: {

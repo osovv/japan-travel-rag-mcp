@@ -84,7 +84,7 @@ function createMockAppConfig(): AppConfig {
     tgChatRag: {
       baseUrl: "https://upstream.example.com/",
       bearerToken: "upstream-token",
-      chatIds: ["chat-1"],
+
       timeoutMs: 15000,
     },
   };

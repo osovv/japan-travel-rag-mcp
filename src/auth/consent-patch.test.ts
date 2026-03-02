@@ -112,7 +112,7 @@ describe("generatePortalConsentScreen", () => {
 
   it("contains the app title", () => {
     const html = generatePortalConsentScreen(baseData);
-    expect(html).toContain("Japan Travel RAG");
+    expect(html).toContain("TravelMind MCP");
   });
 
   it("contains the consent explanation text with clientName", () => {

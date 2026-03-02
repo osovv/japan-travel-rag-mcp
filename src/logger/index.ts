@@ -123,14 +123,9 @@ function hasConfigEssentials(config: AppConfig): boolean {
 
   const baseUrl = normalizeText(config.tgChatRag.baseUrl, "");
   const bearerToken = normalizeText(config.tgChatRag.bearerToken, "");
-  const chatIds = config.tgChatRag.chatIds;
   const timeoutMs = config.tgChatRag.timeoutMs;
 
   if (!baseUrl || !bearerToken) {
-    return false;
-  }
-
-  if (!Array.isArray(chatIds) || chatIds.length === 0) {
     return false;
   }
 
