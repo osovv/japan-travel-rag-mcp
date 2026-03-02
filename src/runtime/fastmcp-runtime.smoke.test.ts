@@ -93,6 +93,9 @@ function createMockAppConfig(port: number): AppConfig {
     port,
     publicUrl: `http://127.0.0.1:${port}`,
     rootAuthToken: "root-auth-token-smoke",
+    databaseUrl: "postgres://localhost:5432/test",
+    oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    platformName: "Travel RAG",
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "tg-bearer-token-smoke",
@@ -110,7 +113,17 @@ function createMockAppConfig(port: number): AppConfig {
       sessionSecret: "test-portal-session-secret",
       logtoAppId: "test-portal-app-id",
       logtoAppSecret: "test-portal-app-secret",
+      logtoM2mAppId: "test-m2m-app-id",
+      logtoM2mAppSecret: "test-m2m-app-secret",
+      logtoManagementApiResource: "https://management.logto.app/api",
+      mcpUserRoleId: "test-mcp-user-role-id",
       sessionTtlSeconds: 604800,
+    },
+    proxy: {
+      baseUrl: "https://proxy.example.com/",
+      secret: "test-proxy-secret",
+      voyageApiKey: "test-voyage-key",
+      spiderApiKey: "test-spider-key",
     },
   };
   // END_BLOCK_BUILD_STABLE_APP_CONFIG_FOR_RUNTIME_SMOKE_M_FASTMCP_RUNTIME_SMOKE_002
@@ -310,6 +323,8 @@ async function createRuntimeHarness(
     portalHandler,
     usageTracker: mockUsageTracker,
     sitesSearchService: mockSitesSearchService,
+    countryCache: new Map([["jp", { countryCode: "jp", status: "active" as const, settings: { tg_chat_ids: ["jp-chat-001"] }, createdAt: new Date(), updatedAt: new Date() }]]),
+    db: {} as any,
   });
 
   await runtime.start({

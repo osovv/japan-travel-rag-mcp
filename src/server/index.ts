@@ -1,5 +1,5 @@
 // FILE: src/server/index.ts
-// VERSION: 3.5.0
+// VERSION: 3.6.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server with MCP, admin, and portal surfaces, and start HTTP stream transport on /mcp.
 //   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler/sites search service/country cache dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
@@ -15,7 +15,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.5.0 - Built country cache and tool schemas at startup, passed countryCache and db into FastMCP runtime dependencies for multi-tenant country routing.
+//   LAST_CHANGE: v3.6.0 - Added db handle to PortalUiDependencies for destination list rendering from country_settings.
+//   v3.5.0 - Built country cache and tool schemas at startup, passed countryCache and db into FastMCP runtime dependencies for multi-tenant country routing.
 //   v3.4.0 - Pass db handle into AdminUiDependencies for sites management routes.
 //   v3.3.0 - Wired SitesSearchService (VoyageProxyClient, SitesIndexRepository) into FastMCP runtime dependencies with bootstrapSitesSchema.
 // END_CHANGE_SUMMARY
@@ -298,6 +299,7 @@ export async function main(): Promise<FastMCP> {
       logger: logger.child({ route: "portal", component: "portalUiRoutes" }),
       identityClient,
       usageTracker,
+      db: dbClient.db,
     };
 
     const portalLandingHandler = async (request: Request): Promise<Response> => {

@@ -166,6 +166,7 @@ function createMockAppConfig(): AppConfig {
     rootAuthToken: "root-auth-token-integration",
     databaseUrl: "postgresql://localhost:5432/test",
     oauthSessionSecret: "test-oauth-session-secret-at-least-32-characters",
+    platformName: "Travel RAG",
     tgChatRag: {
       baseUrl: "https://tg-chat-rag.example.com/",
       bearerToken: "upstream-bearer-token-integration",
@@ -188,6 +189,12 @@ function createMockAppConfig(): AppConfig {
       logtoManagementApiResource: "https://management.example.com/",
       mcpUserRoleId: "test-mcp-user-role-id",
       sessionTtlSeconds: 604800,
+    },
+    proxy: {
+      baseUrl: "https://proxy.example.com/",
+      secret: "test-proxy-secret",
+      voyageApiKey: "test-voyage-key",
+      spiderApiKey: "test-spider-key",
     },
   };
   // END_BLOCK_BUILD_DETERMINISTIC_APP_CONFIG_FIXTURE_M_SERVER_INTEGRATION_TEST_002
@@ -531,6 +538,8 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
     portalHandler,
     usageTracker: mockUsageTracker,
     sitesSearchService: mockSitesSearchService,
+    countryCache: new Map([["jp", { countryCode: "jp", status: "active" as const, settings: { tg_chat_ids: ["jp-chat-001"] }, createdAt: new Date(), updatedAt: new Date() }]]),
+    db: {} as any,
   });
 
   const app = runtime.getApp();
@@ -601,7 +610,7 @@ function createIntegrationHarness(validBearerToken = "valid.integration.jwt"): I
       const toolName = typeof toolNameCandidate === "string" ? toolNameCandidate : "";
       const rawArgs = rpcRequest.params?.arguments ?? {};
 
-      const proxyResult = await proxyService.executeTool(toolName, rawArgs);
+      const proxyResult = await proxyService.executeTool(toolName, rawArgs, { chatIds: ["jp-chat-001"] });
 
       return new Response(
         JSON.stringify({
@@ -853,6 +862,8 @@ describe("M-SERVER FastMCP integration", () => {
       portalHandler,
       usageTracker: mockUsageTracker,
       sitesSearchService: mockSitesSearchService2,
+      countryCache: new Map([["jp", { countryCode: "jp", status: "active" as const, settings: { tg_chat_ids: ["jp-chat-001"] }, createdAt: new Date(), updatedAt: new Date() }]]),
+      db: {} as any,
     });
 
     const app = runtime.getApp();

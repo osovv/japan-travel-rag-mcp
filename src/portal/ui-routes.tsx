@@ -1,34 +1,38 @@
 // FILE: src/portal/ui-routes.tsx
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, and render MCP setup instructions for testers.
-//   SCOPE: Route /portal/* requests, render landing, login/register social-only auth pages, handle OAuth start/callback flow, render authenticated portal home and agent setup guide, and manage portal session lifecycle.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER
-//   LINKS: M-PORTAL-UI, M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER
+//   PURPOSE: Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, render MCP setup instructions for testers, and display available destinations from country_settings.
+//   SCOPE: Route /portal/* requests, render landing, login/register social-only auth pages, handle OAuth start/callback flow, render authenticated portal home with destination list and agent setup guide, and manage portal session lifecycle.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER, M-COUNTRY-SETTINGS, M-DB
+//   LINKS: M-PORTAL-UI, M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER, M-COUNTRY-SETTINGS, M-DB
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
 //   PortalUiError - Typed portal UI error wrapper with PORTAL_UI_ERROR code.
-//   PortalUiDependencies - Dependency contract for identity client, config, logger, and usage tracker.
+//   PortalUiDependencies - Dependency contract for identity client, config, logger, usage tracker, and database handle.
+//   getCountryDisplayName - Map country code to human-readable display name.
 //   handleLandingRequest - Serve / landing with primary redirect action to /portal.
 //   handlePortalRootRoute - Handle GET /portal and route to login/home by session state.
 //   handlePortalRegisterRoute - Handle GET /portal/register social-provider page (no password).
 //   handlePortalLoginRoute - Handle GET /portal/login social-provider page (no password).
 //   handlePortalOauthStartRoute - Handle GET /portal/auth/start, redirect to Logto OAuth.
 //   handlePortalOauthCallbackRoute - Handle GET /portal/auth/callback, code exchange + provisioning + session.
-//   handlePortalHomeRoute - Handle GET /portal/home authenticated page.
-//   handlePortalAgentSetupRoute - Handle GET /portal/integrations/agent-setup MCP guide page.
+//   handlePortalHomeRoute - Handle GET /portal/home authenticated page with destination list.
+//   handlePortalAgentSetupRoute - Handle GET /portal/integrations/agent-setup MCP guide page with multi-country guidance.
 //   handlePortalLogoutRoute - Handle POST /portal/logout, clear session.
 //   renderPortalLayout - Render shared portal HTML shell.
-//   renderPortalConnectionGuide - Render MCP setup instructions.
+//   renderPortalConnectionGuide - Render MCP setup instructions with platform branding and multi-destination guidance.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Add per-user usage statistics display to portal home with graceful degradation on stats query failure.
+//   LAST_CHANGE: v1.2.0 - Replace hardcoded "Japan Travel RAG" with config.platformName, add destination list from country_settings to portal home, update MCP setup guide for single-endpoint multi-country usage, add db to PortalUiDependencies.
+//   v1.1.0 - Add per-user usage statistics display to portal home with graceful degradation on stats query failure.
 //   v1.0.0 - Initial generation from development plan for M-PORTAL-UI with social-only OAuth pages, landing, portal home, agent setup guide, and session lifecycle handlers.
 // END_CHANGE_SUMMARY
 
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { AppConfig } from "../config/index";
+import { getCountriesByStatus } from "../countries/index";
 import type { Logger } from "../logger/index";
 import type { UsageTracker, UserUsageStats } from "../usage/tracker";
 import type { PortalIdentityClient } from "./identity-client";
@@ -51,6 +55,7 @@ export type PortalUiDependencies = {
   logger: Logger;
   identityClient: PortalIdentityClient;
   usageTracker: UsageTracker;
+  db: NodePgDatabase;
 };
 
 export class PortalUiError extends Error {
@@ -170,6 +175,31 @@ function deriveMcpEndpointUrl(publicUrl: string): string {
   // END_BLOCK_DERIVE_MCP_ENDPOINT_URL_FROM_CONFIG_M_PORTAL_UI_005
 }
 
+// START_CONTRACT: getCountryDisplayName
+//   PURPOSE: Map a country code to a human-readable display name for portal UI.
+//   INPUTS: { code: string - ISO 2-letter country code (lowercase) }
+//   OUTPUTS: { string - Human-readable country name }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-PORTAL-UI]
+// END_CONTRACT: getCountryDisplayName
+function getCountryDisplayName(code: string): string {
+  // START_BLOCK_MAP_COUNTRY_CODE_TO_DISPLAY_NAME_M_PORTAL_UI_020
+  const names: Record<string, string> = {
+    jp: "Japan",
+    it: "Italy",
+    cn: "China",
+    es: "Spain",
+    kr: "South Korea",
+    th: "Thailand",
+    vn: "Vietnam",
+    fr: "France",
+    de: "Germany",
+    gb: "United Kingdom",
+  };
+  return names[code] ?? code.toUpperCase();
+  // END_BLOCK_MAP_COUNTRY_CODE_TO_DISPLAY_NAME_M_PORTAL_UI_020
+}
+
 // START_CONTRACT: portalStyles
 //   PURPOSE: Return inline CSS styles for the portal UI pages.
 //   INPUTS: {}
@@ -277,20 +307,22 @@ export function renderPortalLayout(pageTitle: string, bodyHtml: string): string 
 }
 
 // START_CONTRACT: renderPortalConnectionGuide
-//   PURPOSE: Render MCP setup instructions content for the agent setup guide page.
-//   INPUTS: { mcpEndpointUrl: string - Fully qualified MCP endpoint URL }
+//   PURPOSE: Render MCP setup instructions content for the agent setup guide page with platform branding and multi-country guidance.
+//   INPUTS: { mcpEndpointUrl: string - Fully qualified MCP endpoint URL, platformName: string - Platform display name from config }
 //   OUTPUTS: { string - HTML content fragment with MCP connection guide }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
 // END_CONTRACT: renderPortalConnectionGuide
-export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
+export function renderPortalConnectionGuide(mcpEndpointUrl: string, platformName: string): string {
   // START_BLOCK_RENDER_MCP_CONNECTION_GUIDE_CONTENT_M_PORTAL_UI_008
   const escapedUrl = escapeHtml(mcpEndpointUrl);
+  const escapedPlatformName = escapeHtml(platformName);
+  const serverLabel = "travel-rag-mcp";
 
   return [
     `<div class="section-card">`,
     `<h2>MCP Connection Setup</h2>`,
-    `<p>Connect your AI assistant to the Japan Travel RAG server using the Model Context Protocol (MCP). Choose your app below and follow the instructions.</p>`,
+    `<p>Connect your AI assistant to the ${escapedPlatformName} server using the Model Context Protocol (MCP). A single <code>/mcp</code> endpoint serves all destinations. Choose your app below and follow the instructions.</p>`,
     `</div>`,
 
     `<div class="section-card">`,
@@ -302,6 +334,12 @@ export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
     `</button>`,
     `</div>`,
     `<p>Authentication: <strong>OAuth 2.0</strong> (automatic — you will be redirected to sign in when connecting)</p>`,
+    `</div>`,
+
+    // --- Multi-country guidance ---
+    `<div class="section-card">`,
+    `<h3>Multi-Destination Support</h3>`,
+    `<p>All travel tools accept a <code>country_code</code> parameter to specify the destination (e.g. <code>"jp"</code> for Japan, <code>"it"</code> for Italy). Your AI assistant will automatically infer the correct <code>country_code</code> from your query — no manual selection needed.</p>`,
     `</div>`,
 
     // --- Claude (web / desktop / mobile) ---
@@ -316,7 +354,7 @@ export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
     `<li>Click <strong>"Add"</strong></li>`,
     `<li>Complete the OAuth sign-in in your browser</li>`,
     `</ol>`,
-    `<p>To use in a conversation: click <strong>"+"</strong> at the bottom of the chat → <strong>Connectors</strong> → toggle on Japan Travel RAG.</p>`,
+    `<p>To use in a conversation: click <strong>"+"</strong> at the bottom of the chat → <strong>Connectors</strong> → toggle on ${escapedPlatformName}.</p>`,
     `<p class="agent-note">Team / Enterprise: an admin must first add the connector in Organization settings → Connectors, then members connect via Settings → Connectors.</p>`,
     `</div>`,
     `</details>`,
@@ -329,7 +367,7 @@ export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
     `<ol>`,
     `<li>Go to <strong>Settings → Apps &amp; Connectors → Advanced settings</strong> and enable <strong>Developer Mode</strong></li>`,
     `<li>Go to <strong>Settings → Connectors → Create</strong></li>`,
-    `<li>Enter a name (e.g. "Japan Travel RAG") and an optional description</li>`,
+    `<li>Enter a name (e.g. "${escapedPlatformName}") and an optional description</li>`,
     `<li>Paste the MCP endpoint URL as the <strong>Connector URL</strong></li>`,
     `<li>Click <strong>"Create"</strong></li>`,
     `</ol>`,
@@ -384,7 +422,7 @@ export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
     `<div class="agent-body">`,
     `<p>Grok currently supports remote MCP servers only via the <strong>xAI API</strong>, not through the grok.com web/mobile interface.</p>`,
     `<p>Developers can connect via the API by adding an MCP tool to the request:</p>`,
-    `<div class="code-block">{ "type": "mcp", "server_url": "${escapedUrl}", "server_label": "japan-travel-rag" }</div>`,
+    `<div class="code-block">{ "type": "mcp", "server_url": "${escapedUrl}", "server_label": "${serverLabel}" }</div>`,
     `<p class="agent-note">Consumer UI support may be added in the future.</p>`,
     `</div>`,
     `</details>`,
@@ -394,7 +432,7 @@ export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
     `<summary>Claude Code (CLI) <span class="agent-badge badge-paid">Pro / Max / Team</span></summary>`,
     `<div class="agent-body">`,
     `<p>For developers using <strong>Claude Code</strong> in the terminal:</p>`,
-    `<div class="code-block">claude mcp add --transport http japan-travel-rag ${escapedUrl}</div>`,
+    `<div class="code-block">claude mcp add --transport http ${serverLabel} ${escapedUrl}</div>`,
     `<p>Then authenticate inside Claude Code:</p>`,
     `<div class="code-block">/mcp</div>`,
     `<p>Select the server and follow the OAuth flow in your browser.</p>`,
@@ -457,15 +495,15 @@ export async function handleLandingRequest(
     `<div class="portal-center">`,
     `<div class="portal-card" style="text-align: center;">`,
     `<div class="portal-header">`,
-    `<h1 style="font-size: 2rem; margin-bottom: 0.75rem;">Japan Travel RAG</h1>`,
-    `<p style="font-size: 1rem; max-width: 24rem; margin: 0 auto;">Your AI-powered travel companion for Japan. Get curated recommendations, cultural insights, and local knowledge from real traveler conversations.</p>`,
+    `<h1 style="font-size: 2rem; margin-bottom: 0.75rem;">${escapeHtml(deps.config.platformName)}</h1>`,
+    `<p style="font-size: 1rem; max-width: 24rem; margin: 0 auto;">Your AI-powered travel companion. Get curated recommendations, cultural insights, and local knowledge from real traveler conversations.</p>`,
     `</div>`,
     `<a href="/portal" class="btn btn-primary btn-full" style="margin-top: 1rem; font-size: 1.05rem; padding: 0.85rem 1.5rem;">Get Started</a>`,
     `</div>`,
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout("Japan Travel RAG", body));
+  return buildHtmlResponse(200, renderPortalLayout(deps.config.platformName, body));
   // END_BLOCK_RENDER_LANDING_PAGE_M_PORTAL_UI_010
 }
 
@@ -554,7 +592,7 @@ export async function handlePortalRegisterRoute(
     `<div class="portal-card">`,
     `<div class="portal-header">`,
     `<h1>Create your account</h1>`,
-    `<p>Sign up with your social account to get started with Japan Travel RAG.</p>`,
+    `<p>Sign up with your social account to get started with ${escapeHtml(deps.config.platformName)}.</p>`,
     `</div>`,
     renderSocialButtons("register"),
     `<div class="alt-action">Already have an account? <a href="/portal/login">Sign in</a></div>`,
@@ -562,7 +600,7 @@ export async function handlePortalRegisterRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout("Sign Up - Japan Travel RAG", body));
+  return buildHtmlResponse(200, renderPortalLayout(`Sign Up - ${deps.config.platformName}`, body));
   // END_BLOCK_RENDER_REGISTER_PAGE_M_PORTAL_UI_013
 }
 
@@ -591,7 +629,7 @@ export async function handlePortalLoginRoute(
     `<div class="portal-card">`,
     `<div class="portal-header">`,
     `<h1>Welcome back</h1>`,
-    `<p>Sign in with your social account to access Japan Travel RAG.</p>`,
+    `<p>Sign in with your social account to access ${escapeHtml(deps.config.platformName)}.</p>`,
     `</div>`,
     renderSocialButtons("login"),
     `<div class="alt-action">Don't have an account? <a href="/portal/register">Sign up</a></div>`,
@@ -599,7 +637,7 @@ export async function handlePortalLoginRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout("Sign In - Japan Travel RAG", body));
+  return buildHtmlResponse(200, renderPortalLayout(`Sign In - ${deps.config.platformName}`, body));
   // END_BLOCK_RENDER_LOGIN_PAGE_M_PORTAL_UI_014
 }
 
@@ -853,12 +891,47 @@ export async function handlePortalHomeRoute(
     ].join("");
   }
 
+  // Query destination lists for display with graceful degradation
+  let destinationsHtml = "";
+  try {
+    const activeCountries = await getCountriesByStatus(deps.db, "active");
+    const comingSoonCountries = await getCountriesByStatus(deps.db, "coming_soon");
+
+    if (activeCountries.length > 0 || comingSoonCountries.length > 0) {
+      const activeItems = activeCountries
+        .map((c) => `<li style="padding: 0.4rem 0;"><strong>${escapeHtml(getCountryDisplayName(c.countryCode))}</strong> <span style="color: var(--accent); font-size: 0.85rem; font-weight: 600;">Active</span></li>`)
+        .join("");
+      const comingSoonItems = comingSoonCountries
+        .map((c) => `<li style="padding: 0.4rem 0;"><strong>${escapeHtml(getCountryDisplayName(c.countryCode))}</strong> <span style="color: var(--muted); font-size: 0.85rem; font-weight: 600;">Coming Soon</span></li>`)
+        .join("");
+      destinationsHtml = [
+        `<div class="section-card" style="margin-bottom: 1rem;">`,
+        `<h3>Available Destinations</h3>`,
+        `<ul style="list-style: none; padding: 0; margin: 0.5rem 0 0 0;">`,
+        activeItems,
+        comingSoonItems,
+        `</ul>`,
+        `</div>`,
+      ].join("");
+    }
+  } catch (error: unknown) {
+    const cause = error instanceof Error ? error.message : String(error);
+    logger.warn(
+      "Failed to fetch destinations; rendering page without destination list.",
+      "handlePortalHomeRoute",
+      "RENDER_PORTAL_HOME_PAGE",
+      { userId: session.sub, cause },
+    );
+  }
+
+  const escapedPlatformName = escapeHtml(deps.config.platformName);
+
   const body = [
     `<div class="portal-wrapper">`,
 
     // Navigation
     `<nav class="portal-nav">`,
-    `<a href="/portal" class="portal-nav-brand">Japan Travel RAG</a>`,
+    `<a href="/portal" class="portal-nav-brand">${escapedPlatformName}</a>`,
     `<div class="portal-nav-actions">`,
     `<form method="post" action="/portal/logout" style="margin: 0;">`,
     `<button type="submit" class="btn btn-logout">Sign out</button>`,
@@ -882,6 +955,9 @@ export async function handlePortalHomeRoute(
     // Usage Statistics
     usageHtml,
 
+    // Destinations
+    destinationsHtml,
+
     // Agent Setup card
     `<div class="section-card">`,
     `<h3>MCP Connection Setup</h3>`,
@@ -892,7 +968,7 @@ export async function handlePortalHomeRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout("Portal Home - Japan Travel RAG", body));
+  return buildHtmlResponse(200, renderPortalLayout(`Portal Home - ${deps.config.platformName}`, body));
   // END_BLOCK_RENDER_PORTAL_HOME_PAGE_M_PORTAL_UI_017
 }
 
@@ -931,14 +1007,15 @@ export async function handlePortalAgentSetupRoute(
     { userId: sessionResult.session.sub },
   );
 
-  const guideContent = renderPortalConnectionGuide(mcpEndpointUrl);
+  const guideContent = renderPortalConnectionGuide(mcpEndpointUrl, deps.config.platformName);
+  const escapedPlatformName = escapeHtml(deps.config.platformName);
 
   const body = [
     `<div class="portal-wrapper">`,
 
     // Navigation
     `<nav class="portal-nav">`,
-    `<a href="/portal" class="portal-nav-brand">Japan Travel RAG</a>`,
+    `<a href="/portal" class="portal-nav-brand">${escapedPlatformName}</a>`,
     `<div class="portal-nav-actions">`,
     `<a href="/portal/home" class="btn btn-outline">Back to Home</a>`,
     `<form method="post" action="/portal/logout" style="margin: 0;">`,
@@ -956,7 +1033,7 @@ export async function handlePortalAgentSetupRoute(
     `</div>`,
   ].join("");
 
-  return buildHtmlResponse(200, renderPortalLayout("Agent Setup - Japan Travel RAG", body));
+  return buildHtmlResponse(200, renderPortalLayout(`Agent Setup - ${deps.config.platformName}`, body));
   // END_BLOCK_RENDER_AGENT_SETUP_GUIDE_PAGE_M_PORTAL_UI_018
 }
 
