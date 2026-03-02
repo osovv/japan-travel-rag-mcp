@@ -1,13 +1,15 @@
 // FILE: src/db/schema.ts
 // VERSION: 1.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Unified Drizzle pgTable schemas for the entire application: API keys, curated site indexing pipeline, and usage tracking.
+//   PURPOSE: Unified Drizzle pgTable schemas for the entire application: API keys, curated site indexing pipeline, usage tracking, and country settings.
 //   SCOPE: Pure schema definitions and inferred types; no runtime SQL execution.
 //   DEPENDS: (none — schema-only module)
-//   LINKS: M-DB, M-API-KEY-REPOSITORY, M-SITE-SOURCES, M-USAGE-TRACKER
+//   LINKS: M-DB, M-API-KEY-REPOSITORY, M-SITE-SOURCES, M-USAGE-TRACKER, M-COUNTRY-SETTINGS
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
+//   countrySettingsTable - Per-country runtime config (country_code PK, status, JSONB settings, timestamps).
+//   CountrySettingSelect/Insert (type) - Inferred types for country_settings.
 //   apiKeysTable - API key persistence table for Bearer authentication (id PK, key_hash, label, expiry/revocation timestamps).
 //   siteSourcesTable - Curated site source registry (source_id PK, tier, domain, crawl config).
 //   sitePagesTable - Fetched pages linked to a source (page_id PK, source_id FK).
@@ -39,6 +41,16 @@ export const apiKeysTable = pgTable("api_keys", {
   expires_at: timestamp("expires_at", { withTimezone: true, mode: "date" }),
   revoked_at: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
   created_at: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+// ─── Country Settings ─────────────────────────────────────────────────────
+
+export const countrySettingsTable = pgTable("country_settings", {
+  countryCode: text("country_code").primaryKey(),
+  status: text("status").notNull().default("draft"),
+  settings: jsonb("settings").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
 });
 
 // ─── Site Sources ───────────────────────────────────────────────────────────
@@ -141,6 +153,9 @@ export const oauthTokenStoreTable = pgTable("oauth_token_store", {
 });
 
 // ─── Inferred Types ─────────────────────────────────────────────────────────
+
+export type CountrySettingSelect = InferSelectModel<typeof countrySettingsTable>;
+export type CountrySettingInsert = InferInsertModel<typeof countrySettingsTable>;
 
 export type SiteSourceSelect = InferSelectModel<typeof siteSourcesTable>;
 export type SiteSourceInsert = InferInsertModel<typeof siteSourcesTable>;

@@ -50,6 +50,23 @@ export async function bootstrapSitesSchema(db: NodePgDatabase, logger: Logger): 
     );
     // END_BLOCK_ENABLE_PGVECTOR_EXTENSION_M_DB_SITES_BOOTSTRAP_002
 
+    // START_BLOCK_CREATE_COUNTRY_SETTINGS_TABLE_M_DB_SITES_BOOTSTRAP_012
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS country_settings (
+        country_code TEXT PRIMARY KEY,
+        status       TEXT NOT NULL DEFAULT 'draft',
+        settings     JSONB NOT NULL DEFAULT '{}',
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    logger.info(
+      "country_settings table ensured.",
+      "bootstrapSitesSchema",
+      "CREATE_COUNTRY_SETTINGS_TABLE",
+    );
+    // END_BLOCK_CREATE_COUNTRY_SETTINGS_TABLE_M_DB_SITES_BOOTSTRAP_012
+
     // START_BLOCK_CREATE_SITE_SOURCES_TABLE_M_DB_SITES_BOOTSTRAP_003
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS site_sources (
