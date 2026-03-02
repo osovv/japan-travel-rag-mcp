@@ -1,5 +1,5 @@
 // FILE: src/tools/contracts.ts
-// VERSION: 1.5.0
+// VERSION: 1.6.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Define and export MCP tool schemas and tool allowlist for the proxy surface, plus local tool schemas for curated-site retrieval.
 //   SCOPE: Provide input types, tool metadata schemas, and zod-based runtime validators for proxied and local MCP tool inputs.
@@ -21,6 +21,9 @@
 //   LOCAL_TOOL_NAMES - Registry of local MCP tool names.
 //   TOOL_INPUT_JSON_SCHEMAS - JSON-schema-like metadata for supported proxied tool inputs.
 //   LOCAL_TOOL_INPUT_JSON_SCHEMAS - JSON-schema-like metadata for local tool inputs.
+//   COUNTRY_CODE_TOOL_NAMES - Set of tool names that require dynamic country_code enum parameter.
+//   ToolSchemas - Type for merged tool schemas with required/properties/additionalProperties.
+//   buildToolSchemas - Factory that produces tool schemas with dynamic country_code enum from active country codes.
 //   SchemaValidationError - Typed validation error with SCHEMA_VALIDATION_ERROR code.
 //   isProxiedToolName - Type guard for supported tool names.
 //   isLocalToolName - Type guard for local tool names.
@@ -34,8 +37,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.5.0 - Added search_sites and get_page_chunk local tool schemas, LOCAL_TOOL_INPUT_JSON_SCHEMAS, validator functions, and type exports.
-//   PREVIOUS: v1.4.1 - Aligned list_sources JSON metadata with strict validator behavior and clarified search_messages validation contract wording.
+//   LAST_CHANGE: v1.6.0 - Added country_code parameter to search_messages, list_sources, and search_sites Zod and JSON schemas. Created buildToolSchemas factory for dynamic country_code enum injection.
+//   PREVIOUS: v1.5.0 - Added search_sites and get_page_chunk local tool schemas, LOCAL_TOOL_INPUT_JSON_SCHEMAS, validator functions, and type exports.
 // END_CHANGE_SUMMARY
 
 import { z } from "zod";
@@ -101,12 +104,17 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
     type: "object",
     description:
       "Public input for search_messages. Caller may provide query and filters, but filters.chat_ids is forbidden and injected internally.",
-    required: ["query"],
+    required: ["query", "country_code"],
     additionalProperties: false,
     properties: {
       query: {
         type: "string",
         description: "Search query text sent to upstream semantic retrieval.",
+      },
+      country_code: {
+        type: "string",
+        description:
+          "ISO 3166-1 alpha-2 country code for the destination (e.g. 'jp', 'it', 'cn').",
       },
       top_k: {
         type: "integer",
@@ -203,8 +211,13 @@ export const TOOL_INPUT_JSON_SCHEMAS: Record<ProxiedToolName, ToolInputSchema> =
         minItems: 1,
         maxItems: 100,
       },
+      country_code: {
+        type: "string",
+        description:
+          "ISO 3166-1 alpha-2 country code for the destination (e.g. 'jp', 'it', 'cn').",
+      },
     },
-    required: ["message_uids"],
+    required: ["message_uids", "country_code"],
   },
 };
 
@@ -217,13 +230,18 @@ export const LOCAL_TOOL_INPUT_JSON_SCHEMAS: Record<LocalToolName, ToolInputSchem
     type: "object",
     description:
       "Input for search_sites. Searches curated site pages by semantic similarity. Requires a non-empty query string.",
-    required: ["query"],
+    required: ["query", "country_code"],
     additionalProperties: false,
     properties: {
       query: {
         type: "string",
         minLength: 1,
         description: "Search query text for semantic retrieval over curated site pages.",
+      },
+      country_code: {
+        type: "string",
+        description:
+          "ISO 3166-1 alpha-2 country code for the destination (e.g. 'jp', 'it', 'cn').",
       },
       top_k: {
         type: "integer",
@@ -261,6 +279,69 @@ export const LOCAL_TOOL_INPUT_JSON_SCHEMAS: Record<LocalToolName, ToolInputSchem
     },
   },
 };
+
+/** Names of tools that require a dynamic country_code enum parameter. */
+const COUNTRY_CODE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "search_messages",
+  "list_sources",
+  "search_sites",
+]);
+
+export type ToolSchemas = Record<
+  string,
+  {
+    type: "object";
+    properties: Record<string, unknown>;
+    required: string[];
+    additionalProperties?: boolean;
+  }
+>;
+
+// START_CONTRACT: buildToolSchemas
+//   PURPOSE: Produce merged tool schemas (proxied + local) with dynamic country_code enum injected into tools that need it.
+//   INPUTS: { activeCountryCodes: string[] - ISO 3166-1 alpha-2 codes active in the deployment }
+//   OUTPUTS: { ToolSchemas - Complete mapping of tool name to JSON-schema-like metadata with dynamic country_code enum }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-TOOLS-CONTRACTS]
+// END_CONTRACT: buildToolSchemas
+export function buildToolSchemas(activeCountryCodes: string[]): ToolSchemas {
+  // START_BLOCK_BUILD_TOOL_SCHEMAS_WITH_DYNAMIC_COUNTRY_CODE_ENUM_M_TOOLS_CONTRACTS_014
+  const countryCodeSchema = {
+    type: "string" as const,
+    enum: activeCountryCodes,
+    description:
+      "ISO 3166-1 alpha-2 country code for the destination (e.g. 'jp', 'it', 'cn').",
+  };
+
+  const allSourceSchemas: Record<string, ToolInputSchema> = {
+    ...TOOL_INPUT_JSON_SCHEMAS,
+    ...LOCAL_TOOL_INPUT_JSON_SCHEMAS,
+  };
+
+  const result: ToolSchemas = {};
+
+  for (const [toolName, schema] of Object.entries(allSourceSchemas)) {
+    const properties = { ...(schema.properties ?? {}) };
+    const required = [...(schema.required ?? [])];
+
+    if (COUNTRY_CODE_TOOL_NAMES.has(toolName)) {
+      properties["country_code"] = countryCodeSchema;
+      if (!required.includes("country_code")) {
+        required.push("country_code");
+      }
+    }
+
+    result[toolName] = {
+      type: "object",
+      properties,
+      required,
+      additionalProperties: schema.additionalProperties,
+    };
+  }
+
+  return result;
+  // END_BLOCK_BUILD_TOOL_SCHEMAS_WITH_DYNAMIC_COUNTRY_CODE_ENUM_M_TOOLS_CONTRACTS_014
+}
 
 // START_CONTRACT: isLocalToolName
 //   PURPOSE: Validate tool name membership in local tool registry.
@@ -308,6 +389,7 @@ export const SearchFiltersInputPublicSchema = z
 export const SearchMessagesInputPublicSchema = z
   .object({
     query: z.string().trim().min(1, SEARCH_MESSAGES_QUERY_REQUIRED_ERROR),
+    country_code: z.string().trim().min(1, "search_messages requires non-empty country_code."),
     top_k: z
       .number()
       .int()
@@ -360,12 +442,14 @@ export const ListSourcesInputSchema = z
       .array(z.string().trim().min(1, LIST_SOURCES_MESSAGE_UID_ENTRY_REQUIRED_ERROR))
       .min(1, LIST_SOURCES_MESSAGE_UIDS_MIN_ERROR)
       .max(100, LIST_SOURCES_MESSAGE_UIDS_MAX_ERROR),
+    country_code: z.string().trim().min(1, "list_sources requires non-empty country_code."),
   })
   .strict();
 
 export const SearchSitesInputSchema = z
   .object({
     query: z.string().trim().min(1, SEARCH_SITES_QUERY_REQUIRED_ERROR),
+    country_code: z.string().trim().min(1, "search_sites requires non-empty country_code."),
     top_k: z
       .number()
       .int()

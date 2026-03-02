@@ -1,24 +1,25 @@
 // FILE: src/tools/proxy-service.ts
-// VERSION: 1.2.0
+// VERSION: 1.3.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Apply policy-safe normalization and proxy supported MCP tool calls to tg-chat-rag.
-//   SCOPE: Enforce tool allowlist, validate inputs, inject internal search chat scope policy, call upstream methods API, and map results/errors to MCP proxy outputs.
+//   SCOPE: Enforce tool allowlist, validate inputs, inject per-country search chat scope policy, call upstream methods API, and map results/errors to MCP proxy outputs.
 //   DEPENDS: M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER
 //   LINKS: M-TOOL-PROXY, M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
+//   CountryContext - Per-country context carrying chat IDs for search scope policy.
 //   McpToolResult - Normalized MCP-compatible tool result payload.
 //   ProxyErrorCode - Error code union for proxy execution failures.
 //   ProxyExecutionError - Typed proxy execution error with code and details.
-//   ToolProxyService - Bound service interface for executing supported proxied tools.
+//   ToolProxyService - Bound service interface for executing supported proxied tools with country context.
 //   createToolProxyService - Build a reusable ToolProxyService with injected dependencies.
-//   executeTool - Validate tool input, enforce policy, call upstream, and shape MCP output.
+//   executeTool - Validate tool input, enforce policy with per-country chat IDs, call upstream, and shape MCP output.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.2.0 - Removed structuredContent from successful tool results to match FastMCP ContentResult strict output schema.
-//   PREVIOUS: v1.1.0 - Simplified executeTool orchestration to explicit validate -> policy -> upstream -> normalize flow while keeping deterministic error mapping and chat_ids policy enforcement.
+//   LAST_CHANGE: v1.3.0 - Added CountryContext parameter to executeTool and ToolProxyService, replacing hardcoded config.tgChatRag.chatIds with per-country chatIds for multi-tenant country architecture.
+//   PREVIOUS: v1.2.0 - Removed structuredContent from successful tool results to match FastMCP ContentResult strict output schema.
 // END_CHANGE_SUMMARY
 
 import type { AppConfig } from "../config/index";
@@ -34,6 +35,8 @@ import {
 import type { ProxiedToolName, SearchMessagesInputPublic } from "./contracts";
 
 type ValidatedToolInput = ReturnType<typeof validateToolInput>;
+
+export type CountryContext = { chatIds: string[] };
 
 export type McpToolResult = {
   content: Array<{
@@ -57,7 +60,7 @@ export class ProxyExecutionError extends Error {
 }
 
 export type ToolProxyService = {
-  executeTool(toolName: string, rawArgs: unknown): Promise<McpToolResult>;
+  executeTool(toolName: string, rawArgs: unknown, countryContext: CountryContext): Promise<McpToolResult>;
 };
 
 // START_CONTRACT: isPlainObject
@@ -168,16 +171,16 @@ function validateAndMapInput(
 }
 
 // START_CONTRACT: buildUpstreamPayloadWithPolicy
-//   PURPOSE: Build upstream payload and enforce internal search chat scope policy for search_messages.
-//   INPUTS: { toolName: ProxiedToolName - Supported tool name, validatedArgs: ValidatedToolInput - Validated input object, config: AppConfig - Runtime configuration, logger: Logger - Module logger }
+//   PURPOSE: Build upstream payload and enforce per-country search chat scope policy for search_messages.
+//   INPUTS: { toolName: ProxiedToolName - Supported tool name, validatedArgs: ValidatedToolInput - Validated input object, countryContext: CountryContext - Per-country chat ID context, logger: Logger - Module logger }
 //   OUTPUTS: { Record<string, unknown> - Upstream payload object }
 //   SIDE_EFFECTS: [Logs policy injection for search_messages, throws ProxyExecutionError on policy boundary violation]
-//   LINKS: [M-TOOL-PROXY, M-CONFIG, M-LOGGER]
+//   LINKS: [M-TOOL-PROXY, M-LOGGER]
 // END_CONTRACT: buildUpstreamPayloadWithPolicy
 function buildUpstreamPayloadWithPolicy(
   toolName: ProxiedToolName,
   validatedArgs: ValidatedToolInput,
-  config: AppConfig,
+  countryContext: CountryContext,
   logger: Logger,
 ): Record<string, unknown> {
   // START_BLOCK_APPLY_SEARCH_CHAT_SCOPE_POLICY_M_TOOL_PROXY_005
@@ -203,16 +206,16 @@ function buildUpstreamPayloadWithPolicy(
   const basePayload: Record<string, unknown> = { ...searchArgs };
   const existingFilters = isPlainObject(searchArgs.filters) ? { ...searchArgs.filters } : {};
 
-  existingFilters.chat_ids = [...config.tgChatRag.chatIds];
+  existingFilters.chat_ids = [...countryContext.chatIds];
   basePayload.filters = existingFilters;
 
   logger.info(
-    "Injected internal chat_ids policy for search_messages.",
+    "Injected per-country chat_ids policy for search_messages.",
     "executeTool",
     "APPLY_SEARCH_CHAT_SCOPE_POLICY",
     {
       toolName,
-      injectedChatIdsCount: config.tgChatRag.chatIds.length,
+      injectedChatIdsCount: countryContext.chatIds.length,
     },
   );
 
@@ -243,7 +246,7 @@ function buildMcpToolResult(upstreamResponse: Record<string, unknown>): McpToolR
 // START_CONTRACT: createToolProxyService
 //   PURPOSE: Create a bound proxy service with shared dependencies.
 //   INPUTS: { config: AppConfig - Runtime configuration, logger: Logger - Module logger, client: TgChatRagClient - Upstream client }
-//   OUTPUTS: { ToolProxyService - Service facade exposing executeTool }
+//   OUTPUTS: { ToolProxyService - Service facade exposing executeTool with CountryContext }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-TOOL-PROXY, M-CONFIG, M-LOGGER, M-TG-CHAT-RAG-CLIENT]
 // END_CONTRACT: createToolProxyService
@@ -254,8 +257,8 @@ export function createToolProxyService(
 ): ToolProxyService {
   // START_BLOCK_CREATE_BOUND_PROXY_SERVICE_M_TOOL_PROXY_007
   return {
-    executeTool: async (toolName: string, rawArgs: unknown) => {
-      return executeTool(config, logger, client, toolName, rawArgs);
+    executeTool: async (toolName: string, rawArgs: unknown, countryContext: CountryContext) => {
+      return executeTool(config, logger, client, toolName, rawArgs, countryContext);
     },
   };
   // END_BLOCK_CREATE_BOUND_PROXY_SERVICE_M_TOOL_PROXY_007
@@ -263,7 +266,7 @@ export function createToolProxyService(
 
 // START_CONTRACT: executeTool
 //   PURPOSE: Execute policy-safe tool proxy flow from input validation to upstream call and MCP response mapping.
-//   INPUTS: { config: AppConfig - Runtime configuration, logger: Logger - Module logger, client: TgChatRagClient - Upstream client, toolName: string - Requested tool name, rawArgs: unknown - Untrusted input args }
+//   INPUTS: { config: AppConfig - Runtime configuration, logger: Logger - Module logger, client: TgChatRagClient - Upstream client, toolName: string - Requested tool name, rawArgs: unknown - Untrusted input args, countryContext: CountryContext - Per-country chat ID context }
 //   OUTPUTS: { Promise<McpToolResult> - MCP-style tool execution result }
 //   SIDE_EFFECTS: [Performs logging and upstream HTTP call through client]
 //   LINKS: [M-TOOL-PROXY, M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER]
@@ -274,6 +277,7 @@ export async function executeTool(
   client: TgChatRagClient,
   toolName: string,
   rawArgs: unknown,
+  countryContext: CountryContext,
 ): Promise<McpToolResult> {
   // START_BLOCK_VALIDATE_ALLOWLIST_AND_INPUT_M_TOOL_PROXY_008
   const functionName = "executeTool";
@@ -307,7 +311,7 @@ export async function executeTool(
   const upstreamPayload = buildUpstreamPayloadWithPolicy(
     normalizedToolName,
     validatedArgs,
-    config,
+    countryContext,
     logger,
   );
   // END_BLOCK_APPLY_POLICY_AFTER_VALIDATION_M_TOOL_PROXY_009

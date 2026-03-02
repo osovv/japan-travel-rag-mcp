@@ -1,8 +1,8 @@
 // FILE: src/tools/site-sources.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Serve curated source registry via DB-backed read path with frozen seed data as bootstrap/fallback.
-//   SCOPE: Provide frozen seed data constant, empty input schema, typed interfaces, and DB query function for the get_site_sources tool.
+//   PURPOSE: Serve curated source registry via DB-backed read path with frozen seed data as bootstrap/fallback, filtered by country_code.
+//   SCOPE: Provide frozen seed data constant, country-scoped input schema, typed interfaces, and DB query function for the get_site_sources tool.
 //   DEPENDS: M-DB, M-LOGGER
 //   LINKS: M-SITE-SOURCES
 // END_MODULE_CONTRACT
@@ -12,16 +12,18 @@
 //   DescriptionAndTiers - Shape for the description text and tier array.
 //   SiteSource - Shape for a single curated source entry (with optional crawl_interval_minutes, max_pages).
 //   SiteSourcesResponse - Full response type: description_and_tiers + sources[].
-//   GetSiteSourcesInputSchema - Empty z.object({}) schema for FastMCP tool registration.
-//   SITE_SOURCES_RESPONSE - Frozen seed data constant containing curated source registry.
-//   getSiteSources - Query site_sources DB table and return SiteSourcesResponse; falls back to seed constant.
+//   GetSiteSourcesInputSchema - z.object({ country_code: z.string() }) schema for FastMCP tool registration.
+//   SITE_SOURCES_RESPONSE - Frozen seed data constant containing curated source registry (Japan-specific seed).
+//   getSiteSources - Query site_sources DB table filtered by country_code and return SiteSourcesResponse; falls back to seed constant for "jp" only.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
+//   v1.2.0 - Add country_code filtering: getSiteSources accepts countryCode param, schema includes country_code, fallback limited to "jp".
 //   v1.1.0 - Add DB-backed getSiteSources read path with fallback to seed constant; extend SiteSource with crawl_interval_minutes and max_pages.
 //   v1.0.0 - Initial creation with frozen seed data, empty input schema, and typed response contract.
 // END_CHANGE_SUMMARY
 
+import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 
@@ -85,15 +87,17 @@ export type SiteSourcesResponse = {
 };
 
 // START_CONTRACT: GetSiteSourcesInputSchema
-//   PURPOSE: Empty input schema for FastMCP tool registration — get_site_sources takes no parameters.
+//   PURPOSE: Input schema for FastMCP tool registration — get_site_sources requires country_code.
 //   INPUTS: (none — schema definition)
-//   OUTPUTS: z.ZodObject<{}>
+//   OUTPUTS: z.ZodObject<{ country_code: z.ZodString }>
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-SITE-SOURCES]
 // END_CONTRACT: GetSiteSourcesInputSchema
-// START_BLOCK_EMPTY_INPUT_SCHEMA_M_SITE_SOURCES_001
-export const GetSiteSourcesInputSchema = z.object({});
-// END_BLOCK_EMPTY_INPUT_SCHEMA_M_SITE_SOURCES_001
+// START_BLOCK_INPUT_SCHEMA_M_SITE_SOURCES_001
+export const GetSiteSourcesInputSchema = z.object({
+  country_code: z.string().describe("ISO 3166-1 alpha-2 country code (e.g. 'jp')"),
+});
+// END_BLOCK_INPUT_SCHEMA_M_SITE_SOURCES_001
 
 // START_CONTRACT: SITE_SOURCES_RESPONSE
 //   PURPOSE: Frozen seed data constant containing the curated source registry from the product guide.
@@ -239,16 +243,17 @@ export const SITE_SOURCES_RESPONSE: SiteSourcesResponse = Object.freeze({
 // END_BLOCK_FROZEN_SEED_DATA_M_SITE_SOURCES_002
 
 // START_CONTRACT: getSiteSources
-//   PURPOSE: Query site_sources table and return SiteSourcesResponse with live DB data; falls back to seed constant if DB is empty.
-//   INPUTS: { db: NodePgDatabase - Drizzle database handle, logger: Logger - Module logger }
+//   PURPOSE: Query site_sources table filtered by country_code and return SiteSourcesResponse; falls back to seed constant for "jp" only.
+//   INPUTS: { db: NodePgDatabase - Drizzle database handle, logger: Logger - Module logger, countryCode: string - ISO country code filter }
 //   OUTPUTS: { Promise<SiteSourcesResponse> }
-//   SIDE_EFFECTS: [Reads from site_sources table, logs query result]
+//   SIDE_EFFECTS: [Reads from site_sources table WHERE country_code = countryCode, logs query result]
 //   LINKS: [M-SITE-SOURCES, M-DB, M-LOGGER]
 // END_CONTRACT: getSiteSources
 // START_BLOCK_GET_SITE_SOURCES_FROM_DB_M_SITE_SOURCES_003
 export async function getSiteSources(
   db: NodePgDatabase,
   logger: Logger,
+  countryCode: string,
 ): Promise<SiteSourcesResponse> {
   try {
     const rows = await db
@@ -263,15 +268,27 @@ export async function getSiteSources(
         crawlIntervalMinutes: siteSourcesTable.crawlIntervalMinutes,
         maxPages: siteSourcesTable.maxPages,
       })
-      .from(siteSourcesTable);
+      .from(siteSourcesTable)
+      .where(sql`country_code = ${countryCode}`);
 
     if (rows.length === 0) {
+      if (countryCode === "jp") {
+        logger.info(
+          "No rows in site_sources table for country_code='jp'; returning seed constant as fallback.",
+          "getSiteSources",
+          "DB_EMPTY_FALLBACK_JP",
+        );
+        return SITE_SOURCES_RESPONSE;
+      }
       logger.info(
-        "No rows in site_sources table; returning seed constant as fallback.",
+        `No rows in site_sources table for country_code='${countryCode}'; returning empty sources.`,
         "getSiteSources",
-        "DB_EMPTY_FALLBACK",
+        "DB_EMPTY_NO_FALLBACK",
       );
-      return SITE_SOURCES_RESPONSE;
+      return {
+        description_and_tiers: SITE_SOURCES_RESPONSE.description_and_tiers,
+        sources: [],
+      };
     }
 
     const sources: SiteSource[] = rows.map((row) => ({
@@ -287,7 +304,7 @@ export async function getSiteSources(
     }));
 
     logger.info(
-      `Loaded ${sources.length} site sources from database.`,
+      `Loaded ${sources.length} site sources from database for country_code='${countryCode}'.`,
       "getSiteSources",
       "DB_READ_SUCCESS",
     );
@@ -298,12 +315,23 @@ export async function getSiteSources(
     };
   } catch (error: unknown) {
     const cause = error instanceof Error ? error.message : String(error);
+    if (countryCode === "jp") {
+      logger.warn(
+        `Failed to query site_sources table for country_code='jp'; returning seed constant as fallback. Cause: ${cause}`,
+        "getSiteSources",
+        "DB_READ_FALLBACK_ON_ERROR_JP",
+      );
+      return SITE_SOURCES_RESPONSE;
+    }
     logger.warn(
-      `Failed to query site_sources table; returning seed constant as fallback. Cause: ${cause}`,
+      `Failed to query site_sources table for country_code='${countryCode}'; returning empty sources. Cause: ${cause}`,
       "getSiteSources",
       "DB_READ_FALLBACK_ON_ERROR",
     );
-    return SITE_SOURCES_RESPONSE;
+    return {
+      description_and_tiers: SITE_SOURCES_RESPONSE.description_and_tiers,
+      sources: [],
+    };
   }
 }
 // END_BLOCK_GET_SITE_SOURCES_FROM_DB_M_SITE_SOURCES_003
