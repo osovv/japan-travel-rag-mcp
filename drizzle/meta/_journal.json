@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1772456787942,
+      "tag": "0000_curly_rocket_racer",
+      "breakpoints": true
+    }
+  ]
+}
