@@ -12,12 +12,14 @@
     "fixtures:spider:batch": "bash scripts/spider-batch-scrape-fixtures.sh"
   },
   "devDependencies": {
+    "@kitajs/ts-html-plugin": "^4.1.4",
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@kitajs/html": "^4.2.13",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@types/pg": "^8.16.0",
     "drizzle-kit": "^0.31.9",

@@ -6,6 +6,9 @@
     "module": "Preserve",
     "moduleDetection": "force",
     "jsx": "react-jsx",
+    "jsxImportSource": "@kitajs/html",
+    "types": ["bun", "@kitajs/html/htmx.d.ts", "@kitajs/html/alpine.d.ts"],
+    "plugins": [{ "name": "@kitajs/ts-html-plugin" }],
     "allowJs": true,
 
     // Bundler mode

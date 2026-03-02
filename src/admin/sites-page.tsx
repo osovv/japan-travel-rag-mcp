@@ -1,4 +1,4 @@
-// FILE: src/admin/sites-page.ts
+// FILE: src/admin/sites-page.tsx
 // VERSION: 1.4.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Query curated site source data with per-source index statistics and recent crawl job summaries for the Sites Management admin page, and render HTML views for the sites list and source create/edit forms.
@@ -32,6 +32,7 @@
 //   v1.0.0 - Initial creation with data layer types and fetchSitesPageData for M-ADMIN-SITES.
 // END_CHANGE_SUMMARY
 
+import * as Html from "@kitajs/html";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -842,24 +843,6 @@ export async function handleToggleSourceStatus(
   // END_BLOCK_TOGGLE_SOURCE_STATUS_M_ADMIN_SITES_019
 }
 
-// START_CONTRACT: escapeHtml
-//   PURPOSE: Escape user-controlled text before interpolation into HTML output to prevent XSS.
-//   INPUTS: { value: string - Raw text value that may contain special characters }
-//   OUTPUTS: { string - HTML-escaped text safe for text and attribute contexts }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-SITES]
-// END_CONTRACT: escapeHtml
-// START_BLOCK_ESCAPE_HTML_FOR_SITES_RENDERING_M_ADMIN_SITES_020
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-// END_BLOCK_ESCAPE_HTML_FOR_SITES_RENDERING_M_ADMIN_SITES_020
-
 // START_BLOCK_DEFINE_FORMAT_DATE_HELPER_M_ADMIN_SITES_021
 function formatDate(date: Date | null): string {
   if (date === null) {
@@ -870,56 +853,163 @@ function formatDate(date: Date | null): string {
 // END_BLOCK_DEFINE_FORMAT_DATE_HELPER_M_ADMIN_SITES_021
 
 // START_BLOCK_DEFINE_SITES_PAGE_STYLES_M_ADMIN_SITES_022
-const SITES_PAGE_STYLES = [
-  `<style>`,
-  `.badge { display:inline-block; font-size:0.78rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:999px; }`,
-  `.badge-active { background:#dcfce7; color:#166534; }`,
-  `.badge-paused { background:#f1f5f9; color:#475569; }`,
-  `.badge-completed { background:#dcfce7; color:#166534; }`,
-  `.badge-running { background:#dbeafe; color:#1e40af; }`,
-  `.badge-failed { background:#fef2f2; color:#991b1b; }`,
-  `.badge-pending { background:#fefce8; color:#854d0e; }`,
-  `.btn { display:inline-block; font-size:0.82rem; font-weight:600; padding:0.35rem 0.7rem; border-radius:0.4rem; border:1px solid transparent; cursor:pointer; text-decoration:none; text-align:center; font-family:inherit; line-height:1.4; }`,
-  `.btn-accent { background:var(--accent); color:#fff; }`,
-  `.btn-accent:hover { opacity:0.9; }`,
-  `.btn-warning { background:#f59e0b; color:#fff; }`,
-  `.btn-warning:hover { opacity:0.9; }`,
-  `.btn-danger { background:var(--danger, #991b1b); color:#fff; }`,
-  `.btn-danger:hover { opacity:0.9; }`,
-  `.btn-outline { background:transparent; border-color:var(--line); color:var(--fg); }`,
-  `.btn-outline:hover { background:#f8fafc; }`,
-  `.btn-sm { font-size:0.75rem; padding:0.25rem 0.5rem; }`,
-  `.actions-cell { display:flex; gap:0.35rem; align-items:center; flex-wrap:nowrap; }`,
-  `.actions-cell form { margin:0; }`,
-  `.form-group { display:grid; gap:0.3rem; margin-bottom:0.85rem; }`,
-  `.form-group label { font-weight:600; font-size:0.88rem; }`,
-  `.form-group input, .form-group select { width:100%; padding:0.55rem 0.65rem; border:1px solid var(--line); border-radius:0.4rem; font:inherit; background:#fff; }`,
-  `.form-group input:focus, .form-group select:focus { outline:2px solid var(--accent); outline-offset:1px; }`,
-  `.form-group input[readonly] { background:#f1f5f9; color:#64748b; cursor:not-allowed; }`,
-  `.field-error { color:var(--danger, #991b1b); font-size:0.82rem; }`,
-  `.form-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }`,
-  `.crawl-error-cell { max-width:20rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.82rem; color:var(--danger, #991b1b); }`,
-  `.country-group { border:1px solid var(--line, #e2e8f0); border-radius:0.5rem; overflow:hidden; }`,
-  `.country-group summary { cursor:pointer; padding:0.65rem 1rem; background:#f8fafc; font-weight:600; font-size:0.95rem; display:flex; align-items:center; gap:0.5rem; user-select:none; list-style:none; }`,
-  `.country-group summary::-webkit-details-marker { display:none; }`,
-  `.country-group summary::before { content:"\\25B6"; font-size:0.7rem; transition:transform 0.15s; display:inline-block; }`,
-  `.country-group[open] summary::before { transform:rotate(90deg); }`,
-  `.country-group summary .country-stats { font-weight:400; font-size:0.82rem; color:#64748b; margin-left:auto; }`,
-  `.country-group .country-body { padding:0; }`,
-  `.country-group .country-body .diag-table { border:none; border-radius:0; }`,
-  `.country-code-label { text-transform:uppercase; letter-spacing:0.05em; }`,
-  `</style>`,
-].join("");
+function SitesPageStyles(): string {
+  return (
+    <style>{`
+      .badge { display:inline-block; font-size:0.78rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:999px; }
+      .badge-active { background:#dcfce7; color:#166534; }
+      .badge-paused { background:#f1f5f9; color:#475569; }
+      .badge-completed { background:#dcfce7; color:#166534; }
+      .badge-running { background:#dbeafe; color:#1e40af; }
+      .badge-failed { background:#fef2f2; color:#991b1b; }
+      .badge-pending { background:#fefce8; color:#854d0e; }
+      .btn { display:inline-block; font-size:0.82rem; font-weight:600; padding:0.35rem 0.7rem; border-radius:0.4rem; border:1px solid transparent; cursor:pointer; text-decoration:none; text-align:center; font-family:inherit; line-height:1.4; }
+      .btn-accent { background:var(--accent); color:#fff; }
+      .btn-accent:hover { opacity:0.9; }
+      .btn-warning { background:#f59e0b; color:#fff; }
+      .btn-warning:hover { opacity:0.9; }
+      .btn-danger { background:var(--danger, #991b1b); color:#fff; }
+      .btn-danger:hover { opacity:0.9; }
+      .btn-outline { background:transparent; border-color:var(--line); color:var(--fg); }
+      .btn-outline:hover { background:#f8fafc; }
+      .btn-sm { font-size:0.75rem; padding:0.25rem 0.5rem; }
+      .actions-cell { display:flex; gap:0.35rem; align-items:center; flex-wrap:nowrap; }
+      .actions-cell form { margin:0; }
+      .form-group { display:grid; gap:0.3rem; margin-bottom:0.85rem; }
+      .form-group label { font-weight:600; font-size:0.88rem; }
+      .form-group input, .form-group select { width:100%; padding:0.55rem 0.65rem; border:1px solid var(--line); border-radius:0.4rem; font:inherit; background:#fff; }
+      .form-group input:focus, .form-group select:focus { outline:2px solid var(--accent); outline-offset:1px; }
+      .form-group input[readonly] { background:#f1f5f9; color:#64748b; cursor:not-allowed; }
+      .field-error { color:var(--danger, #991b1b); font-size:0.82rem; }
+      .form-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }
+      .crawl-error-cell { max-width:20rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.82rem; color:var(--danger, #991b1b); }
+      .country-group { border:1px solid var(--line, #e2e8f0); border-radius:0.5rem; overflow:hidden; }
+      .country-group summary { cursor:pointer; padding:0.65rem 1rem; background:#f8fafc; font-weight:600; font-size:0.95rem; display:flex; align-items:center; gap:0.5rem; user-select:none; list-style:none; }
+      .country-group summary::-webkit-details-marker { display:none; }
+      .country-group summary::before { content:"\\25B6"; font-size:0.7rem; transition:transform 0.15s; display:inline-block; }
+      .country-group[open] summary::before { transform:rotate(90deg); }
+      .country-group summary .country-stats { font-weight:400; font-size:0.82rem; color:#64748b; margin-left:auto; }
+      .country-group .country-body { padding:0; }
+      .country-group .country-body .diag-table { border:none; border-radius:0; }
+      .country-code-label { text-transform:uppercase; letter-spacing:0.05em; }
+    `}</style>
+  ) as string;
+}
 // END_BLOCK_DEFINE_SITES_PAGE_STYLES_M_ADMIN_SITES_022
 
-// START_CONTRACT: renderSitesContent
-//   PURPOSE: Render the main sites management page content with sources grouped by country_code in collapsible accordion sections, each containing a sources table (columns: Source ID, Name, Domain, Tier, Language, Status, Pages, Chunks, Embeddings, Last Crawl, Actions), followed by a recent crawl jobs table and an Add Source button.
+function SourceRow({ s }: { s: SiteSourceRow }): string {
+  const statusClass = s.status === "active" ? "badge-active" : "badge-paused";
+  const toggleTarget = s.status === "active" ? "paused" : "active";
+  const toggleLabel = s.status === "active" ? "Pause" : "Resume";
+  const sid = Html.escapeHtml(s.source_id);
+
+  return (
+    <tr>
+      <td><code>{sid}</code></td>
+      <td safe>{s.name}</td>
+      <td safe>{s.domain}</td>
+      <td>{String(s.tier)}</td>
+      <td safe>{s.language}</td>
+      <td><span class={`badge ${statusClass}`} safe>{s.status}</span></td>
+      <td>{String(s.page_count)}</td>
+      <td>{String(s.chunk_count)}</td>
+      <td>{String(s.embedding_count)}</td>
+      <td>{formatDate(s.last_crawl_at)}</td>
+      <td>
+        <div class="actions-cell">
+          <a href={`/admin/sites/${sid}/edit`} class="btn btn-accent btn-sm">Edit</a>
+          <form method="post" action={`/admin/sites/${sid}/toggle`}>
+            <input type="hidden" name="status" value={toggleTarget} />
+            <button type="submit" class="btn btn-warning btn-sm">{toggleLabel}</button>
+          </form>
+          <form method="post" action={`/admin/sites/${sid}/purge`} onsubmit={`return confirm('Purge all chunks and embeddings for ${sid}? The worker will re-crawl on next tick.')`}>
+            <button type="submit" class="btn btn-warning btn-sm">{"Purge & Recrawl"}</button>
+          </form>
+          <form method="post" action={`/admin/sites/${sid}/delete`} onsubmit={`return confirm('Delete source ${sid} and ALL its pages, chunks, and embeddings? This cannot be undone.')`}>
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+  ) as string;
+}
+
+function CountryAccordion({ cc, sources }: { cc: string; sources: SiteSourceRow[] }): string {
+  const totalPages = sources.reduce((sum, s) => sum + s.page_count, 0);
+  const totalChunks = sources.reduce((sum, s) => sum + s.chunk_count, 0);
+  const totalEmbeddings = sources.reduce((sum, s) => sum + s.embedding_count, 0);
+
+  return (
+    <details class="country-group" open>
+      <summary>
+        <span class="country-code-label" safe>{cc}</span>
+        <span class="country-stats">
+          {`${sources.length} source${sources.length !== 1 ? "s" : ""} \u00B7 ${totalPages} pages \u00B7 ${totalChunks} chunks \u00B7 ${totalEmbeddings} embeddings`}
+        </span>
+      </summary>
+      <div class="country-body">
+        <div class="table-wrap">
+          <table class="diag-table">
+            <thead>
+              <tr>
+                <th>Source ID</th>
+                <th>Name</th>
+                <th>Domain</th>
+                <th>Tier</th>
+                <th>Language</th>
+                <th>Status</th>
+                <th>Pages</th>
+                <th>Chunks</th>
+                <th>Embeddings</th>
+                <th>Last Crawl</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => <SourceRow s={s} />)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  ) as string;
+}
+
+function CrawlJobRow({ j }: { j: CrawlJobRow }): string {
+  const jobStatusClass =
+    j.status === "completed"
+      ? "badge-completed"
+      : j.status === "running"
+        ? "badge-running"
+        : j.status === "failed"
+          ? "badge-failed"
+          : "badge-pending";
+
+  return (
+    <tr>
+      <td><code safe>{j.crawl_job_id}</code></td>
+      <td><code safe>{j.source_id}</code></td>
+      <td><span class={`badge ${jobStatusClass}`} safe>{j.status}</span></td>
+      <td>{formatDate(j.started_at)}</td>
+      <td>{formatDate(j.finished_at)}</td>
+      <td>{String(j.pages_fetched)}</td>
+      <td>
+        {j.error !== null
+          ? <span class="crawl-error-cell" title={Html.escapeHtml(j.error)} safe>{j.error}</span>
+          : "--"}
+      </td>
+    </tr>
+  ) as string;
+}
+
+// START_CONTRACT: SitesContent
+//   PURPOSE: Render the main sites management page content with sources grouped by country_code in collapsible accordion sections, each containing a sources table, followed by a recent crawl jobs table and an Add Source button.
 //   INPUTS: { data: SitesPageData - Page data model with sources and recentCrawlJobs arrays }
 //   OUTPUTS: { string - HTML content fragment for the sites management page }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-SITES]
-// END_CONTRACT: renderSitesContent
-export function renderSitesContent(data: SitesPageData): string {
+// END_CONTRACT: SitesContent
+export function SitesContent(data: SitesPageData): string {
   // START_BLOCK_RENDER_SITES_MANAGEMENT_PAGE_CONTENT_M_ADMIN_SITES_023
 
   // Group sources by country_code preserving query order
@@ -934,161 +1024,66 @@ export function renderSitesContent(data: SitesPageData): string {
     }
   }
 
-  const tableHeader = [
-    `<thead>`,
-    `<tr>`,
-    `<th>Source ID</th>`,
-    `<th>Name</th>`,
-    `<th>Domain</th>`,
-    `<th>Tier</th>`,
-    `<th>Language</th>`,
-    `<th>Status</th>`,
-    `<th>Pages</th>`,
-    `<th>Chunks</th>`,
-    `<th>Embeddings</th>`,
-    `<th>Last Crawl</th>`,
-    `<th>Actions</th>`,
-    `</tr>`,
-    `</thead>`,
-  ].join("");
-
-  const renderSourceRow = (s: SiteSourceRow): string => {
-    const statusClass = s.status === "active" ? "badge-active" : "badge-paused";
-    const toggleTarget = s.status === "active" ? "paused" : "active";
-    const toggleLabel = s.status === "active" ? "Pause" : "Resume";
-    const sid = escapeHtml(s.source_id);
-
-    return [
-      `<tr>`,
-      `<td><code>${sid}</code></td>`,
-      `<td>${escapeHtml(s.name)}</td>`,
-      `<td>${escapeHtml(s.domain)}</td>`,
-      `<td>${s.tier}</td>`,
-      `<td>${escapeHtml(s.language)}</td>`,
-      `<td><span class="badge ${statusClass}">${escapeHtml(s.status)}</span></td>`,
-      `<td>${s.page_count}</td>`,
-      `<td>${s.chunk_count}</td>`,
-      `<td>${s.embedding_count}</td>`,
-      `<td>${escapeHtml(formatDate(s.last_crawl_at))}</td>`,
-      `<td>`,
-      `<div class="actions-cell">`,
-      `<a href="/admin/sites/${sid}/edit" class="btn btn-accent btn-sm">Edit</a>`,
-      `<form method="post" action="/admin/sites/${sid}/toggle">`,
-      `<input type="hidden" name="status" value="${escapeHtml(toggleTarget)}" />`,
-      `<button type="submit" class="btn btn-warning btn-sm">${escapeHtml(toggleLabel)}</button>`,
-      `</form>`,
-      `<form method="post" action="/admin/sites/${sid}/purge" onsubmit="return confirm('Purge all chunks and embeddings for ${sid}? The worker will re-crawl on next tick.')">`,
-      `<button type="submit" class="btn btn-warning btn-sm">Purge &amp; Recrawl</button>`,
-      `</form>`,
-      `<form method="post" action="/admin/sites/${sid}/delete" onsubmit="return confirm('Delete source ${sid} and ALL its pages, chunks, and embeddings? This cannot be undone.')">`,
-      `<button type="submit" class="btn btn-danger btn-sm">Delete</button>`,
-      `</form>`,
-      `</div>`,
-      `</td>`,
-      `</tr>`,
-    ].join("");
-  };
-
-  const countryAccordions = Array.from(grouped.entries())
-    .map(([cc, sources]) => {
-      const totalPages = sources.reduce((sum, s) => sum + s.page_count, 0);
-      const totalChunks = sources.reduce((sum, s) => sum + s.chunk_count, 0);
-      const totalEmbeddings = sources.reduce((sum, s) => sum + s.embedding_count, 0);
-      const rows = sources.map(renderSourceRow).join("");
-
-      return [
-        `<details class="country-group" open>`,
-        `<summary>`,
-        `<span class="country-code-label">${escapeHtml(cc)}</span>`,
-        `<span class="country-stats">${sources.length} source${sources.length !== 1 ? "s" : ""} &middot; ${totalPages} pages &middot; ${totalChunks} chunks &middot; ${totalEmbeddings} embeddings</span>`,
-        `</summary>`,
-        `<div class="country-body">`,
-        `<div class="table-wrap">`,
-        `<table class="diag-table">`,
-        tableHeader,
-        `<tbody>`,
-        rows,
-        `</tbody>`,
-        `</table>`,
-        `</div>`,
-        `</div>`,
-        `</details>`,
-      ].join("");
-    })
-    .join("");
-
-  const crawlJobRows = data.recentCrawlJobs
-    .map((j) => {
-      const jobStatusClass =
-        j.status === "completed"
-          ? "badge-completed"
-          : j.status === "running"
-            ? "badge-running"
-            : j.status === "failed"
-              ? "badge-failed"
-              : "badge-pending";
-
-      return [
-        `<tr>`,
-        `<td><code>${escapeHtml(j.crawl_job_id)}</code></td>`,
-        `<td><code>${escapeHtml(j.source_id)}</code></td>`,
-        `<td><span class="badge ${jobStatusClass}">${escapeHtml(j.status)}</span></td>`,
-        `<td>${escapeHtml(formatDate(j.started_at))}</td>`,
-        `<td>${escapeHtml(formatDate(j.finished_at))}</td>`,
-        `<td>${j.pages_fetched}</td>`,
-        `<td>${j.error !== null ? `<span class="crawl-error-cell" title="${escapeHtml(j.error)}">${escapeHtml(j.error)}</span>` : "--"}</td>`,
-        `</tr>`,
-      ].join("");
-    })
-    .join("");
-
-  return [
-    SITES_PAGE_STYLES,
-    `<section id="sites-management" class="stack">`,
-    `<section class="card">`,
-    `<h2>Sites Management</h2>`,
-    `<p class="muted">Manage curated site sources grouped by country. ${data.sources.length} total source${data.sources.length !== 1 ? "s" : ""} across ${grouped.size} countr${grouped.size !== 1 ? "ies" : "y"}.</p>`,
-    `</section>`,
-    `<section class="card">`,
-    grouped.size > 0
-      ? `<div class="stack">${countryAccordions}</div>`
-      : `<p class="muted" style="text-align:center;">No site sources configured.</p>`,
-    `<div style="margin-top:0.75rem;">`,
-    `<a href="/admin/sites/new" class="btn btn-accent">Add Source</a>`,
-    `</div>`,
-    `</section>`,
-    `<section class="card table-wrap">`,
-    `<h3>Recent Crawl Jobs</h3>`,
-    `<table class="diag-table">`,
-    `<thead>`,
-    `<tr>`,
-    `<th>Crawl Job ID</th>`,
-    `<th>Source ID</th>`,
-    `<th>Status</th>`,
-    `<th>Started At</th>`,
-    `<th>Finished At</th>`,
-    `<th>Pages Fetched</th>`,
-    `<th>Error</th>`,
-    `</tr>`,
-    `</thead>`,
-    `<tbody>`,
-    crawlJobRows || `<tr><td colspan="7" class="muted" style="text-align:center;">No crawl jobs recorded.</td></tr>`,
-    `</tbody>`,
-    `</table>`,
-    `</section>`,
-    `</section>`,
-  ].join("");
+  return (
+    <>
+      <SitesPageStyles />
+      <section id="sites-management" class="stack">
+        <section class="card">
+          <h2>Sites Management</h2>
+          <p class="muted">{`Manage curated site sources grouped by country. ${data.sources.length} total source${data.sources.length !== 1 ? "s" : ""} across ${grouped.size} countr${grouped.size !== 1 ? "ies" : "y"}.`}</p>
+        </section>
+        <section class="card">
+          {grouped.size > 0
+            ? <div class="stack">
+                {Array.from(grouped.entries()).map(([cc, sources]) => (
+                  <CountryAccordion cc={cc} sources={sources} />
+                ))}
+              </div>
+            : <p class="muted" style="text-align:center;">No site sources configured.</p>}
+          <div style="margin-top:0.75rem;">
+            <a href="/admin/sites/new" class="btn btn-accent">Add Source</a>
+          </div>
+        </section>
+        <section class="card table-wrap">
+          <h3>Recent Crawl Jobs</h3>
+          <table class="diag-table">
+            <thead>
+              <tr>
+                <th>Crawl Job ID</th>
+                <th>Source ID</th>
+                <th>Status</th>
+                <th>Started At</th>
+                <th>Finished At</th>
+                <th>Pages Fetched</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recentCrawlJobs.length > 0
+                ? data.recentCrawlJobs.map((j) => <CrawlJobRow j={j} />)
+                : <tr><td colspan="7" class="muted" style="text-align:center;">No crawl jobs recorded.</td></tr>}
+            </tbody>
+          </table>
+        </section>
+      </section>
+    </>
+  ) as string;
   // END_BLOCK_RENDER_SITES_MANAGEMENT_PAGE_CONTENT_M_ADMIN_SITES_023
 }
 
-// START_CONTRACT: renderSourceForm
+function FieldErrors({ errors, field }: { errors?: Record<string, string[]>; field: string }): string {
+  if (!errors || !errors[field]) return "";
+  return (<>{errors[field].map((msg) => <p class="field-error" safe>{msg}</p>)}</>) as string;
+}
+
+// START_CONTRACT: SourceForm
 //   PURPOSE: Render create or edit form for a site source with field validation error display and PRG-compatible form actions.
-//   INPUTS: { params: { mode: "create" | "edit" - Form mode, source?: SiteSourceRow - Existing source data for edit mode, errors?: Record<string, string[]> - Per-field Zod validation errors } }
+//   INPUTS: { params: { mode: "create" | "edit", source?: SiteSourceRow, errors?: Record<string, string[]> } }
 //   OUTPUTS: { string - HTML content fragment for the source create/edit form }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-SITES]
-// END_CONTRACT: renderSourceForm
-export function renderSourceForm(params: {
+// END_CONTRACT: SourceForm
+export function SourceForm(params: {
   mode: "create" | "edit";
   source?: SiteSourceRow;
   errors?: Record<string, string[]>;
@@ -1098,121 +1093,101 @@ export function renderSourceForm(params: {
   const isEdit = mode === "edit";
   const title = isEdit ? "Edit Source" : "Add New Source";
   const action = isEdit && source
-    ? `/admin/sites/${escapeHtml(source.source_id)}/edit`
+    ? `/admin/sites/${Html.escapeHtml(source.source_id)}/edit`
     : "/admin/sites";
 
   const val = (field: keyof SiteSourceRow): string => {
     if (source && source[field] !== null && source[field] !== undefined) {
-      return escapeHtml(String(source[field]));
+      return Html.escapeHtml(String(source[field]));
     }
     return "";
   };
 
-  const fieldErrors = (field: string): string => {
-    if (!errors || !errors[field]) {
-      return "";
-    }
-    return errors[field]
-      .map((msg) => `<p class="field-error">${escapeHtml(msg)}</p>`)
-      .join("");
-  };
+  const tierOptions = [0, 1, 2].map((t) => {
+    const selected = source && source.tier === t;
+    return <option value={String(t)} selected={selected || undefined}>{`Tier ${t}`}</option>;
+  });
 
-  const tierOptions = [0, 1, 2]
-    .map((t) => {
-      const selected = source && source.tier === t ? " selected" : "";
-      return `<option value="${t}"${selected}>Tier ${t}</option>`;
-    })
-    .join("");
+  return (
+    <>
+      <SitesPageStyles />
+      <section id="source-form" class="stack">
+        <section class="card">
+          <h2 safe>{title}</h2>
+          {isEdit && source
+            ? <p class="muted">Editing source <code safe>{source.source_id}</code>.</p>
+            : <p class="muted">Create a new curated site source for crawling and indexing.</p>}
+        </section>
+        <section class="card">
+          <form method="post" action={action}>
+            <div class="form-group">
+              <label for="source_id">Source ID</label>
+              {isEdit
+                ? <input type="text" id="source_id" name="source_id" value={val("source_id")} readonly />
+                : <input type="text" id="source_id" name="source_id" value={val("source_id")} required placeholder="e.g. japan_guide" pattern="^[a-z0-9_]+$" minlength="3" maxlength="50" />}
+              <FieldErrors errors={errors} field="source_id" />
+            </div>
 
-  return [
-    SITES_PAGE_STYLES,
-    `<section id="source-form" class="stack">`,
-    `<section class="card">`,
-    `<h2>${escapeHtml(title)}</h2>`,
-    isEdit && source
-      ? `<p class="muted">Editing source <code>${escapeHtml(source.source_id)}</code>.</p>`
-      : `<p class="muted">Create a new curated site source for crawling and indexing.</p>`,
-    `</section>`,
-    `<section class="card">`,
-    `<form method="post" action="${escapeHtml(action)}">`,
+            <div class="form-group">
+              <label for="country_code">Country Code</label>
+              {isEdit
+                ? <input type="text" id="country_code" name="country_code" value={val("country_code")} readonly />
+                : <input type="text" id="country_code" name="country_code" value={val("country_code") || "jp"} required placeholder="e.g. jp" pattern="^[a-z]+$" minlength="2" maxlength="10" />}
+              <FieldErrors errors={errors} field="country_code" />
+            </div>
 
-    // source_id field
-    `<div class="form-group">`,
-    `<label for="source_id">Source ID</label>`,
-    isEdit
-      ? `<input type="text" id="source_id" name="source_id" value="${val("source_id")}" readonly />`
-      : `<input type="text" id="source_id" name="source_id" value="${val("source_id")}" required placeholder="e.g. japan_guide" pattern="^[a-z0-9_]+$" minlength="3" maxlength="50" />`,
-    fieldErrors("source_id"),
-    `</div>`,
+            <div class="form-group">
+              <label for="name">Name</label>
+              <input type="text" id="name" name="name" value={val("name")} required maxlength="200" placeholder="e.g. Japan Guide" />
+              <FieldErrors errors={errors} field="name" />
+            </div>
 
-    // country_code field
-    `<div class="form-group">`,
-    `<label for="country_code">Country Code</label>`,
-    isEdit
-      ? `<input type="text" id="country_code" name="country_code" value="${val("country_code")}" readonly />`
-      : `<input type="text" id="country_code" name="country_code" value="${val("country_code") || "jp"}" required placeholder="e.g. jp" pattern="^[a-z]+$" minlength="2" maxlength="10" />`,
-    fieldErrors("country_code"),
-    `</div>`,
+            <div class="form-group">
+              <label for="domain">Domain</label>
+              <input type="text" id="domain" name="domain" value={val("domain")} required maxlength="500" placeholder="e.g. https://www.japan-guide.com" />
+              <FieldErrors errors={errors} field="domain" />
+            </div>
 
-    // name field
-    `<div class="form-group">`,
-    `<label for="name">Name</label>`,
-    `<input type="text" id="name" name="name" value="${val("name")}" required maxlength="200" placeholder="e.g. Japan Guide" />`,
-    fieldErrors("name"),
-    `</div>`,
+            <div class="form-group">
+              <label for="tier">Tier</label>
+              <select id="tier" name="tier" required>
+                {tierOptions}
+              </select>
+              <FieldErrors errors={errors} field="tier" />
+            </div>
 
-    // domain field
-    `<div class="form-group">`,
-    `<label for="domain">Domain</label>`,
-    `<input type="text" id="domain" name="domain" value="${val("domain")}" required maxlength="500" placeholder="e.g. https://www.japan-guide.com" />`,
-    fieldErrors("domain"),
-    `</div>`,
+            <div class="form-group">
+              <label for="language">Language</label>
+              <input type="text" id="language" name="language" value={val("language")} required maxlength="20" placeholder="e.g. en" />
+              <FieldErrors errors={errors} field="language" />
+            </div>
 
-    // tier field
-    `<div class="form-group">`,
-    `<label for="tier">Tier</label>`,
-    `<select id="tier" name="tier" required>`,
-    tierOptions,
-    `</select>`,
-    fieldErrors("tier"),
-    `</div>`,
+            <div class="form-group">
+              <label for="focus">Focus</label>
+              <input type="text" id="focus" name="focus" value={val("focus")} required maxlength="500" placeholder="e.g. General Japan travel information" />
+              <FieldErrors errors={errors} field="focus" />
+            </div>
 
-    // language field
-    `<div class="form-group">`,
-    `<label for="language">Language</label>`,
-    `<input type="text" id="language" name="language" value="${val("language")}" required maxlength="20" placeholder="e.g. en" />`,
-    fieldErrors("language"),
-    `</div>`,
+            <div class="form-group">
+              <label for="crawl_interval_minutes">Crawl Interval (minutes)</label>
+              <input type="number" id="crawl_interval_minutes" name="crawl_interval_minutes" value={val("crawl_interval_minutes") || "1440"} required min="60" />
+              <FieldErrors errors={errors} field="crawl_interval_minutes" />
+            </div>
 
-    // focus field
-    `<div class="form-group">`,
-    `<label for="focus">Focus</label>`,
-    `<input type="text" id="focus" name="focus" value="${val("focus")}" required maxlength="500" placeholder="e.g. General Japan travel information" />`,
-    fieldErrors("focus"),
-    `</div>`,
+            <div class="form-group">
+              <label for="max_pages">Max Pages</label>
+              <input type="number" id="max_pages" name="max_pages" value={val("max_pages") || "100"} required min="1" max="1000" />
+              <FieldErrors errors={errors} field="max_pages" />
+            </div>
 
-    // crawl_interval_minutes field
-    `<div class="form-group">`,
-    `<label for="crawl_interval_minutes">Crawl Interval (minutes)</label>`,
-    `<input type="number" id="crawl_interval_minutes" name="crawl_interval_minutes" value="${val("crawl_interval_minutes") || "1440"}" required min="60" />`,
-    fieldErrors("crawl_interval_minutes"),
-    `</div>`,
-
-    // max_pages field
-    `<div class="form-group">`,
-    `<label for="max_pages">Max Pages</label>`,
-    `<input type="number" id="max_pages" name="max_pages" value="${val("max_pages") || "100"}" required min="1" max="1000" />`,
-    fieldErrors("max_pages"),
-    `</div>`,
-
-    // form actions
-    `<div class="form-actions">`,
-    `<button type="submit" class="btn btn-accent">${isEdit ? "Save Changes" : "Create Source"}</button>`,
-    `<a href="/admin/sites" class="btn btn-outline">Cancel</a>`,
-    `</div>`,
-    `</form>`,
-    `</section>`,
-    `</section>`,
-  ].join("");
+            <div class="form-actions">
+              <button type="submit" class="btn btn-accent">{isEdit ? "Save Changes" : "Create Source"}</button>
+              <a href="/admin/sites" class="btn btn-outline">Cancel</a>
+            </div>
+          </form>
+        </section>
+      </section>
+    </>
+  ) as string;
   // END_BLOCK_RENDER_SOURCE_CREATE_EDIT_FORM_M_ADMIN_SITES_024
 }

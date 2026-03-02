@@ -1,4 +1,4 @@
-// FILE: src/admin/countries-page.ts
+// FILE: src/admin/countries-page.tsx
 // VERSION: 1.0.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Query country settings data with per-country source counts for the Countries Management admin page, and render HTML views for the countries list and country create/edit forms.
@@ -23,6 +23,7 @@
 //   LAST_CHANGE: v1.0.0 - Initial countries management admin page.
 // END_CHANGE_SUMMARY
 
+import * as Html from "@kitajs/html";
 import { sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { Logger } from "../logger/index";
@@ -333,15 +334,6 @@ function parseTgChatIds(raw: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 function formatDate(date: Date | null): string {
   if (date === null) return "--";
   return date.toISOString().replace("T", " ").slice(0, 19);
@@ -349,34 +341,36 @@ function formatDate(date: Date | null): string {
 
 // ─── Rendering ──────────────────────────────────────────────────────────────
 
-const COUNTRIES_PAGE_STYLES = [
-  `<style>`,
-  `.badge { display:inline-block; font-size:0.78rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:999px; }`,
-  `.badge-active { background:#dcfce7; color:#166534; }`,
-  `.badge-draft { background:#f1f5f9; color:#475569; }`,
-  `.badge-coming_soon { background:#dbeafe; color:#1e40af; }`,
-  `.badge-maintenance { background:#fefce8; color:#854d0e; }`,
-  `.btn { display:inline-block; font-size:0.82rem; font-weight:600; padding:0.35rem 0.7rem; border-radius:0.4rem; border:1px solid transparent; cursor:pointer; text-decoration:none; text-align:center; font-family:inherit; line-height:1.4; }`,
-  `.btn-accent { background:var(--accent); color:#fff; }`,
-  `.btn-accent:hover { opacity:0.9; }`,
-  `.btn-danger { background:var(--danger, #991b1b); color:#fff; }`,
-  `.btn-danger:hover { opacity:0.9; }`,
-  `.btn-outline { background:transparent; border-color:var(--line); color:var(--fg); }`,
-  `.btn-outline:hover { background:#f8fafc; }`,
-  `.btn-sm { font-size:0.75rem; padding:0.25rem 0.5rem; }`,
-  `.actions-cell { display:flex; gap:0.35rem; align-items:center; flex-wrap:nowrap; }`,
-  `.actions-cell form { margin:0; }`,
-  `.form-group { display:grid; gap:0.3rem; margin-bottom:0.85rem; }`,
-  `.form-group label { font-weight:600; font-size:0.88rem; }`,
-  `.form-group input, .form-group select, .form-group textarea { width:100%; padding:0.55rem 0.65rem; border:1px solid var(--line); border-radius:0.4rem; font:inherit; background:#fff; }`,
-  `.form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }`,
-  `.form-group input[readonly] { background:#f1f5f9; color:#64748b; cursor:not-allowed; }`,
-  `.form-group .hint { color:#64748b; font-size:0.82rem; }`,
-  `.field-error { color:var(--danger, #991b1b); font-size:0.82rem; }`,
-  `.form-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }`,
-  `.chat-ids-cell { max-width:18rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem; }`,
-  `</style>`,
-].join("");
+function CountriesPageStyles(): string {
+  return (
+    <style>{`
+      .badge { display:inline-block; font-size:0.78rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:999px; }
+      .badge-active { background:#dcfce7; color:#166534; }
+      .badge-draft { background:#f1f5f9; color:#475569; }
+      .badge-coming_soon { background:#dbeafe; color:#1e40af; }
+      .badge-maintenance { background:#fefce8; color:#854d0e; }
+      .btn { display:inline-block; font-size:0.82rem; font-weight:600; padding:0.35rem 0.7rem; border-radius:0.4rem; border:1px solid transparent; cursor:pointer; text-decoration:none; text-align:center; font-family:inherit; line-height:1.4; }
+      .btn-accent { background:var(--accent); color:#fff; }
+      .btn-accent:hover { opacity:0.9; }
+      .btn-danger { background:var(--danger, #991b1b); color:#fff; }
+      .btn-danger:hover { opacity:0.9; }
+      .btn-outline { background:transparent; border-color:var(--line); color:var(--fg); }
+      .btn-outline:hover { background:#f8fafc; }
+      .btn-sm { font-size:0.75rem; padding:0.25rem 0.5rem; }
+      .actions-cell { display:flex; gap:0.35rem; align-items:center; flex-wrap:nowrap; }
+      .actions-cell form { margin:0; }
+      .form-group { display:grid; gap:0.3rem; margin-bottom:0.85rem; }
+      .form-group label { font-weight:600; font-size:0.88rem; }
+      .form-group input, .form-group select, .form-group textarea { width:100%; padding:0.55rem 0.65rem; border:1px solid var(--line); border-radius:0.4rem; font:inherit; background:#fff; }
+      .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline:2px solid var(--accent); outline-offset:1px; }
+      .form-group input[readonly] { background:#f1f5f9; color:#64748b; cursor:not-allowed; }
+      .form-group .hint { color:#64748b; font-size:0.82rem; }
+      .field-error { color:var(--danger, #991b1b); font-size:0.82rem; }
+      .form-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }
+      .chat-ids-cell { max-width:18rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.85rem; }
+    `}</style>
+  ) as string;
+}
 
 const STATUS_DISPLAY: Record<string, string> = {
   draft: "Draft",
@@ -385,85 +379,92 @@ const STATUS_DISPLAY: Record<string, string> = {
   maintenance: "Maintenance",
 };
 
-// START_CONTRACT: renderCountriesContent
+function CountryRowItem({ c }: { c: CountryRow }): string {
+  const statusClass = `badge-${c.status}`;
+  const statusLabel = STATUS_DISPLAY[c.status] ?? c.status;
+  const code = Html.escapeHtml(c.country_code);
+  const tgChatIds = Array.isArray(c.settings.tg_chat_ids)
+    ? (c.settings.tg_chat_ids as string[]).join(", ")
+    : "--";
+
+  return (
+    <tr>
+      <td><code>{code}</code></td>
+      <td><span class={`badge ${statusClass}`} safe>{statusLabel}</span></td>
+      <td><span class="chat-ids-cell" title={Html.escapeHtml(tgChatIds)} safe>{tgChatIds}</span></td>
+      <td>{String(c.source_count)}</td>
+      <td>{formatDate(c.created_at)}</td>
+      <td>{formatDate(c.updated_at)}</td>
+      <td>
+        <div class="actions-cell">
+          <a href={`/admin/countries/${code}/edit`} class="btn btn-accent btn-sm">Edit</a>
+          <form method="post" action={`/admin/countries/${code}/delete`} onsubmit={`return confirm('Delete country ${code}? This cannot be undone.')`}>
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+  ) as string;
+}
+
+function FieldErrors({ errors, field }: { errors?: Record<string, string[]>; field: string }): string {
+  if (!errors || !errors[field]) return "";
+  return (<>{errors[field].map((msg) => <p class="field-error" safe>{msg}</p>)}</>) as string;
+}
+
+// START_CONTRACT: CountriesContent
 //   PURPOSE: Render the main countries management page content with countries table and Add Country button.
 //   INPUTS: { data: CountriesPageData - Page data model with countries array }
 //   OUTPUTS: { string - HTML content fragment for the countries management page }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-COUNTRIES]
-// END_CONTRACT: renderCountriesContent
-export function renderCountriesContent(data: CountriesPageData): string {
-  const countryRows = data.countries
-    .map((c) => {
-      const statusClass = `badge-${c.status}`;
-      const statusLabel = STATUS_DISPLAY[c.status] ?? c.status;
-      const code = escapeHtml(c.country_code);
-      const tgChatIds = Array.isArray(c.settings.tg_chat_ids)
-        ? (c.settings.tg_chat_ids as string[]).join(", ")
-        : "--";
-
-      return [
-        `<tr>`,
-        `<td><code>${code}</code></td>`,
-        `<td><span class="badge ${statusClass}">${escapeHtml(statusLabel)}</span></td>`,
-        `<td><span class="chat-ids-cell" title="${escapeHtml(tgChatIds)}">${escapeHtml(tgChatIds)}</span></td>`,
-        `<td>${c.source_count}</td>`,
-        `<td>${escapeHtml(formatDate(c.created_at))}</td>`,
-        `<td>${escapeHtml(formatDate(c.updated_at))}</td>`,
-        `<td>`,
-        `<div class="actions-cell">`,
-        `<a href="/admin/countries/${code}/edit" class="btn btn-accent btn-sm">Edit</a>`,
-        `<form method="post" action="/admin/countries/${code}/delete" onsubmit="return confirm('Delete country ${code}? This cannot be undone.')">`,
-        `<button type="submit" class="btn btn-danger btn-sm">Delete</button>`,
-        `</form>`,
-        `</div>`,
-        `</td>`,
-        `</tr>`,
-      ].join("");
-    })
-    .join("");
-
-  return [
-    COUNTRIES_PAGE_STYLES,
-    `<section id="countries-management" class="stack">`,
-    `<section class="card">`,
-    `<h2>Countries Management</h2>`,
-    `<p class="muted">Manage country destinations, their statuses, and per-country Telegram chat IDs.</p>`,
-    `</section>`,
-    `<section class="card table-wrap">`,
-    `<h3>Countries (${data.countries.length})</h3>`,
-    `<table class="diag-table">`,
-    `<thead>`,
-    `<tr>`,
-    `<th>Code</th>`,
-    `<th>Status</th>`,
-    `<th>TG Chat IDs</th>`,
-    `<th>Sources</th>`,
-    `<th>Created</th>`,
-    `<th>Updated</th>`,
-    `<th>Actions</th>`,
-    `</tr>`,
-    `</thead>`,
-    `<tbody>`,
-    countryRows || `<tr><td colspan="7" class="muted" style="text-align:center;">No countries configured.</td></tr>`,
-    `</tbody>`,
-    `</table>`,
-    `<div style="margin-top:0.75rem;">`,
-    `<a href="/admin/countries/new" class="btn btn-accent">Add Country</a>`,
-    `</div>`,
-    `</section>`,
-    `</section>`,
-  ].join("");
+// END_CONTRACT: CountriesContent
+export function CountriesContent(data: CountriesPageData): string {
+  return (
+    <>
+      <CountriesPageStyles />
+      <section id="countries-management" class="stack">
+        <section class="card">
+          <h2>Countries Management</h2>
+          <p class="muted">Manage country destinations, their statuses, and per-country Telegram chat IDs.</p>
+        </section>
+        <section class="card table-wrap">
+          <h3>{`Countries (${data.countries.length})`}</h3>
+          <table class="diag-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Status</th>
+                <th>TG Chat IDs</th>
+                <th>Sources</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.countries.length > 0
+                ? data.countries.map((c) => <CountryRowItem c={c} />)
+                : <tr><td colspan="7" class="muted" style="text-align:center;">No countries configured.</td></tr>}
+            </tbody>
+          </table>
+          <div style="margin-top:0.75rem;">
+            <a href="/admin/countries/new" class="btn btn-accent">Add Country</a>
+          </div>
+        </section>
+      </section>
+    </>
+  ) as string;
 }
 
-// START_CONTRACT: renderCountryForm
+// START_CONTRACT: CountryForm
 //   PURPOSE: Render create or edit form for a country with field validation error display.
 //   INPUTS: { params: { mode: "create" | "edit", country?: CountryRow, errors?: Record<string, string[]> } }
 //   OUTPUTS: { string - HTML content fragment for the country create/edit form }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-COUNTRIES]
-// END_CONTRACT: renderCountryForm
-export function renderCountryForm(params: {
+// END_CONTRACT: CountryForm
+export function CountryForm(params: {
   mode: "create" | "edit";
   country?: CountryRow;
   errors?: Record<string, string[]>;
@@ -472,76 +473,64 @@ export function renderCountryForm(params: {
   const isEdit = mode === "edit";
   const title = isEdit ? "Edit Country" : "Add New Country";
   const action = isEdit && country
-    ? `/admin/countries/${escapeHtml(country.country_code)}/edit`
+    ? `/admin/countries/${Html.escapeHtml(country.country_code)}/edit`
     : "/admin/countries";
 
-  const fieldErrors = (field: string): string => {
-    if (!errors || !errors[field]) return "";
-    return errors[field]
-      .map((msg) => `<p class="field-error">${escapeHtml(msg)}</p>`)
-      .join("");
-  };
-
   const currentStatus = country?.status ?? "draft";
-  const statusOptions = VALID_STATUSES
-    .map((s) => {
-      const selected = s === currentStatus ? " selected" : "";
-      const label = STATUS_DISPLAY[s] ?? s;
-      return `<option value="${s}"${selected}>${escapeHtml(label)}</option>`;
-    })
-    .join("");
+  const statusOptions = VALID_STATUSES.map((s) => {
+    const selected = s === currentStatus;
+    const label = STATUS_DISPLAY[s] ?? s;
+    return <option value={s} selected={selected || undefined} safe>{label}</option>;
+  });
 
   const tgChatIdsValue = country?.settings?.tg_chat_ids
     ? (country.settings.tg_chat_ids as string[]).join("\n")
     : "";
 
-  return [
-    COUNTRIES_PAGE_STYLES,
-    `<section id="country-form" class="stack">`,
-    `<section class="card">`,
-    `<h2>${escapeHtml(title)}</h2>`,
-    isEdit && country
-      ? `<p class="muted">Editing country <code>${escapeHtml(country.country_code)}</code>.</p>`
-      : `<p class="muted">Add a new country destination with its configuration.</p>`,
-    `</section>`,
-    `<section class="card">`,
-    `<form method="post" action="${escapeHtml(action)}">`,
+  return (
+    <>
+      <CountriesPageStyles />
+      <section id="country-form" class="stack">
+        <section class="card">
+          <h2 safe>{title}</h2>
+          {isEdit && country
+            ? <p class="muted">Editing country <code safe>{country.country_code}</code>.</p>
+            : <p class="muted">Add a new country destination with its configuration.</p>}
+        </section>
+        <section class="card">
+          <form method="post" action={action}>
+            <div class="form-group">
+              <label for="country_code">Country Code</label>
+              {isEdit
+                ? <input type="text" id="country_code" name="country_code" value={Html.escapeHtml(country?.country_code ?? "")} readonly />
+                : <input type="text" id="country_code" name="country_code" value="" required placeholder="e.g. jp, it, cn" pattern="^[a-z]{'{'}2{'}'}$" maxlength="2" />}
+              <p class="hint">ISO 3166-1 alpha-2 code (2 lowercase letters).</p>
+              <FieldErrors errors={errors} field="country_code" />
+            </div>
 
-    // country_code field
-    `<div class="form-group">`,
-    `<label for="country_code">Country Code</label>`,
-    isEdit
-      ? `<input type="text" id="country_code" name="country_code" value="${escapeHtml(country?.country_code ?? "")}" readonly />`
-      : `<input type="text" id="country_code" name="country_code" value="" required placeholder="e.g. jp, it, cn" pattern="^[a-z]{2}$" maxlength="2" />`,
-    `<p class="hint">ISO 3166-1 alpha-2 code (2 lowercase letters).</p>`,
-    fieldErrors("country_code"),
-    `</div>`,
+            <div class="form-group">
+              <label for="status">Status</label>
+              <select id="status" name="status" required>
+                {statusOptions}
+              </select>
+              <p class="hint">draft = hidden, active = live for tool calls, coming_soon = teaser, maintenance = temporarily down.</p>
+              <FieldErrors errors={errors} field="status" />
+            </div>
 
-    // status field
-    `<div class="form-group">`,
-    `<label for="status">Status</label>`,
-    `<select id="status" name="status" required>`,
-    statusOptions,
-    `</select>`,
-    `<p class="hint">draft = hidden, active = live for tool calls, coming_soon = teaser, maintenance = temporarily down.</p>`,
-    fieldErrors("status"),
-    `</div>`,
+            <div class="form-group">
+              <label for="tg_chat_ids">Telegram Chat IDs</label>
+              <textarea id="tg_chat_ids" name="tg_chat_ids" rows="4" placeholder="One chat ID per line" safe>{tgChatIdsValue}</textarea>
+              <p class="hint">One Telegram chat ID per line. Used by search_messages tool to filter upstream queries.</p>
+              <FieldErrors errors={errors} field="tg_chat_ids" />
+            </div>
 
-    // tg_chat_ids field
-    `<div class="form-group">`,
-    `<label for="tg_chat_ids">Telegram Chat IDs</label>`,
-    `<textarea id="tg_chat_ids" name="tg_chat_ids" rows="4" placeholder="One chat ID per line">${escapeHtml(tgChatIdsValue)}</textarea>`,
-    `<p class="hint">One Telegram chat ID per line. Used by search_messages tool to filter upstream queries.</p>`,
-    fieldErrors("tg_chat_ids"),
-    `</div>`,
-
-    // form actions
-    `<div class="form-actions">`,
-    `<button type="submit" class="btn btn-accent">${isEdit ? "Save Changes" : "Create Country"}</button>`,
-    `<a href="/admin/countries" class="btn btn-outline">Cancel</a>`,
-    `</div>`,
-    `</form>`,
-    `</section>`,
-    `</section>`,
-  ].join("");
+            <div class="form-actions">
+              <button type="submit" class="btn btn-accent">{isEdit ? "Save Changes" : "Create Country"}</button>
+              <a href="/admin/countries" class="btn btn-outline">Cancel</a>
+            </div>
+          </form>
+        </section>
+      </section>
+    </>
+  ) as string;
 }

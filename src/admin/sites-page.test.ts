@@ -2,7 +2,7 @@
 // VERSION: 1.0.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Unit tests for the M-ADMIN-SITES module: Zod validation schemas, CRUD operations, rendering functions, and page data fetching.
-//   SCOPE: Test CreateSourceInputSchema/UpdateSourceInputSchema validation, handleCreateSource/handleUpdateSource/handleDeleteSource/handleToggleSourceStatus CRUD behavior, renderSitesContent/renderSourceForm HTML output, and fetchSitesPageData data layer.
+//   SCOPE: Test CreateSourceInputSchema/UpdateSourceInputSchema validation, handleCreateSource/handleUpdateSource/handleDeleteSource/handleToggleSourceStatus CRUD behavior, SitesContent/SourceForm HTML output, and fetchSitesPageData data layer.
 //   DEPENDS: M-ADMIN-SITES, M-LOGGER, M-DB
 //   LINKS: M-ADMIN-SITES-TEST, M-ADMIN-SITES, M-LOGGER, M-DB
 // END_MODULE_CONTRACT
@@ -12,7 +12,7 @@
 //   createMockDb - Mock db with call recording for CRUD and fetch tests.
 //   createTestSitesPageData - Build deterministic SitesPageData fixture.
 //   ZodValidationSchemaTests - Validate CreateSourceInputSchema and UpdateSourceInputSchema acceptance and rejection.
-//   RenderingTests - Verify renderSitesContent and renderSourceForm HTML output.
+//   RenderingTests - Verify SitesContent and SourceForm HTML output.
 //   CRUDOperationTests - Verify handleCreateSource, handleUpdateSource, handleDeleteSource, handleToggleSourceStatus behavior with mock db.
 //   FetchSitesPageDataTests - Verify fetchSitesPageData data assembly and error wrapping.
 // END_MODULE_MAP
@@ -31,8 +31,8 @@ import {
   handleUpdateSource,
   handleDeleteSource,
   handleToggleSourceStatus,
-  renderSitesContent,
-  renderSourceForm,
+  SitesContent,
+  SourceForm,
   fetchSitesPageData,
   AdminSitesError,
 } from "./sites-page";
@@ -220,10 +220,10 @@ describe("M-ADMIN-SITES test suite", () => {
 
   // START_BLOCK_RENDERING_TESTS_M_ADMIN_SITES_TEST_006
   describe("Rendering", () => {
-    describe("renderSitesContent", () => {
+    describe("SitesContent", () => {
       it("produces HTML with source table rows grouped by country", () => {
         const data = createTestSitesPageData();
-        const html = renderSitesContent(data);
+        const html = SitesContent(data);
 
         expect(html).toContain("Source ID");
         expect(html).toContain("Name");
@@ -247,7 +247,7 @@ describe("M-ADMIN-SITES test suite", () => {
 
       it("shows empty state when no sources", () => {
         const data: SitesPageData = { sources: [], recentCrawlJobs: [] };
-        const html = renderSitesContent(data);
+        const html = SitesContent(data);
 
         expect(html).toContain("No site sources configured.");
       });
@@ -274,7 +274,7 @@ describe("M-ADMIN-SITES test suite", () => {
           ],
           recentCrawlJobs: [],
         };
-        const html = renderSitesContent(data);
+        const html = SitesContent(data);
 
         expect(html).toContain("&lt;script&gt;");
         expect(html).toContain("&quot;xss&quot;");
@@ -282,9 +282,9 @@ describe("M-ADMIN-SITES test suite", () => {
       });
     });
 
-    describe("renderSourceForm", () => {
+    describe("SourceForm", () => {
       it("in create mode includes source_id input field without readonly", () => {
-        const html = renderSourceForm({ mode: "create" });
+        const html = SourceForm({ mode: "create" });
 
         expect(html).toContain('id="source_id"');
         expect(html).toContain('name="source_id"');
@@ -299,7 +299,7 @@ describe("M-ADMIN-SITES test suite", () => {
 
       it("in edit mode shows source_id as read-only", () => {
         const source = createTestSitesPageData().sources[0];
-        const html = renderSourceForm({ mode: "edit", source });
+        const html = SourceForm({ mode: "edit", source });
 
         expect(html).toContain("readonly");
         expect(html).toContain('value="japan_guide"');
@@ -310,7 +310,7 @@ describe("M-ADMIN-SITES test suite", () => {
           source_id: ["source_id must be at least 3 characters"],
           name: ["name is required"],
         };
-        const html = renderSourceForm({ mode: "create", errors });
+        const html = SourceForm({ mode: "create", errors });
 
         expect(html).toContain("field-error");
         expect(html).toContain("source_id must be at least 3 characters");

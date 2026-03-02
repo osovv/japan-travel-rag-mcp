@@ -20,8 +20,8 @@
 //   handlePortalHomeRoute - Handle GET /portal/home authenticated page with destination list.
 //   handlePortalAgentSetupRoute - Handle GET /portal/integrations/agent-setup MCP guide page with multi-country guidance.
 //   handlePortalLogoutRoute - Handle POST /portal/logout, clear session.
-//   renderPortalLayout - Render shared portal HTML shell.
-//   renderPortalConnectionGuide - Render MCP setup instructions with platform branding and multi-destination guidance.
+//   PortalLayout - Render shared portal HTML shell.
+//   PortalConnectionGuide - Render MCP setup instructions with platform branding and multi-destination guidance.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
@@ -31,6 +31,7 @@
 //   v1.0.0 - Initial generation from development plan for M-PORTAL-UI with social-only OAuth pages, landing, portal home, agent setup guide, and session lifecycle handlers.
 // END_CHANGE_SUMMARY
 
+import * as Html from "@kitajs/html";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { AppConfig } from "../config/index";
 import { getCountriesByStatus } from "../countries/index";
@@ -98,24 +99,6 @@ function toPortalUiError(
     cause,
   });
   // END_BLOCK_NORMALIZE_UNKNOWN_ERRORS_TO_PORTAL_UI_ERROR_M_PORTAL_UI_001
-}
-
-// START_CONTRACT: escapeHtml
-//   PURPOSE: Escape text before interpolation into HTML output.
-//   INPUTS: { value: string - Raw text value that may contain special characters }
-//   OUTPUTS: { string - HTML-escaped text safe for text and attribute contexts }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-PORTAL-UI]
-// END_CONTRACT: escapeHtml
-function escapeHtml(value: string): string {
-  // START_BLOCK_ESCAPE_TEXT_FOR_SAFE_HTML_RENDERING_M_PORTAL_UI_002
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-  // END_BLOCK_ESCAPE_TEXT_FOR_SAFE_HTML_RENDERING_M_PORTAL_UI_002
 }
 
 // START_CONTRACT: buildHtmlResponse
@@ -202,270 +185,267 @@ function getCountryDisplayName(code: string): string {
   // END_BLOCK_MAP_COUNTRY_CODE_TO_DISPLAY_NAME_M_PORTAL_UI_020
 }
 
-// START_CONTRACT: portalStyles
+// START_CONTRACT: PortalStyles
 //   PURPOSE: Return inline CSS styles for the portal UI pages.
 //   INPUTS: {}
-//   OUTPUTS: { string - CSS style block content }
+//   OUTPUTS: { string - CSS style element }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
-// END_CONTRACT: portalStyles
-function portalStyles(): string {
+// END_CONTRACT: PortalStyles
+function PortalStyles(): string {
   // START_BLOCK_DEFINE_PORTAL_CSS_STYLES_M_PORTAL_UI_006
-  return [
-    `:root { color-scheme: light; --bg:#f0f4f8; --fg:#1e293b; --card:#ffffff; --line:#cbd5e1; --accent:#0d9488; --accent-hover:#0f766e; --accent-soft:#ccfbf1; --muted:#64748b; --danger:#b91c1c; }`,
-    `* { box-sizing: border-box; margin: 0; padding: 0; }`,
-    `body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: linear-gradient(135deg, #dbeafe 0%, #f0f4f8 40%, #e2e8f0 100%); color: var(--fg); min-height: 100vh; }`,
-    `.portal-wrapper { max-width: 48rem; margin: 0 auto; padding: 2rem 1rem; }`,
-    `.portal-center { display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 1rem; }`,
-    `.portal-card { background: var(--card); border: 1px solid var(--line); border-radius: 0.75rem; padding: 2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); width: 100%; max-width: 28rem; }`,
-    `.portal-card-wide { max-width: 48rem; }`,
-    `.portal-header { text-align: center; margin-bottom: 1.5rem; }`,
-    `.portal-header h1 { font-size: 1.75rem; font-weight: 700; color: var(--fg); margin-bottom: 0.5rem; }`,
-    `.portal-header p { color: var(--muted); font-size: 0.95rem; line-height: 1.5; }`,
-    `.portal-nav { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--line); }`,
-    `.portal-nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--accent); text-decoration: none; }`,
-    `.portal-nav-actions { display: flex; gap: 0.75rem; align-items: center; }`,
-    `.btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.7rem 1.25rem; border-radius: 0.5rem; font-size: 0.95rem; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }`,
-    `.btn-primary { background: var(--accent); color: #fff; }`,
-    `.btn-primary:hover { background: var(--accent-hover); }`,
-    `.btn-outline { background: transparent; color: var(--fg); border: 1px solid var(--line); }`,
-    `.btn-outline:hover { background: #f8fafc; }`,
-    `.btn-google { background: #ffffff; color: #3c4043; border: 1px solid #dadce0; width: 100%; margin-bottom: 0.75rem; font-weight: 500; }`,
-    `.btn-google:hover { background: #f8f9fa; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }`,
-    `.btn-github { background: #24292f; color: #ffffff; width: 100%; margin-bottom: 0.75rem; font-weight: 500; }`,
-    `.btn-github:hover { background: #1b1f23; }`,
-    `.btn-logout { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 0.5rem 1rem; font-size: 0.85rem; }`,
-    `.btn-logout:hover { background: #fef2f2; color: var(--danger); border-color: #fecaca; }`,
-    `.btn-full { width: 100%; }`,
-    `.divider { text-align: center; margin: 1rem 0; color: var(--muted); font-size: 0.85rem; }`,
-    `.section-card { background: var(--card); border: 1px solid var(--line); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }`,
-    `.section-card h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.75rem; }`,
-    `.section-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--fg); }`,
-    `.section-card p { color: var(--muted); font-size: 0.92rem; line-height: 1.6; margin-bottom: 0.5rem; }`,
-    `.endpoint-box { position: relative; background: #f1f5f9; border: 1px solid var(--line); border-radius: 0.5rem; padding: 0.75rem 2.75rem 0.75rem 1rem; font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace; font-size: 0.85rem; word-break: break-all; color: var(--accent-hover); margin: 0.5rem 0; }`,
-    `.endpoint-copy { position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.35rem; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; transition: color 0.15s, border-color 0.15s; }`,
-    `.endpoint-copy:hover { color: var(--accent); border-color: var(--accent); }`,
-    `.endpoint-copy.copied { color: var(--accent); }`,
-    `.code-block { background: #1e293b; color: #e2e8f0; border-radius: 0.5rem; padding: 1rem; font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace; font-size: 0.82rem; line-height: 1.6; overflow-x: auto; margin: 0.75rem 0; white-space: pre; }`,
-    `.steps { list-style: none; counter-reset: step; padding: 0; margin: 1rem 0; }`,
-    `.steps li { counter-increment: step; padding: 0.6rem 0 0.6rem 2.5rem; position: relative; font-size: 0.92rem; color: var(--fg); line-height: 1.5; }`,
-    `.steps li::before { content: counter(step); position: absolute; left: 0; top: 0.55rem; width: 1.75rem; height: 1.75rem; background: var(--accent-soft); color: var(--accent-hover); border-radius: 50%; font-size: 0.82rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }`,
-    `.link { color: var(--accent); text-decoration: none; font-weight: 500; }`,
-    `.link:hover { text-decoration: underline; }`,
-    `.alt-action { text-align: center; margin-top: 1.25rem; font-size: 0.88rem; color: var(--muted); }`,
-    `.alt-action a { color: var(--accent); text-decoration: none; font-weight: 500; }`,
-    `.alt-action a:hover { text-decoration: underline; }`,
-    `.flash { border-radius: 0.5rem; padding: 0.65rem 0.75rem; margin-bottom: 1rem; border: 1px solid transparent; font-size: 0.9rem; }`,
-    `.flash-error { background: #fef2f2; color: var(--danger); border-color: #fecaca; }`,
-    `details.agent-accordion { background: var(--card); border: 1px solid var(--line); border-radius: 0.75rem; margin-bottom: 0.75rem; overflow: hidden; }`,
-    `details.agent-accordion[open] { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }`,
-    `details.agent-accordion summary { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; cursor: pointer; font-weight: 600; font-size: 0.95rem; color: var(--fg); list-style: none; user-select: none; transition: background 0.15s; }`,
-    `details.agent-accordion summary::-webkit-details-marker { display: none; }`,
-    `details.agent-accordion summary::before { content: "\\25B6"; font-size: 0.65rem; color: var(--muted); transition: transform 0.2s; flex-shrink: 0; }`,
-    `details.agent-accordion[open] summary::before { transform: rotate(90deg); }`,
-    `details.agent-accordion summary:hover { background: #f8fafc; }`,
-    `details.agent-accordion .agent-body { padding: 0 1.25rem 1.25rem; }`,
-    `details.agent-accordion .agent-body ol { padding-left: 1.25rem; margin: 0.5rem 0; }`,
-    `details.agent-accordion .agent-body li { font-size: 0.9rem; line-height: 1.7; color: var(--fg); }`,
-    `details.agent-accordion .agent-body p { font-size: 0.9rem; color: var(--muted); line-height: 1.6; margin: 0.5rem 0; }`,
-    `.agent-badge { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 600; letter-spacing: 0.02em; flex-shrink: 0; }`,
-    `.badge-free { background: #dbeafe; color: #1e40af; }`,
-    `.badge-paid { background: #fef3c7; color: #92400e; }`,
-    `.badge-enterprise { background: #ede9fe; color: #5b21b6; }`,
-    `.badge-soon { background: #f1f5f9; color: var(--muted); }`,
-    `.agent-note { font-size: 0.82rem; color: var(--muted); font-style: italic; margin-top: 0.5rem; }`,
-    `@media (max-width: 640px) { .portal-card { padding: 1.5rem 1rem; } .portal-wrapper { padding: 1rem 0.5rem; } }`,
-  ].join("\n");
+  return (
+    <style>{`
+      :root { color-scheme: light; --bg:#f0f4f8; --fg:#1e293b; --card:#ffffff; --line:#cbd5e1; --accent:#0d9488; --accent-hover:#0f766e; --accent-soft:#ccfbf1; --muted:#64748b; --danger:#b91c1c; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: linear-gradient(135deg, #dbeafe 0%, #f0f4f8 40%, #e2e8f0 100%); color: var(--fg); min-height: 100vh; }
+      .portal-wrapper { max-width: 48rem; margin: 0 auto; padding: 2rem 1rem; }
+      .portal-center { display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 1rem; }
+      .portal-card { background: var(--card); border: 1px solid var(--line); border-radius: 0.75rem; padding: 2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.06); width: 100%; max-width: 28rem; }
+      .portal-card-wide { max-width: 48rem; }
+      .portal-header { text-align: center; margin-bottom: 1.5rem; }
+      .portal-header h1 { font-size: 1.75rem; font-weight: 700; color: var(--fg); margin-bottom: 0.5rem; }
+      .portal-header p { color: var(--muted); font-size: 0.95rem; line-height: 1.5; }
+      .portal-nav { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--line); }
+      .portal-nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--accent); text-decoration: none; }
+      .portal-nav-actions { display: flex; gap: 0.75rem; align-items: center; }
+      .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.7rem 1.25rem; border-radius: 0.5rem; font-size: 0.95rem; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
+      .btn-primary { background: var(--accent); color: #fff; }
+      .btn-primary:hover { background: var(--accent-hover); }
+      .btn-outline { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+      .btn-outline:hover { background: #f8fafc; }
+      .btn-google { background: #ffffff; color: #3c4043; border: 1px solid #dadce0; width: 100%; margin-bottom: 0.75rem; font-weight: 500; }
+      .btn-google:hover { background: #f8f9fa; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+      .btn-github { background: #24292f; color: #ffffff; width: 100%; margin-bottom: 0.75rem; font-weight: 500; }
+      .btn-github:hover { background: #1b1f23; }
+      .btn-logout { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 0.5rem 1rem; font-size: 0.85rem; }
+      .btn-logout:hover { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+      .btn-full { width: 100%; }
+      .divider { text-align: center; margin: 1rem 0; color: var(--muted); font-size: 0.85rem; }
+      .section-card { background: var(--card); border: 1px solid var(--line); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
+      .section-card h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 0.75rem; }
+      .section-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--fg); }
+      .section-card p { color: var(--muted); font-size: 0.92rem; line-height: 1.6; margin-bottom: 0.5rem; }
+      .endpoint-box { position: relative; background: #f1f5f9; border: 1px solid var(--line); border-radius: 0.5rem; padding: 0.75rem 2.75rem 0.75rem 1rem; font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace; font-size: 0.85rem; word-break: break-all; color: var(--accent-hover); margin: 0.5rem 0; }
+      .endpoint-copy { position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%); background: none; border: 1px solid var(--line); border-radius: 0.375rem; padding: 0.35rem; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; transition: color 0.15s, border-color 0.15s; }
+      .endpoint-copy:hover { color: var(--accent); border-color: var(--accent); }
+      .endpoint-copy.copied { color: var(--accent); }
+      .code-block { background: #1e293b; color: #e2e8f0; border-radius: 0.5rem; padding: 1rem; font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace; font-size: 0.82rem; line-height: 1.6; overflow-x: auto; margin: 0.75rem 0; white-space: pre; }
+      .steps { list-style: none; counter-reset: step; padding: 0; margin: 1rem 0; }
+      .steps li { counter-increment: step; padding: 0.6rem 0 0.6rem 2.5rem; position: relative; font-size: 0.92rem; color: var(--fg); line-height: 1.5; }
+      .steps li::before { content: counter(step); position: absolute; left: 0; top: 0.55rem; width: 1.75rem; height: 1.75rem; background: var(--accent-soft); color: var(--accent-hover); border-radius: 50%; font-size: 0.82rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+      .link { color: var(--accent); text-decoration: none; font-weight: 500; }
+      .link:hover { text-decoration: underline; }
+      .alt-action { text-align: center; margin-top: 1.25rem; font-size: 0.88rem; color: var(--muted); }
+      .alt-action a { color: var(--accent); text-decoration: none; font-weight: 500; }
+      .alt-action a:hover { text-decoration: underline; }
+      .flash { border-radius: 0.5rem; padding: 0.65rem 0.75rem; margin-bottom: 1rem; border: 1px solid transparent; font-size: 0.9rem; }
+      .flash-error { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+      details.agent-accordion { background: var(--card); border: 1px solid var(--line); border-radius: 0.75rem; margin-bottom: 0.75rem; overflow: hidden; }
+      details.agent-accordion[open] { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+      details.agent-accordion summary { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; cursor: pointer; font-weight: 600; font-size: 0.95rem; color: var(--fg); list-style: none; user-select: none; transition: background 0.15s; }
+      details.agent-accordion summary::-webkit-details-marker { display: none; }
+      details.agent-accordion summary::before { content: "\\25B6"; font-size: 0.65rem; color: var(--muted); transition: transform 0.2s; flex-shrink: 0; }
+      details.agent-accordion[open] summary::before { transform: rotate(90deg); }
+      details.agent-accordion summary:hover { background: #f8fafc; }
+      details.agent-accordion .agent-body { padding: 0 1.25rem 1.25rem; }
+      details.agent-accordion .agent-body ol { padding-left: 1.25rem; margin: 0.5rem 0; }
+      details.agent-accordion .agent-body li { font-size: 0.9rem; line-height: 1.7; color: var(--fg); }
+      details.agent-accordion .agent-body p { font-size: 0.9rem; color: var(--muted); line-height: 1.6; margin: 0.5rem 0; }
+      .agent-badge { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 999px; font-weight: 600; letter-spacing: 0.02em; flex-shrink: 0; }
+      .badge-free { background: #dbeafe; color: #1e40af; }
+      .badge-paid { background: #fef3c7; color: #92400e; }
+      .badge-enterprise { background: #ede9fe; color: #5b21b6; }
+      .badge-soon { background: #f1f5f9; color: var(--muted); }
+      .agent-note { font-size: 0.82rem; color: var(--muted); font-style: italic; margin-top: 0.5rem; }
+      @media (max-width: 640px) { .portal-card { padding: 1.5rem 1rem; } .portal-wrapper { padding: 1rem 0.5rem; } }
+    `}</style>
+  ) as string;
   // END_BLOCK_DEFINE_PORTAL_CSS_STYLES_M_PORTAL_UI_006
 }
 
-// START_CONTRACT: renderPortalLayout
+// START_CONTRACT: PortalLayout
 //   PURPOSE: Render shared portal HTML shell with head, styles, and body wrapper.
 //   INPUTS: { pageTitle: string - HTML page title, bodyHtml: string - Inner body content HTML }
 //   OUTPUTS: { string - Full HTML document }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
-// END_CONTRACT: renderPortalLayout
-export function renderPortalLayout(pageTitle: string, bodyHtml: string): string {
+// END_CONTRACT: PortalLayout
+export function PortalLayout(pageTitle: string, bodyHtml: string): string {
   // START_BLOCK_RENDER_PORTAL_LAYOUT_DOCUMENT_M_PORTAL_UI_007
-  const escapedTitle = escapeHtml(pageTitle);
-  return [
-    `<!doctype html>`,
-    `<html lang="en">`,
-    `<head>`,
-    `<meta charset="utf-8" />`,
-    `<meta name="viewport" content="width=device-width, initial-scale=1" />`,
-    `<title>${escapedTitle}</title>`,
-    `<style>`,
-    portalStyles(),
-    `</style>`,
-    `</head>`,
-    `<body>`,
-    bodyHtml,
-    `</body>`,
-    `</html>`,
-  ].join("");
+  return (
+    <>
+      {"<!doctype html>"}
+      <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title safe>{pageTitle}</title>
+          <PortalStyles />
+          <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+        </head>
+        <body>
+          {bodyHtml}
+        </body>
+      </html>
+    </>
+  ) as string;
   // END_BLOCK_RENDER_PORTAL_LAYOUT_DOCUMENT_M_PORTAL_UI_007
 }
 
-// START_CONTRACT: renderPortalConnectionGuide
+// START_CONTRACT: PortalConnectionGuide
 //   PURPOSE: Render MCP setup instructions content for the agent setup guide page with multi-country guidance.
 //   INPUTS: { mcpEndpointUrl: string - Fully qualified MCP endpoint URL }
 //   OUTPUTS: { string - HTML content fragment with MCP connection guide }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
-// END_CONTRACT: renderPortalConnectionGuide
-export function renderPortalConnectionGuide(mcpEndpointUrl: string): string {
+// END_CONTRACT: PortalConnectionGuide
+export function PortalConnectionGuide(mcpEndpointUrl: string): string {
   // START_BLOCK_RENDER_MCP_CONNECTION_GUIDE_CONTENT_M_PORTAL_UI_008
-  const escapedUrl = escapeHtml(mcpEndpointUrl);
-  const escapedPlatformName = escapeHtml(PLATFORM_NAME);
+  const escapedUrl = Html.escapeHtml(mcpEndpointUrl);
+  const escapedPlatformName = Html.escapeHtml(PLATFORM_NAME);
   const serverLabel = "travel-rag-mcp";
+  const copyBtnScript = `navigator.clipboard.writeText(document.getElementById('mcp-url').textContent).then(()=>{const b=this;b.classList.add('copied');b.innerHTML='<svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;><polyline points=&quot;20 6 9 17 4 12&quot;/></svg>';setTimeout(()=>{b.classList.remove('copied');b.innerHTML='<svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;><rect x=&quot;9&quot; y=&quot;9&quot; width=&quot;13&quot; height=&quot;13&quot; rx=&quot;2&quot;/><path d=&quot;M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1&quot;/></svg>';},1500)})`;
 
-  return [
-    `<div class="section-card">`,
-    `<h2>MCP Connection Setup</h2>`,
-    `<p>Connect your AI assistant to the ${escapedPlatformName} server using the Model Context Protocol (MCP). A single <code>/mcp</code> endpoint serves all destinations. Choose your app below and follow the instructions.</p>`,
-    `</div>`,
+  return (
+    <>
+      <div class="section-card">
+        <h2>MCP Connection Setup</h2>
+        <p>{"Connect your AI assistant to the "}{escapedPlatformName}{" server using the Model Context Protocol (MCP). A single "}<code>/mcp</code>{" endpoint serves all destinations. Choose your app below and follow the instructions."}</p>
+      </div>
 
-    `<div class="section-card">`,
-    `<h3>Your MCP Endpoint</h3>`,
-    `<div class="endpoint-box">`,
-    `<span id="mcp-url">${escapedUrl}</span>`,
-    `<button class="endpoint-copy" onclick="navigator.clipboard.writeText(document.getElementById('mcp-url').textContent).then(()=>{const b=this;b.classList.add('copied');b.innerHTML='<svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;><polyline points=&quot;20 6 9 17 4 12&quot;/></svg>';setTimeout(()=>{b.classList.remove('copied');b.innerHTML='<svg width=&quot;16&quot; height=&quot;16&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;><rect x=&quot;9&quot; y=&quot;9&quot; width=&quot;13&quot; height=&quot;13&quot; rx=&quot;2&quot;/><path d=&quot;M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1&quot;/></svg>';},1500)})">`,
-    `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
-    `</button>`,
-    `</div>`,
-    `<p>Authentication: <strong>OAuth 2.0</strong> (automatic — you will be redirected to sign in when connecting)</p>`,
-    `</div>`,
+      <div class="section-card">
+        <h3>Your MCP Endpoint</h3>
+        <div class="endpoint-box">
+          <span id="mcp-url">{escapedUrl}</span>
+          <button class="endpoint-copy" onclick={copyBtnScript}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          </button>
+        </div>
+        <p>{"Authentication: "}<strong>OAuth 2.0</strong>{" (automatic — you will be redirected to sign in when connecting)"}</p>
+      </div>
 
-    // --- Multi-country guidance ---
-    `<div class="section-card">`,
-    `<h3>Multi-Destination Support</h3>`,
-    `<p>All travel tools accept a <code>country_code</code> parameter to specify the destination (e.g. <code>"jp"</code> for Japan, <code>"it"</code> for Italy). Your AI assistant will automatically infer the correct <code>country_code</code> from your query — no manual selection needed.</p>`,
-    `</div>`,
+      <div class="section-card">
+        <h3>Multi-Destination Support</h3>
+        <p>{"All travel tools accept a "}<code>country_code</code>{" parameter to specify the destination (e.g. "}<code>"jp"</code>{" for Japan, "}<code>"it"</code>{" for Italy). Your AI assistant will automatically infer the correct "}<code>country_code</code>{" from your query — no manual selection needed."}</p>
+      </div>
 
-    // --- Claude (web / desktop / mobile) ---
-    `<details class="agent-accordion" open>`,
-    `<summary>Claude <span class="agent-badge badge-free">Free (1 connector)</span> <span class="agent-badge badge-paid">Pro / Max / Team</span></summary>`,
-    `<div class="agent-body">`,
-    `<p>Works on <strong>claude.ai</strong>, the <strong>Claude Desktop</strong> app (macOS / Windows), and <strong>Claude mobile</strong> (iOS / Android).</p>`,
-    `<ol>`,
-    `<li>Open <strong>Settings → Connectors</strong></li>`,
-    `<li>Click <strong>"Add custom connector"</strong></li>`,
-    `<li>Paste the MCP endpoint URL shown above</li>`,
-    `<li>Click <strong>"Add"</strong></li>`,
-    `<li>Complete the OAuth sign-in in your browser</li>`,
-    `</ol>`,
-    `<p>To use in a conversation: click <strong>"+"</strong> at the bottom of the chat → <strong>Connectors</strong> → toggle on ${escapedPlatformName}.</p>`,
-    `<p class="agent-note">Team / Enterprise: an admin must first add the connector in Organization settings → Connectors, then members connect via Settings → Connectors.</p>`,
-    `</div>`,
-    `</details>`,
+      <details class="agent-accordion" open>
+        <summary>{"Claude "}<span class="agent-badge badge-free">Free (1 connector)</span>{" "}<span class="agent-badge badge-paid">Pro / Max / Team</span></summary>
+        <div class="agent-body">
+          <p>{"Works on "}<strong>claude.ai</strong>{", the "}<strong>Claude Desktop</strong>{" app (macOS / Windows), and "}<strong>Claude mobile</strong>{" (iOS / Android)."}</p>
+          <ol>
+            <li>{"Open "}<strong>{"Settings \u2192 Connectors"}</strong></li>
+            <li>{"Click "}<strong>"Add custom connector"</strong></li>
+            <li>Paste the MCP endpoint URL shown above</li>
+            <li>{"Click "}<strong>"Add"</strong></li>
+            <li>Complete the OAuth sign-in in your browser</li>
+          </ol>
+          <p>{"To use in a conversation: click "}<strong>"+"</strong>{" at the bottom of the chat \u2192 "}<strong>Connectors</strong>{" \u2192 toggle on "}{escapedPlatformName}{"."}</p>
+          <p class="agent-note">{"Team / Enterprise: an admin must first add the connector in Organization settings \u2192 Connectors, then members connect via Settings \u2192 Connectors."}</p>
+        </div>
+      </details>
 
-    // --- ChatGPT ---
-    `<details class="agent-accordion">`,
-    `<summary>ChatGPT <span class="agent-badge badge-paid">Pro / Plus / Team / Enterprise / Edu</span></summary>`,
-    `<div class="agent-body">`,
-    `<p>Works on <strong>chatgpt.com</strong> and the ChatGPT desktop / mobile apps.</p>`,
-    `<ol>`,
-    `<li>Go to <strong>Settings → Apps &amp; Connectors → Advanced settings</strong> and enable <strong>Developer Mode</strong></li>`,
-    `<li>Go to <strong>Settings → Connectors → Create</strong></li>`,
-    `<li>Enter a name (e.g. "${escapedPlatformName}") and an optional description</li>`,
-    `<li>Paste the MCP endpoint URL as the <strong>Connector URL</strong></li>`,
-    `<li>Click <strong>"Create"</strong></li>`,
-    `</ol>`,
-    `<p>To use: open a new chat → click <strong>"+"</strong> → <strong>More</strong> → select the connector.</p>`,
-    `<p class="agent-note">ChatGPT cannot connect to localhost. The server must be publicly accessible via HTTPS.</p>`,
-    `</div>`,
-    `</details>`,
+      <details class="agent-accordion">
+        <summary>{"ChatGPT "}<span class="agent-badge badge-paid">Pro / Plus / Team / Enterprise / Edu</span></summary>
+        <div class="agent-body">
+          <p>{"Works on "}<strong>chatgpt.com</strong>{" and the ChatGPT desktop / mobile apps."}</p>
+          <ol>
+            <li>{"Go to "}<strong>{"Settings \u2192 Apps & Connectors \u2192 Advanced settings"}</strong>{" and enable "}<strong>Developer Mode</strong></li>
+            <li>{"Go to "}<strong>{"Settings \u2192 Connectors \u2192 Create"}</strong></li>
+            <li>{`Enter a name (e.g. "${escapedPlatformName}") and an optional description`}</li>
+            <li>{"Paste the MCP endpoint URL as the "}<strong>Connector URL</strong></li>
+            <li>{"Click "}<strong>"Create"</strong></li>
+          </ol>
+          <p>{"To use: open a new chat \u2192 click "}<strong>"+"</strong>{" \u2192 "}<strong>More</strong>{" \u2192 select the connector."}</p>
+          <p class="agent-note">ChatGPT cannot connect to localhost. The server must be publicly accessible via HTTPS.</p>
+        </div>
+      </details>
 
-    // --- Google Gemini ---
-    `<details class="agent-accordion">`,
-    `<summary>Google Gemini <span class="agent-badge badge-enterprise">Enterprise</span></summary>`,
-    `<div class="agent-body">`,
-    `<p>Custom MCP connectors are available in <strong>Gemini Enterprise</strong> (Standard, Plus, Frontline editions) via Google Cloud Console.</p>`,
-    `<ol>`,
-    `<li>Open <strong>Gemini Enterprise</strong> in Google Cloud Console</li>`,
-    `<li>Go to <strong>Data stores → Create data store</strong></li>`,
-    `<li>Select <strong>"Custom MCP Server (Preview)"</strong></li>`,
-    `<li>Enter the MCP endpoint URL and OAuth details (Authorization URL, Token URL, Client ID, Secret)</li>`,
-    `<li>Click <strong>"Login"</strong>, authenticate, then <strong>"Create"</strong></li>`,
-    `</ol>`,
-    `<p class="agent-note">Not available in the free Gemini web/mobile app. Requires Discovery Engine Editor role and the enterprise allowlist.</p>`,
-    `</div>`,
-    `</details>`,
+      <details class="agent-accordion">
+        <summary>{"Google Gemini "}<span class="agent-badge badge-enterprise">Enterprise</span></summary>
+        <div class="agent-body">
+          <p>{"Custom MCP connectors are available in "}<strong>Gemini Enterprise</strong>{" (Standard, Plus, Frontline editions) via Google Cloud Console."}</p>
+          <ol>
+            <li>{"Open "}<strong>Gemini Enterprise</strong>{" in Google Cloud Console"}</li>
+            <li>{"Go to "}<strong>{"Data stores \u2192 Create data store"}</strong></li>
+            <li>{"Select "}<strong>"Custom MCP Server (Preview)"</strong></li>
+            <li>Enter the MCP endpoint URL and OAuth details (Authorization URL, Token URL, Client ID, Secret)</li>
+            <li>{"Click "}<strong>"Login"</strong>{", authenticate, then "}<strong>"Create"</strong></li>
+          </ol>
+          <p class="agent-note">Not available in the free Gemini web/mobile app. Requires Discovery Engine Editor role and the enterprise allowlist.</p>
+        </div>
+      </details>
 
-    // --- Microsoft Copilot ---
-    `<details class="agent-accordion">`,
-    `<summary>Microsoft Copilot <span class="agent-badge badge-enterprise">Copilot Studio</span></summary>`,
-    `<div class="agent-body">`,
-    `<p>Remote MCP servers can be added to agents in <strong>Microsoft Copilot Studio</strong>.</p>`,
-    `<ol>`,
-    `<li>Open your agent in <strong>Copilot Studio</strong></li>`,
-    `<li>Go to <strong>Tools → Add Tool → New Tool → MCP</strong></li>`,
-    `<li>Paste the MCP endpoint URL</li>`,
-    `<li>Complete the setup wizard</li>`,
-    `</ol>`,
-    `<p class="agent-note">Not available in the consumer Copilot chat. Requires Copilot Studio access (Microsoft 365 business plans).</p>`,
-    `</div>`,
-    `</details>`,
+      <details class="agent-accordion">
+        <summary>{"Microsoft Copilot "}<span class="agent-badge badge-enterprise">Copilot Studio</span></summary>
+        <div class="agent-body">
+          <p>{"Remote MCP servers can be added to agents in "}<strong>Microsoft Copilot Studio</strong>{"."}</p>
+          <ol>
+            <li>{"Open your agent in "}<strong>Copilot Studio</strong></li>
+            <li>{"Go to "}<strong>{"Tools \u2192 Add Tool \u2192 New Tool \u2192 MCP"}</strong></li>
+            <li>Paste the MCP endpoint URL</li>
+            <li>Complete the setup wizard</li>
+          </ol>
+          <p class="agent-note">Not available in the consumer Copilot chat. Requires Copilot Studio access (Microsoft 365 business plans).</p>
+        </div>
+      </details>
 
-    // --- Perplexity ---
-    `<details class="agent-accordion">`,
-    `<summary>Perplexity <span class="agent-badge badge-soon">Remote — coming soon</span></summary>`,
-    `<div class="agent-body">`,
-    `<p>Perplexity supports <strong>local</strong> MCP servers on the Mac app via <strong>Settings → Connectors</strong>. Remote MCP server support is not yet available but has been announced.</p>`,
-    `<p>Once remote support is added, you will be able to paste the MCP endpoint URL directly into the Connectors settings.</p>`,
-    `</div>`,
-    `</details>`,
+      <details class="agent-accordion">
+        <summary>{"Perplexity "}<span class="agent-badge badge-soon">{"Remote \u2014 coming soon"}</span></summary>
+        <div class="agent-body">
+          <p>{"Perplexity supports "}<strong>local</strong>{" MCP servers on the Mac app via "}<strong>{"Settings \u2192 Connectors"}</strong>{". Remote MCP server support is not yet available but has been announced."}</p>
+          <p>Once remote support is added, you will be able to paste the MCP endpoint URL directly into the Connectors settings.</p>
+        </div>
+      </details>
 
-    // --- Grok ---
-    `<details class="agent-accordion">`,
-    `<summary>Grok (xAI) <span class="agent-badge badge-soon">API only</span></summary>`,
-    `<div class="agent-body">`,
-    `<p>Grok currently supports remote MCP servers only via the <strong>xAI API</strong>, not through the grok.com web/mobile interface.</p>`,
-    `<p>Developers can connect via the API by adding an MCP tool to the request:</p>`,
-    `<div class="code-block">{ "type": "mcp", "server_url": "${escapedUrl}", "server_label": "${serverLabel}" }</div>`,
-    `<p class="agent-note">Consumer UI support may be added in the future.</p>`,
-    `</div>`,
-    `</details>`,
+      <details class="agent-accordion">
+        <summary>{"Grok (xAI) "}<span class="agent-badge badge-soon">API only</span></summary>
+        <div class="agent-body">
+          <p>{"Grok currently supports remote MCP servers only via the "}<strong>xAI API</strong>{", not through the grok.com web/mobile interface."}</p>
+          <p>Developers can connect via the API by adding an MCP tool to the request:</p>
+          <div class="code-block">{`{ "type": "mcp", "server_url": "${escapedUrl}", "server_label": "${serverLabel}" }`}</div>
+          <p class="agent-note">Consumer UI support may be added in the future.</p>
+        </div>
+      </details>
 
-    // --- Claude Code (CLI) ---
-    `<details class="agent-accordion">`,
-    `<summary>Claude Code (CLI) <span class="agent-badge badge-paid">Pro / Max / Team</span></summary>`,
-    `<div class="agent-body">`,
-    `<p>For developers using <strong>Claude Code</strong> in the terminal:</p>`,
-    `<div class="code-block">claude mcp add --transport http ${serverLabel} ${escapedUrl}</div>`,
-    `<p>Then authenticate inside Claude Code:</p>`,
-    `<div class="code-block">/mcp</div>`,
-    `<p>Select the server and follow the OAuth flow in your browser.</p>`,
-    `</div>`,
-    `</details>`,
-  ].join("");
+      <details class="agent-accordion">
+        <summary>{"Claude Code (CLI) "}<span class="agent-badge badge-paid">Pro / Max / Team</span></summary>
+        <div class="agent-body">
+          <p>{"For developers using "}<strong>Claude Code</strong>{" in the terminal:"}</p>
+          <div class="code-block">{`claude mcp add --transport http ${serverLabel} ${escapedUrl}`}</div>
+          <p>Then authenticate inside Claude Code:</p>
+          <div class="code-block">/mcp</div>
+          <p>Select the server and follow the OAuth flow in your browser.</p>
+        </div>
+      </details>
+    </>
+  ) as string;
   // END_BLOCK_RENDER_MCP_CONNECTION_GUIDE_CONTENT_M_PORTAL_UI_008
 }
 
-// START_CONTRACT: renderErrorPage
+// START_CONTRACT: ErrorPage
 //   PURPOSE: Render a generic portal error page for unexpected failures.
 //   INPUTS: { message: string - User-facing error message }
 //   OUTPUTS: { string - Full HTML error document }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
-// END_CONTRACT: renderErrorPage
-function renderErrorPage(message: string): string {
+// END_CONTRACT: ErrorPage
+function ErrorPage(message: string): string {
   // START_BLOCK_RENDER_PORTAL_ERROR_PAGE_M_PORTAL_UI_009
-  const body = [
-    `<div class="portal-center">`,
-    `<div class="portal-card">`,
-    `<div class="portal-header">`,
-    `<h1>Something went wrong</h1>`,
-    `<p>${escapeHtml(message)}</p>`,
-    `</div>`,
-    `<a href="/portal" class="btn btn-primary btn-full">Back to Portal</a>`,
-    `</div>`,
-    `</div>`,
-  ].join("");
+  const body = (
+    <div class="portal-center">
+      <div class="portal-card">
+        <div class="portal-header">
+          <h1>Something went wrong</h1>
+          <p safe>{message}</p>
+        </div>
+        <a href="/portal" class="btn btn-primary btn-full">Back to Portal</a>
+      </div>
+    </div>
+  ) as string;
 
-  return renderPortalLayout("Portal - Error", body);
+  return PortalLayout("Portal - Error", body);
   // END_BLOCK_RENDER_PORTAL_ERROR_PAGE_M_PORTAL_UI_009
 }
 
@@ -493,19 +473,19 @@ export async function handleLandingRequest(
     "RENDER_LANDING_PAGE",
   );
 
-  const body = [
-    `<div class="portal-center">`,
-    `<div class="portal-card" style="text-align: center;">`,
-    `<div class="portal-header">`,
-    `<h1 style="font-size: 2rem; margin-bottom: 0.75rem;">${escapeHtml(PLATFORM_NAME)}</h1>`,
-    `<p style="font-size: 1rem; max-width: 24rem; margin: 0 auto;">Your AI-powered travel companion. Get curated recommendations, cultural insights, and local knowledge from real traveler conversations.</p>`,
-    `</div>`,
-    `<a href="/portal" class="btn btn-primary btn-full" style="margin-top: 1rem; font-size: 1.05rem; padding: 0.85rem 1.5rem;">Get Started</a>`,
-    `</div>`,
-    `</div>`,
-  ].join("");
+  const body = (
+    <div class="portal-center">
+      <div class="portal-card" style="text-align: center;">
+        <div class="portal-header">
+          <h1 style="font-size: 2rem; margin-bottom: 0.75rem;" safe>{PLATFORM_NAME}</h1>
+          <p style="font-size: 1rem; max-width: 24rem; margin: 0 auto;">Your AI-powered travel companion. Get curated recommendations, cultural insights, and local knowledge from real traveler conversations.</p>
+        </div>
+        <a href="/portal" class="btn btn-primary btn-full" style="margin-top: 1rem; font-size: 1.05rem; padding: 0.85rem 1.5rem;">Get Started</a>
+      </div>
+    </div>
+  ) as string;
 
-  return buildHtmlResponse(200, renderPortalLayout(PLATFORM_NAME, body));
+  return buildHtmlResponse(200, PortalLayout(PLATFORM_NAME, body));
   // END_BLOCK_RENDER_LANDING_PAGE_M_PORTAL_UI_010
 }
 
@@ -549,23 +529,23 @@ export async function handlePortalRootRoute(
   // END_BLOCK_ROUTE_PORTAL_ROOT_BY_SESSION_STATE_M_PORTAL_UI_011
 }
 
-// START_CONTRACT: renderSocialButtons
+// START_CONTRACT: SocialButtons
 //   PURPOSE: Render social provider buttons for login/register pages.
 //   INPUTS: { intent: "register" | "login" - User intent for OAuth flow }
 //   OUTPUTS: { string - HTML fragment with social login buttons }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-PORTAL-UI]
-// END_CONTRACT: renderSocialButtons
-function renderSocialButtons(intent: "register" | "login"): string {
+// END_CONTRACT: SocialButtons
+function SocialButtons(intent: "register" | "login"): string {
   // START_BLOCK_RENDER_SOCIAL_PROVIDER_BUTTONS_M_PORTAL_UI_012
-  const googleUrl = escapeHtml(`/portal/auth/start?provider=google&intent=${intent}`);
+  const googleUrl = `/portal/auth/start?provider=google&intent=${intent}`;
 
-  return [
-    `<a href="${googleUrl}" class="btn btn-google">`,
-    `<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.26c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 2.58 9 3.58z" fill="#EA4335"/></svg>`,
-    `Continue with Google`,
-    `</a>`,
-  ].join("");
+  return (
+    <a href={googleUrl} class="btn btn-google">
+      <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"></path><path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.26c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"></path><path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"></path><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 2.58 9 3.58z" fill="#EA4335"></path></svg>
+      {"Continue with Google"}
+    </a>
+  ) as string;
   // END_BLOCK_RENDER_SOCIAL_PROVIDER_BUTTONS_M_PORTAL_UI_012
 }
 
@@ -589,20 +569,20 @@ export async function handlePortalRegisterRoute(
     "RENDER_REGISTER_PAGE",
   );
 
-  const body = [
-    `<div class="portal-center">`,
-    `<div class="portal-card">`,
-    `<div class="portal-header">`,
-    `<h1>Create your account</h1>`,
-    `<p>Sign up with your social account to get started with ${escapeHtml(PLATFORM_NAME)}.</p>`,
-    `</div>`,
-    renderSocialButtons("register"),
-    `<div class="alt-action">Already have an account? <a href="/portal/login">Sign in</a></div>`,
-    `</div>`,
-    `</div>`,
-  ].join("");
+  const body = (
+    <div class="portal-center">
+      <div class="portal-card">
+        <div class="portal-header">
+          <h1>Create your account</h1>
+          <p>{"Sign up with your social account to get started with "}<span safe>{PLATFORM_NAME}</span>{"."}</p>
+        </div>
+        {SocialButtons("register")}
+        <div class="alt-action">{"Already have an account? "}<a href="/portal/login">Sign in</a></div>
+      </div>
+    </div>
+  ) as string;
 
-  return buildHtmlResponse(200, renderPortalLayout(`Sign Up - ${PLATFORM_NAME}`, body));
+  return buildHtmlResponse(200, PortalLayout(`Sign Up - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_REGISTER_PAGE_M_PORTAL_UI_013
 }
 
@@ -626,20 +606,20 @@ export async function handlePortalLoginRoute(
     "RENDER_LOGIN_PAGE",
   );
 
-  const body = [
-    `<div class="portal-center">`,
-    `<div class="portal-card">`,
-    `<div class="portal-header">`,
-    `<h1>Welcome back</h1>`,
-    `<p>Sign in with your social account to access ${escapeHtml(PLATFORM_NAME)}.</p>`,
-    `</div>`,
-    renderSocialButtons("login"),
-    `<div class="alt-action">Don't have an account? <a href="/portal/register">Sign up</a></div>`,
-    `</div>`,
-    `</div>`,
-  ].join("");
+  const body = (
+    <div class="portal-center">
+      <div class="portal-card">
+        <div class="portal-header">
+          <h1>Welcome back</h1>
+          <p>{"Sign in with your social account to access "}<span safe>{PLATFORM_NAME}</span>{"."}</p>
+        </div>
+        {SocialButtons("login")}
+        <div class="alt-action">{"Don't have an account? "}<a href="/portal/register">Sign up</a></div>
+      </div>
+    </div>
+  ) as string;
 
-  return buildHtmlResponse(200, renderPortalLayout(`Sign In - ${PLATFORM_NAME}`, body));
+  return buildHtmlResponse(200, PortalLayout(`Sign In - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_LOGIN_PAGE_M_PORTAL_UI_014
 }
 
@@ -706,7 +686,7 @@ export async function handlePortalOauthStartRoute(
       "REDIRECT_TO_OAUTH_PROVIDER",
       { code: portalError.code, cause: portalError.details?.cause ?? portalError.message },
     );
-    return buildHtmlResponse(500, renderErrorPage("Failed to start authentication. Please try again."));
+    return buildHtmlResponse(500, ErrorPage("Failed to start authentication. Please try again."));
   }
   // END_BLOCK_REDIRECT_TO_OAUTH_PROVIDER_M_PORTAL_UI_015
 }
@@ -797,7 +777,7 @@ export async function handlePortalOauthCallbackRoute(
       "HANDLE_OAUTH_CALLBACK_AND_PROVISION_SESSION",
       { code: portalError.code, cause: portalError.details?.cause ?? portalError.message },
     );
-    return buildHtmlResponse(500, renderErrorPage("Authentication failed. Please try again."));
+    return buildHtmlResponse(500, ErrorPage("Authentication failed. Please try again."));
   }
   // END_BLOCK_HANDLE_OAUTH_CALLBACK_AND_PROVISION_SESSION_M_PORTAL_UI_016
 }
@@ -829,9 +809,8 @@ export async function handlePortalHomeRoute(
   }
 
   const session = sessionResult.session;
-  const escapedName = escapeHtml(session.name || "Tester");
+  const userName = session.name || "Tester";
   const mcpEndpointUrl = deriveMcpEndpointUrl(deps.config.publicUrl);
-  const escapedMcpUrl = escapeHtml(mcpEndpointUrl);
 
   // Query per-user usage statistics with graceful degradation on failure
   let stats: UserUsageStats | null = null;
@@ -857,64 +836,58 @@ export async function handlePortalHomeRoute(
   );
 
   // Build usage statistics section HTML
-  let usageHtml = "";
+  let usageHtml: string = "";
   if (statsError) {
-    usageHtml = [
-      `<div class="section-card" style="margin-bottom: 1rem;">`,
-      `<h3>Usage Statistics</h3>`,
-      `<p style="color: #b45309;">Unable to load usage statistics at this time. Please try again later.</p>`,
-      `</div>`,
-    ].join("");
+    usageHtml = (
+      <div class="section-card" style="margin-bottom: 1rem;">
+        <h3>Usage Statistics</h3>
+        <p style="color: #b45309;">Unable to load usage statistics at this time. Please try again later.</p>
+      </div>
+    ) as string;
   } else if (stats && stats.tools.length > 0) {
-    const toolRows = stats.tools
-      .map(
-        (tool) =>
-          `<tr><td>${escapeHtml(tool.toolName)}</td><td style="text-align: right;">${tool.callCount}</td></tr>`,
-      )
-      .join("");
-    usageHtml = [
-      `<div class="section-card" style="margin-bottom: 1rem;">`,
-      `<h3>Usage Statistics</h3>`,
-      `<table style="width: 100%; border-collapse: collapse; margin-bottom: 0.75rem;">`,
-      `<thead><tr><th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Tool</th>`,
-      `<th style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Calls</th></tr></thead>`,
-      `<tbody>${toolRows}</tbody>`,
-      `<tfoot><tr><td style="padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">Total</td>`,
-      `<td style="text-align: right; padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">${stats.total}</td></tr></tfoot>`,
-      `</table>`,
-      `</div>`,
-    ].join("");
+    usageHtml = (
+      <div class="section-card" style="margin-bottom: 1rem;">
+        <h3>Usage Statistics</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 0.75rem;">
+          <thead><tr><th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Tool</th><th style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Calls</th></tr></thead>
+          <tbody>
+            {stats.tools.map((tool) => (
+              <tr><td safe>{tool.toolName}</td><td style="text-align: right;">{String(tool.callCount)}</td></tr>
+            ))}
+          </tbody>
+          <tfoot><tr><td style="padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">Total</td><td style="text-align: right; padding: 0.5rem; border-top: 1px solid #e5e7eb; font-weight: bold;">{String(stats.total)}</td></tr></tfoot>
+        </table>
+      </div>
+    ) as string;
   } else if (stats) {
-    usageHtml = [
-      `<div class="section-card" style="margin-bottom: 1rem;">`,
-      `<h3>Usage Statistics</h3>`,
-      `<p>No usage yet. Connect your AI agent using the endpoint above to get started.</p>`,
-      `</div>`,
-    ].join("");
+    usageHtml = (
+      <div class="section-card" style="margin-bottom: 1rem;">
+        <h3>Usage Statistics</h3>
+        <p>No usage yet. Connect your AI agent using the endpoint above to get started.</p>
+      </div>
+    ) as string;
   }
 
   // Query destination lists for display with graceful degradation
-  let destinationsHtml = "";
+  let destinationsHtml: string = "";
   try {
     const activeCountries = await getCountriesByStatus(deps.db, "active");
     const comingSoonCountries = await getCountriesByStatus(deps.db, "coming_soon");
 
     if (activeCountries.length > 0 || comingSoonCountries.length > 0) {
-      const activeItems = activeCountries
-        .map((c) => `<li style="padding: 0.4rem 0;"><strong>${escapeHtml(getCountryDisplayName(c.countryCode))}</strong> <span style="color: var(--accent); font-size: 0.85rem; font-weight: 600;">Active</span></li>`)
-        .join("");
-      const comingSoonItems = comingSoonCountries
-        .map((c) => `<li style="padding: 0.4rem 0;"><strong>${escapeHtml(getCountryDisplayName(c.countryCode))}</strong> <span style="color: var(--muted); font-size: 0.85rem; font-weight: 600;">Coming Soon</span></li>`)
-        .join("");
-      destinationsHtml = [
-        `<div class="section-card" style="margin-bottom: 1rem;">`,
-        `<h3>Available Destinations</h3>`,
-        `<ul style="list-style: none; padding: 0; margin: 0.5rem 0 0 0;">`,
-        activeItems,
-        comingSoonItems,
-        `</ul>`,
-        `</div>`,
-      ].join("");
+      destinationsHtml = (
+        <div class="section-card" style="margin-bottom: 1rem;">
+          <h3>Available Destinations</h3>
+          <ul style="list-style: none; padding: 0; margin: 0.5rem 0 0 0;">
+            {activeCountries.map((c) => (
+              <li style="padding: 0.4rem 0;"><strong safe>{getCountryDisplayName(c.countryCode)}</strong>{" "}<span style="color: var(--accent); font-size: 0.85rem; font-weight: 600;">Active</span></li>
+            ))}
+            {comingSoonCountries.map((c) => (
+              <li style="padding: 0.4rem 0;"><strong safe>{getCountryDisplayName(c.countryCode)}</strong>{" "}<span style="color: var(--muted); font-size: 0.85rem; font-weight: 600;">Coming Soon</span></li>
+            ))}
+          </ul>
+        </div>
+      ) as string;
     }
   } catch (error: unknown) {
     const cause = error instanceof Error ? error.message : String(error);
@@ -926,51 +899,40 @@ export async function handlePortalHomeRoute(
     );
   }
 
-  const escapedPlatformName = escapeHtml(PLATFORM_NAME);
+  const body = (
+    <div class="portal-wrapper">
+      <nav class="portal-nav">
+        <a href="/portal" class="portal-nav-brand" safe>{PLATFORM_NAME}</a>
+        <div class="portal-nav-actions">
+          <form method="post" action="/portal/logout" style="margin: 0;">
+            <button type="submit" class="btn btn-logout">Sign out</button>
+          </form>
+        </div>
+      </nav>
 
-  const body = [
-    `<div class="portal-wrapper">`,
+      <div class="section-card" style="margin-bottom: 1.5rem;">
+        <h2>{"Welcome, "}<span safe>{userName}</span></h2>
+        <p>Your tester access is active. Use the MCP endpoint below to connect your AI agent.</p>
+      </div>
 
-    // Navigation
-    `<nav class="portal-nav">`,
-    `<a href="/portal" class="portal-nav-brand">${escapedPlatformName}</a>`,
-    `<div class="portal-nav-actions">`,
-    `<form method="post" action="/portal/logout" style="margin: 0;">`,
-    `<button type="submit" class="btn btn-logout">Sign out</button>`,
-    `</form>`,
-    `</div>`,
-    `</nav>`,
+      <div class="section-card" style="margin-bottom: 1rem;">
+        <h3>Your MCP Endpoint</h3>
+        <div class="endpoint-box" safe>{mcpEndpointUrl}</div>
+        <p>{"Auth type: "}<strong>OAuth 2.0</strong></p>
+      </div>
 
-    // Welcome section
-    `<div class="section-card" style="margin-bottom: 1.5rem;">`,
-    `<h2>Welcome, ${escapedName}</h2>`,
-    `<p>Your tester access is active. Use the MCP endpoint below to connect your AI agent.</p>`,
-    `</div>`,
+      {usageHtml}
+      {destinationsHtml}
 
-    // MCP Endpoint
-    `<div class="section-card" style="margin-bottom: 1rem;">`,
-    `<h3>Your MCP Endpoint</h3>`,
-    `<div class="endpoint-box">${escapedMcpUrl}</div>`,
-    `<p>Auth type: <strong>OAuth 2.0</strong></p>`,
-    `</div>`,
+      <div class="section-card">
+        <h3>MCP Connection Setup</h3>
+        <p>Get step-by-step instructions for connecting Claude Desktop, Claude Code, or other MCP clients.</p>
+        <a href="/portal/integrations/agent-setup" class="btn btn-primary" style="margin-top: 0.75rem;">View Setup Guide</a>
+      </div>
+    </div>
+  ) as string;
 
-    // Usage Statistics
-    usageHtml,
-
-    // Destinations
-    destinationsHtml,
-
-    // Agent Setup card
-    `<div class="section-card">`,
-    `<h3>MCP Connection Setup</h3>`,
-    `<p>Get step-by-step instructions for connecting Claude Desktop, Claude Code, or other MCP clients.</p>`,
-    `<a href="/portal/integrations/agent-setup" class="btn btn-primary" style="margin-top: 0.75rem;">View Setup Guide</a>`,
-    `</div>`,
-
-    `</div>`,
-  ].join("");
-
-  return buildHtmlResponse(200, renderPortalLayout(`Portal Home - ${PLATFORM_NAME}`, body));
+  return buildHtmlResponse(200, PortalLayout(`Portal Home - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_PORTAL_HOME_PAGE_M_PORTAL_UI_017
 }
 
@@ -1009,33 +971,29 @@ export async function handlePortalAgentSetupRoute(
     { userId: sessionResult.session.sub },
   );
 
-  const guideContent = renderPortalConnectionGuide(mcpEndpointUrl);
-  const escapedPlatformName = escapeHtml(PLATFORM_NAME);
+  const guideContent = PortalConnectionGuide(mcpEndpointUrl);
 
-  const body = [
-    `<div class="portal-wrapper">`,
+  const body = (
+    <div class="portal-wrapper">
+      <nav class="portal-nav">
+        <a href="/portal" class="portal-nav-brand" safe>{PLATFORM_NAME}</a>
+        <div class="portal-nav-actions">
+          <a href="/portal/home" class="btn btn-outline">Back to Home</a>
+          <form method="post" action="/portal/logout" style="margin: 0;">
+            <button type="submit" class="btn btn-logout">Sign out</button>
+          </form>
+        </div>
+      </nav>
 
-    // Navigation
-    `<nav class="portal-nav">`,
-    `<a href="/portal" class="portal-nav-brand">${escapedPlatformName}</a>`,
-    `<div class="portal-nav-actions">`,
-    `<a href="/portal/home" class="btn btn-outline">Back to Home</a>`,
-    `<form method="post" action="/portal/logout" style="margin: 0;">`,
-    `<button type="submit" class="btn btn-logout">Sign out</button>`,
-    `</form>`,
-    `</div>`,
-    `</nav>`,
+      {guideContent}
 
-    guideContent,
+      <div style="margin-top: 1rem;">
+        <a href="/portal/home" class="link">{"\u2190 Back to Portal Home"}</a>
+      </div>
+    </div>
+  ) as string;
 
-    `<div style="margin-top: 1rem;">`,
-    `<a href="/portal/home" class="link">&larr; Back to Portal Home</a>`,
-    `</div>`,
-
-    `</div>`,
-  ].join("");
-
-  return buildHtmlResponse(200, renderPortalLayout(`Agent Setup - ${PLATFORM_NAME}`, body));
+  return buildHtmlResponse(200, PortalLayout(`Agent Setup - ${PLATFORM_NAME}`, body));
   // END_BLOCK_RENDER_AGENT_SETUP_GUIDE_PAGE_M_PORTAL_UI_018
 }
 

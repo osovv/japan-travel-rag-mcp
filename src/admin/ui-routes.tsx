@@ -10,8 +10,8 @@
 // START_MODULE_MAP
 //   AdminUiError - Typed admin UI error wrapper with ADMIN_UI_ERROR code.
 //   AdminUiDependencies - Dependency contract for auth helpers, config, logger, and optional db handle.
-//   renderAdminLayout - Render admin shell with Ops Diagnostics and Sites Management navigation.
-//   renderOpsStatus - Render operator diagnostics panel derived from runtime config.
+//   AdminLayout - Render admin shell with Ops Diagnostics and Sites Management navigation.
+//   OpsStatus - Render operator diagnostics panel derived from runtime config.
 //   handleAdminRequest - Route login, ops diagnostics, and sites management CRUD while enforcing session checks.
 // END_MODULE_MAP
 //
@@ -21,6 +21,7 @@
 //   v2.3.0 - Rebased ops diagnostics on AppConfig.logto fields, removed legacy config.oauth references, and masked Logto client secret in rendered status output.
 // END_CHANGE_SUMMARY
 
+import * as Html from "@kitajs/html";
 import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -36,16 +37,16 @@ import {
   handleDeleteSource,
   handlePurgeSourceIndex,
   handleToggleSourceStatus,
-  renderSitesContent,
-  renderSourceForm,
+  SitesContent,
+  SourceForm,
 } from "./sites-page";
 import {
   fetchCountriesPageData,
   handleCreateCountry,
   handleUpdateCountry,
   handleDeleteCountry,
-  renderCountriesContent,
-  renderCountryForm,
+  CountriesContent,
+  CountryForm,
 } from "./countries-page";
 
 const ADMIN_ROOT_PATH = "/admin";
@@ -135,24 +136,6 @@ function toAdminUiError(
     cause,
   });
   // END_BLOCK_NORMALIZE_UNKNOWN_ERRORS_TO_ADMIN_UI_ERROR_M_ADMIN_UI_101
-}
-
-// START_CONTRACT: escapeHtml
-//   PURPOSE: Escape text before interpolation into HTML output.
-//   INPUTS: { value: string - Raw text value that may contain special characters }
-//   OUTPUTS: { string - HTML-escaped text safe for text and attribute contexts }
-//   SIDE_EFFECTS: [none]
-//   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: escapeHtml
-function escapeHtml(value: string): string {
-  // START_BLOCK_ESCAPE_TEXT_FOR_SAFE_HTML_RENDERING_M_ADMIN_UI_102
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-  // END_BLOCK_ESCAPE_TEXT_FOR_SAFE_HTML_RENDERING_M_ADMIN_UI_102
 }
 
 // START_CONTRACT: buildHtmlResponse
@@ -345,40 +328,40 @@ function buildOpsStatusModel(config: AppConfig): RenderOpsStatusModel {
   // END_BLOCK_DERIVE_DIAGNOSTICS_MODEL_FROM_RUNTIME_CONFIG_M_ADMIN_UI_108
 }
 
-// START_CONTRACT: renderDiagnosticsTableRows
+// START_CONTRACT: DiagnosticsTableRows
 //   PURPOSE: Render escaped diagnostics key-value rows for operator status table.
 //   INPUTS: { rows: Array<[label: string, value: string]> - Diagnostics table rows }
 //   OUTPUTS: { string - HTML rows fragment }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: renderDiagnosticsTableRows
-function renderDiagnosticsTableRows(rows: Array<[label: string, value: string]>): string {
+// END_CONTRACT: DiagnosticsTableRows
+function DiagnosticsTableRows({ rows }: { rows: Array<[label: string, value: string]> }): string {
   // START_BLOCK_RENDER_ESCAPED_DIAGNOSTICS_TABLE_ROWS_M_ADMIN_UI_109
-  return rows
-    .map(([label, value]) => {
-      return [
-        `<tr>`,
-        `<th scope="row">${escapeHtml(label)}</th>`,
-        `<td><code>${escapeHtml(value)}</code></td>`,
-        `</tr>`,
-      ].join("");
-    })
-    .join("");
+  return (
+    <>
+      {rows.map(([label, value]) => (
+        <tr>
+          <th scope="row" safe>{label}</th>
+          <td><code safe>{value}</code></td>
+        </tr>
+      ))}
+    </>
+  ) as string;
   // END_BLOCK_RENDER_ESCAPED_DIAGNOSTICS_TABLE_ROWS_M_ADMIN_UI_109
 }
 
-// START_CONTRACT: renderOpsStatus
+// START_CONTRACT: OpsStatus
 //   PURPOSE: Render operator diagnostics panel from config with Logto runtime settings and derived endpoint URLs.
 //   INPUTS: { config: AppConfig - Runtime app configuration }
 //   OUTPUTS: { string - HTML diagnostics panel fragment }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI, M-CONFIG]
-// END_CONTRACT: renderOpsStatus
-export function renderOpsStatus(config: AppConfig): string {
+// END_CONTRACT: OpsStatus
+export function OpsStatus(config: AppConfig): string {
   // START_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
   const diagnostics = buildOpsStatusModel(config);
 
-  const rows = renderDiagnosticsTableRows([
+  const rows: Array<[string, string]> = [
     ["PUBLIC_URL", diagnostics.publicUrl],
     ["LOGTO_TENANT_URL", diagnostics.logtoTenantUrl],
     ["LOGTO_CLIENT_ID", diagnostics.logtoClientId],
@@ -388,137 +371,140 @@ export function renderOpsStatus(config: AppConfig): string {
     ["Derived /mcp URL", diagnostics.mcpUrl],
     ["Derived protected resource URL", diagnostics.wellKnownResourceUrl],
     ["Derived MCP protected resource URL", diagnostics.wellKnownMcpResourceUrl],
-  ]);
+  ];
 
-  return [
-    `<section id="ops-status-panel" class="stack">`,
-    `<section class="card">`,
-    `<h2>Ops diagnostics</h2>`,
-    `<p class="muted">Runtime admin and Logto OAuth proxy settings loaded from environment and used by server routing.</p>`,
-    `</section>`,
-    `<section class="card table-wrap">`,
-    `<h3>Configuration status</h3>`,
-    `<table class="diag-table">`,
-    `<tbody>`,
-    rows,
-    `</tbody>`,
-    `</table>`,
-    `</section>`,
-    `</section>`,
-  ].join("");
+  return (
+    <section id="ops-status-panel" class="stack">
+      <section class="card">
+        <h2>Ops diagnostics</h2>
+        <p class="muted">Runtime admin and Logto OAuth proxy settings loaded from environment and used by server routing.</p>
+      </section>
+      <section class="card table-wrap">
+        <h3>Configuration status</h3>
+        <table class="diag-table">
+          <tbody>
+            <DiagnosticsTableRows rows={rows} />
+          </tbody>
+        </table>
+      </section>
+    </section>
+  ) as string;
   // END_BLOCK_RENDER_OPERATIONS_DIAGNOSTICS_PANEL_M_ADMIN_UI_110
 }
 
-// START_CONTRACT: renderLoginDocument
+// START_CONTRACT: LoginPage
 //   PURPOSE: Render the login page for admin authentication requests.
 //   INPUTS: { errorMessage: string|undefined - Optional authentication failure message }
 //   OUTPUTS: { string - Full login HTML document }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI, M-ADMIN-AUTH]
-// END_CONTRACT: renderLoginDocument
-function renderLoginDocument(errorMessage?: string): string {
+// END_CONTRACT: LoginPage
+function LoginPage(errorMessage?: string): string {
   // START_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_112
-  const escapedError = errorMessage ? `<div class="flash flash-error">${escapeHtml(errorMessage)}</div>` : "";
-  return [
-    `<!doctype html>`,
-    `<html lang="en">`,
-    `<head>`,
-    `<meta charset="utf-8" />`,
-    `<meta name="viewport" content="width=device-width, initial-scale=1" />`,
-    `<title>Admin Login</title>`,
-    `<style>`,
-    `:root { color-scheme: light; --bg:#f4f7fb; --fg:#0f172a; --card:#ffffff; --line:#cbd5e1; --accent:#0f766e; --danger:#b91c1c; }`,
-    `* { box-sizing: border-box; }`,
-    `body { margin:0; font-family:"IBM Plex Sans", ui-sans-serif, sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; display:grid; place-items:center; padding:1rem; }`,
-    `.card { width:min(30rem, 100%); background: var(--card); border:1px solid var(--line); border-radius:0.75rem; padding:1.25rem; display:grid; gap:0.75rem; }`,
-    `h1 { margin:0; font-size:1.5rem; }`,
-    `label { font-weight:600; font-size:0.9rem; }`,
-    `input, button { width:100%; border-radius:0.5rem; padding:0.65rem 0.75rem; border:1px solid var(--line); font: inherit; }`,
-    `button { background: var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }`,
-    `.flash { border-radius:0.5rem; padding:0.6rem 0.75rem; border:1px solid #fecaca; background:#fef2f2; color:var(--danger); }`,
-    `</style>`,
-    `</head>`,
-    `<body>`,
-    `<main class="card">`,
-    `<h1>Admin Login</h1>`,
-    `<p>Enter the root admin token to access operator diagnostics.</p>`,
-    escapedError,
-    `<form method="post" action="${ADMIN_LOGIN_PATH}">`,
-    `<label for="token">ROOT_AUTH_TOKEN</label>`,
-    `<input id="token" name="token" type="password" autocomplete="current-password" required />`,
-    `<button type="submit">Sign in</button>`,
-    `</form>`,
-    `</main>`,
-    `</body>`,
-    `</html>`,
-  ].join("");
+  return (
+    <>
+      {"<!doctype html>"}
+      <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>Admin Login</title>
+          <style>{`
+            :root { color-scheme: light; --bg:#f4f7fb; --fg:#0f172a; --card:#ffffff; --line:#cbd5e1; --accent:#0f766e; --danger:#b91c1c; }
+            * { box-sizing: border-box; }
+            body { margin:0; font-family:"IBM Plex Sans", ui-sans-serif, sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; display:grid; place-items:center; padding:1rem; }
+            .card { width:min(30rem, 100%); background: var(--card); border:1px solid var(--line); border-radius:0.75rem; padding:1.25rem; display:grid; gap:0.75rem; }
+            h1 { margin:0; font-size:1.5rem; }
+            label { font-weight:600; font-size:0.9rem; }
+            input, button { width:100%; border-radius:0.5rem; padding:0.65rem 0.75rem; border:1px solid var(--line); font: inherit; }
+            button { background: var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }
+            .flash { border-radius:0.5rem; padding:0.6rem 0.75rem; border:1px solid #fecaca; background:#fef2f2; color:var(--danger); }
+          `}</style>
+        </head>
+        <body>
+          <main class="card">
+            <h1>Admin Login</h1>
+            <p>Enter the root admin token to access operator diagnostics.</p>
+            {errorMessage ? <div class="flash flash-error" safe>{errorMessage}</div> : ""}
+            <form method="post" action={ADMIN_LOGIN_PATH}>
+              <label for="token">ROOT_AUTH_TOKEN</label>
+              <input id="token" name="token" type="password" autocomplete="current-password" required />
+              <button type="submit">Sign in</button>
+            </form>
+          </main>
+        </body>
+      </html>
+    </>
+  ) as string;
   // END_BLOCK_RENDER_ADMIN_LOGIN_DOCUMENT_M_ADMIN_UI_112
 }
 
-// START_CONTRACT: renderAdminLayout
+// START_CONTRACT: AdminLayout
 //   PURPOSE: Render admin page shell with sidebar navigation and injected content body.
 //   INPUTS: { params: RenderAdminLayoutParams - Layout title, active tab, and content HTML }
-//   OUTPUTS: { string - Full admin HTML document with HTMX script }
+//   OUTPUTS: { string - Full admin HTML document with HTMX and Alpine.js scripts }
 //   SIDE_EFFECTS: [none]
 //   LINKS: [M-ADMIN-UI]
-// END_CONTRACT: renderAdminLayout
-export function renderAdminLayout(params: RenderAdminLayoutParams): string {
+// END_CONTRACT: AdminLayout
+export function AdminLayout(params: RenderAdminLayoutParams): string {
   // START_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
-  const escapedPageTitle = escapeHtml(params.pageTitle);
   const opsTabClass = params.activeTab === "ops" ? "nav-link nav-link-active" : "nav-link";
   const sitesTabClass = params.activeTab === "sites" ? "nav-link nav-link-active" : "nav-link";
   const countriesTabClass = params.activeTab === "countries" ? "nav-link nav-link-active" : "nav-link";
 
-  return [
-    `<!doctype html>`,
-    `<html lang="en">`,
-    `<head>`,
-    `<meta charset="utf-8" />`,
-    `<meta name="viewport" content="width=device-width, initial-scale=1" />`,
-    `<title>${escapedPageTitle}</title>`,
-    `<script src="https://unpkg.com/htmx.org@1.9.12"></script>`,
-    `<style>`,
-    `:root { color-scheme: light; --bg:#eef3f8; --fg:#1e293b; --card:#fff; --line:#cbd5e1; --accent:#0f766e; --accent-soft:#ccfbf1; --warning:#9a3412; --warning-bg:#fff7ed; --danger:#991b1b; --danger-bg:#fef2f2; }`,
-    `* { box-sizing: border-box; }`,
-    `body { margin:0; min-height:100vh; background: radial-gradient(circle at top left, #dbeafe 0%, #eef3f8 45%); color:var(--fg); font-family:"IBM Plex Sans", ui-sans-serif, sans-serif; }`,
-    `.layout { display:grid; grid-template-columns: 16rem 1fr; min-height:100vh; }`,
-    `.sidebar { border-right:1px solid var(--line); background:#f8fafc; padding:1rem; }`,
-    `.brand { font-weight:700; margin:0 0 1rem; }`,
-    `.nav-link { display:block; text-decoration:none; color:var(--fg); border-radius:0.5rem; padding:0.65rem 0.75rem; font-weight:600; border:1px solid transparent; }`,
-    `.nav-link-active { background:var(--accent-soft); border-color:#99f6e4; color:#115e59; }`,
-    `.content { padding:1rem; }`,
-    `.stack { display:grid; gap:0.85rem; }`,
-    `.card { border:1px solid var(--line); border-radius:0.75rem; background:var(--card); padding:1rem; }`,
-    `.warning-card { background:var(--warning-bg); }`,
-    `.warning { color:var(--warning); font-weight:600; }`,
-    `.flash { border-radius:0.65rem; padding:0.65rem 0.75rem; border:1px solid transparent; }`,
-    `.flash-error { background:var(--danger-bg); color:var(--danger); border-color:#fecaca; }`,
-    `.muted { color:#475569; font-size:0.92rem; }`,
-    `.table-wrap { overflow-x:auto; }`,
-    `.diag-table { width:100%; border-collapse:collapse; }`,
-    `.diag-table th, .diag-table td { text-align:left; border-bottom:1px solid var(--line); padding:0.6rem; vertical-align:top; }`,
-    `.diag-table th { min-width: 18rem; width: 34%; }`,
-    `.diag-table code { overflow-wrap:anywhere; }`,
-    `@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .sidebar { border-right:none; border-bottom:1px solid var(--line); } .content { padding:0.85rem; } .diag-table th { min-width: auto; width: 45%; } }`,
-    `</style>`,
-    `</head>`,
-    `<body>`,
-    `<div class="layout">`,
-    `<aside class="sidebar">`,
-    `<p class="brand">Admin Console</p>`,
-    `<nav>`,
-    `<a class="${opsTabClass}" href="${ADMIN_OPS_PATH}">${OPS_TAB_LABEL}</a>`,
-    `<a class="${sitesTabClass}" href="/admin/sites">Sites Management</a>`,
-    `<a class="${countriesTabClass}" href="/admin/countries">Countries</a>`,
-    `</nav>`,
-    `</aside>`,
-    `<main class="content">`,
-    params.contentHtml,
-    `</main>`,
-    `</div>`,
-    `</body>`,
-    `</html>`,
-  ].join("");
+  return (
+    <>
+      {"<!doctype html>"}
+      <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title safe>{params.pageTitle}</title>
+          <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+          <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+          <style>{`
+            :root { color-scheme: light; --bg:#eef3f8; --fg:#1e293b; --card:#fff; --line:#cbd5e1; --accent:#0f766e; --accent-soft:#ccfbf1; --warning:#9a3412; --warning-bg:#fff7ed; --danger:#991b1b; --danger-bg:#fef2f2; }
+            * { box-sizing: border-box; }
+            body { margin:0; min-height:100vh; background: radial-gradient(circle at top left, #dbeafe 0%, #eef3f8 45%); color:var(--fg); font-family:"IBM Plex Sans", ui-sans-serif, sans-serif; }
+            .layout { display:grid; grid-template-columns: 16rem 1fr; min-height:100vh; }
+            .sidebar { border-right:1px solid var(--line); background:#f8fafc; padding:1rem; }
+            .brand { font-weight:700; margin:0 0 1rem; }
+            .nav-link { display:block; text-decoration:none; color:var(--fg); border-radius:0.5rem; padding:0.65rem 0.75rem; font-weight:600; border:1px solid transparent; }
+            .nav-link-active { background:var(--accent-soft); border-color:#99f6e4; color:#115e59; }
+            .content { padding:1rem; }
+            .stack { display:grid; gap:0.85rem; }
+            .card { border:1px solid var(--line); border-radius:0.75rem; background:var(--card); padding:1rem; }
+            .warning-card { background:var(--warning-bg); }
+            .warning { color:var(--warning); font-weight:600; }
+            .flash { border-radius:0.65rem; padding:0.65rem 0.75rem; border:1px solid transparent; }
+            .flash-error { background:var(--danger-bg); color:var(--danger); border-color:#fecaca; }
+            .muted { color:#475569; font-size:0.92rem; }
+            .table-wrap { overflow-x:auto; }
+            .diag-table { width:100%; border-collapse:collapse; }
+            .diag-table th, .diag-table td { text-align:left; border-bottom:1px solid var(--line); padding:0.6rem; vertical-align:top; }
+            .diag-table th { min-width: 18rem; width: 34%; }
+            .diag-table code { overflow-wrap:anywhere; }
+            @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .sidebar { border-right:none; border-bottom:1px solid var(--line); } .content { padding:0.85rem; } .diag-table th { min-width: auto; width: 45%; } }
+          `}</style>
+        </head>
+        <body>
+          <div class="layout">
+            <aside class="sidebar">
+              <p class="brand">Admin Console</p>
+              <nav>
+                <a class={opsTabClass} href={ADMIN_OPS_PATH}>{OPS_TAB_LABEL}</a>
+                <a class={sitesTabClass} href="/admin/sites">Sites Management</a>
+                <a class={countriesTabClass} href="/admin/countries">Countries</a>
+              </nav>
+            </aside>
+            <main class="content">
+              {params.contentHtml}
+            </main>
+          </div>
+        </body>
+      </html>
+    </>
+  ) as string;
   // END_BLOCK_RENDER_ADMIN_LAYOUT_DOCUMENT_WITH_OPS_NAV_M_ADMIN_UI_113
 }
 
@@ -569,7 +555,7 @@ export async function handleAdminRequest(
 
         return buildHtmlResponse(
           200,
-          renderLoginDocument(),
+          LoginPage(),
           sessionCheck.setCookie ? { "set-cookie": sessionCheck.setCookie } : undefined,
         );
       }
@@ -601,7 +587,7 @@ export async function handleAdminRequest(
               ? "Use the root admin token value directly (without Bearer prefix)."
               : "Invalid root admin token.";
 
-          return buildHtmlResponse(401, renderLoginDocument(errorMessage), {
+          return buildHtmlResponse(401, LoginPage(errorMessage), {
             "set-cookie": resolvedDeps.clearAdminSession(),
           });
         }
@@ -609,7 +595,7 @@ export async function handleAdminRequest(
         throw new AdminUiError("Unexpected authenticateAdmin result state.");
       }
 
-      return buildHtmlResponse(405, renderLoginDocument("Method not allowed."));
+      return buildHtmlResponse(405, LoginPage("Method not allowed."));
     }
     // END_BLOCK_HANDLE_ADMIN_LOGIN_ROUTE_M_ADMIN_UI_116
 
@@ -636,14 +622,14 @@ export async function handleAdminRequest(
     }
 
     if (pathname === ADMIN_OPS_PATH && method === "GET") {
-      const opsPanelHtml = renderOpsStatus(resolvedDeps.config);
+      const opsPanelHtml = OpsStatus(resolvedDeps.config);
       if (htmx) {
         return buildHtmlResponse(200, opsPanelHtml);
       }
 
       return buildHtmlResponse(
         200,
-        renderAdminLayout({
+        AdminLayout({
           pageTitle: "Admin - Ops Diagnostics",
           activeTab: "ops",
           contentHtml: opsPanelHtml,
@@ -658,7 +644,7 @@ export async function handleAdminRequest(
     if (pathname.startsWith("/admin/sites") && resolvedDeps.db === null) {
       return buildHtmlResponse(
         503,
-        renderAdminLayout({
+        AdminLayout({
           pageTitle: "Admin - Sites Management",
           activeTab: "sites",
           contentHtml: `<section class="card"><h2>Unavailable</h2><p class="warning">Sites management requires database connection.</p></section>`,
@@ -671,10 +657,10 @@ export async function handleAdminRequest(
       // START_BLOCK_HANDLE_SITES_LIST_ROUTE_M_ADMIN_UI_131
       const db = resolvedDeps.db!;
       const data = await fetchSitesPageData(db, logger);
-      const contentHtml = renderSitesContent(data);
+      const contentHtml = SitesContent(data);
       return buildHtmlResponse(
         200,
-        renderAdminLayout({
+        AdminLayout({
           pageTitle: "Admin - Sites Management",
           activeTab: "sites",
           contentHtml,
@@ -686,10 +672,10 @@ export async function handleAdminRequest(
     // GET /admin/sites/new — Show create source form
     if (pathname === "/admin/sites/new" && method === "GET") {
       // START_BLOCK_HANDLE_SITES_NEW_ROUTE_M_ADMIN_UI_132
-      const formHtml = renderSourceForm({ mode: "create" });
+      const formHtml = SourceForm({ mode: "create" });
       return buildHtmlResponse(
         200,
-        renderAdminLayout({
+        AdminLayout({
           pageTitle: "Admin - Add Source",
           activeTab: "sites",
           contentHtml: formHtml,
@@ -715,10 +701,10 @@ export async function handleAdminRequest(
       };
       const result = await handleCreateSource(db, logger, input);
       if (!result.success) {
-        const formHtml = renderSourceForm({ mode: "create", errors: result.errors });
+        const formHtml = SourceForm({ mode: "create", errors: result.errors });
         return buildHtmlResponse(
           400,
-          renderAdminLayout({
+          AdminLayout({
             pageTitle: "Admin - Add Source",
             activeTab: "sites",
             contentHtml: formHtml,
@@ -744,17 +730,17 @@ export async function handleAdminRequest(
         if (!source) {
           return buildHtmlResponse(
             404,
-            renderAdminLayout({
+            AdminLayout({
               pageTitle: "Admin - Source Not Found",
               activeTab: "sites",
-              contentHtml: `<section class="card"><h2>Not Found</h2><p class="warning">Source <code>${escapeHtml(sourceId)}</code> does not exist.</p></section>`,
+              contentHtml: `<section class="card"><h2>Not Found</h2><p class="warning">Source <code>${Html.escapeHtml(sourceId)}</code> does not exist.</p></section>`,
             }),
           );
         }
-        const formHtml = renderSourceForm({ mode: "edit", source });
+        const formHtml = SourceForm({ mode: "edit", source });
         return buildHtmlResponse(
           200,
-          renderAdminLayout({
+          AdminLayout({
             pageTitle: "Admin - Edit Source",
             activeTab: "sites",
             contentHtml: formHtml,
@@ -780,10 +766,10 @@ export async function handleAdminRequest(
         if (!result.success) {
           const data = await fetchSitesPageData(db, logger);
           const source = data.sources.find((s) => s.source_id === sourceId);
-          const formHtml = renderSourceForm({ mode: "edit", source, errors: result.errors });
+          const formHtml = SourceForm({ mode: "edit", source, errors: result.errors });
           return buildHtmlResponse(
             400,
-            renderAdminLayout({
+            AdminLayout({
               pageTitle: "Admin - Edit Source",
               activeTab: "sites",
               contentHtml: formHtml,
@@ -829,7 +815,7 @@ export async function handleAdminRequest(
     if (pathname.startsWith("/admin/countries") && resolvedDeps.db === null) {
       return buildHtmlResponse(
         503,
-        renderAdminLayout({
+        AdminLayout({
           pageTitle: "Admin - Countries",
           activeTab: "countries",
           contentHtml: `<section class="card"><h2>Unavailable</h2><p class="warning">Countries management requires database connection.</p></section>`,
@@ -841,10 +827,10 @@ export async function handleAdminRequest(
     if (pathname === "/admin/countries" && method === "GET") {
       const db = resolvedDeps.db!;
       const data = await fetchCountriesPageData(db, logger);
-      const contentHtml = renderCountriesContent(data);
+      const contentHtml = CountriesContent(data);
       return buildHtmlResponse(
         200,
-        renderAdminLayout({
+        AdminLayout({
           pageTitle: "Admin - Countries",
           activeTab: "countries",
           contentHtml,
@@ -854,10 +840,10 @@ export async function handleAdminRequest(
 
     // GET /admin/countries/new — Show create country form
     if (pathname === "/admin/countries/new" && method === "GET") {
-      const formHtml = renderCountryForm({ mode: "create" });
+      const formHtml = CountryForm({ mode: "create" });
       return buildHtmlResponse(
         200,
-        renderAdminLayout({
+        AdminLayout({
           pageTitle: "Admin - Add Country",
           activeTab: "countries",
           contentHtml: formHtml,
@@ -876,10 +862,10 @@ export async function handleAdminRequest(
       };
       const result = await handleCreateCountry(db, logger, input);
       if (!result.success) {
-        const formHtml = renderCountryForm({ mode: "create", errors: result.errors });
+        const formHtml = CountryForm({ mode: "create", errors: result.errors });
         return buildHtmlResponse(
           400,
-          renderAdminLayout({
+          AdminLayout({
             pageTitle: "Admin - Add Country",
             activeTab: "countries",
             contentHtml: formHtml,
@@ -903,17 +889,17 @@ export async function handleAdminRequest(
         if (!country) {
           return buildHtmlResponse(
             404,
-            renderAdminLayout({
+            AdminLayout({
               pageTitle: "Admin - Country Not Found",
               activeTab: "countries",
-              contentHtml: `<section class="card"><h2>Not Found</h2><p class="warning">Country <code>${escapeHtml(countryCode)}</code> does not exist.</p></section>`,
+              contentHtml: `<section class="card"><h2>Not Found</h2><p class="warning">Country <code>${Html.escapeHtml(countryCode)}</code> does not exist.</p></section>`,
             }),
           );
         }
-        const formHtml = renderCountryForm({ mode: "edit", country });
+        const formHtml = CountryForm({ mode: "edit", country });
         return buildHtmlResponse(
           200,
-          renderAdminLayout({
+          AdminLayout({
             pageTitle: "Admin - Edit Country",
             activeTab: "countries",
             contentHtml: formHtml,
@@ -932,10 +918,10 @@ export async function handleAdminRequest(
         if (!result.success) {
           const data = await fetchCountriesPageData(db, logger);
           const country = data.countries.find((c) => c.country_code === countryCode);
-          const formHtml = renderCountryForm({ mode: "edit", country, errors: result.errors });
+          const formHtml = CountryForm({ mode: "edit", country, errors: result.errors });
           return buildHtmlResponse(
             400,
-            renderAdminLayout({
+            AdminLayout({
               pageTitle: "Admin - Edit Country",
               activeTab: "countries",
               contentHtml: formHtml,
@@ -952,12 +938,12 @@ export async function handleAdminRequest(
           // Re-render list with error flash
           const data = await fetchCountriesPageData(db, logger);
           const contentHtml = [
-            `<div class="flash flash-error">${escapeHtml(result.error ?? "Delete failed.")}</div>`,
-            renderCountriesContent(data),
+            `<div class="flash flash-error">${Html.escapeHtml(result.error ?? "Delete failed.")}</div>`,
+            CountriesContent(data),
           ].join("");
           return buildHtmlResponse(
             400,
-            renderAdminLayout({
+            AdminLayout({
               pageTitle: "Admin - Countries",
               activeTab: "countries",
               contentHtml,
@@ -1000,12 +986,12 @@ export async function handleAdminRequest(
     }
 
     if (pathname === ADMIN_LOGIN_PATH) {
-      return buildHtmlResponse(500, renderLoginDocument("Unexpected admin error. Try again."));
+      return buildHtmlResponse(500, LoginPage("Unexpected admin error. Try again."));
     }
 
     return buildHtmlResponse(
       500,
-      renderAdminLayout({
+      AdminLayout({
         pageTitle: "Admin - Error",
         activeTab: "ops",
         contentHtml: `<section class="card"><h2>Unexpected admin error</h2><p class="warning">Try again or check server logs.</p></section>`,
