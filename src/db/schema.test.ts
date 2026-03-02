@@ -325,8 +325,8 @@ describe("bootstrapSitesSchema", () => {
 
     await bootstrapSitesSchema(mock, logger);
 
-    // 1 extension + 5 tables + 1 unique index + 12 seed inserts = 19 execute calls
-    const expectedCallCount = 1 + 5 + 1 + SITE_SOURCES_RESPONSE.sources.length;
+    // 1 extension + 7 tables + 1 alter migration + 1 unique index + 12 seed inserts + 1 country seed = 23 execute calls
+    const expectedCallCount = 1 + 7 + 1 + 1 + SITE_SOURCES_RESPONSE.sources.length + 1;
     expect(executeCalls.length).toBe(expectedCallCount);
   });
 
