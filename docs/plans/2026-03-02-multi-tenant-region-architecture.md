@@ -51,8 +51,8 @@ Tool parameter (`country_code`):
 | Usage tracker | `src/usage/tracker.ts` | `(userId, toolName)` PK | `(userId, toolName, countryCode)` PK |
 | DB schema | `src/db/schema.ts` | No country concept | `country_settings` table + `country_code` columns |
 | Tool descriptions | `src/runtime/fastmcp-runtime.ts:1155,1186` | "Japan travel" hardcoded | Generic: "travel site pages" |
-| Server name | `src/runtime/fastmcp-runtime.ts:49` | `"japan-travel-rag-mcp"` | `"travel-rag-mcp"` |
-| Portal branding | `src/portal/ui-routes.tsx` ~15 places | "Japan Travel RAG" | Platform brand + destination list |
+| Server name | `src/runtime/fastmcp-runtime.ts:49` | `"japan-travel-rag-mcp"` | `"travelmind-mcp"` |
+| Portal branding | `src/portal/ui-routes.tsx` ~15 places | "TravelMind" / "TravelMind" | Platform brand + destination list |
 
 ### What stays unchanged
 
@@ -593,7 +593,7 @@ execute: async (args, context) => {
 **Step 5: Update server name**
 
 ```typescript
-const FASTMCP_SERVER_NAME = "travel-rag-mcp";
+const FASTMCP_SERVER_NAME = "travelmind-mcp";
 ```
 
 **Step 6: Run all tests**
@@ -664,11 +664,11 @@ New env vars:
 PLATFORM_NAME=Travel RAG
 ```
 
-**Step 2: Replace all "Japan Travel RAG" strings**
+**Step 2: Replace all "TravelMind" strings**
 
 | Location (approx lines) | Current | New |
 |--------------------------|---------|-----|
-| 293, 460 | "Japan Travel RAG" heading | `${platformName}` |
+| 293, 460 | "TravelMind" heading | `${platformName}` |
 | 319, 332, 387, 397 | Setup guide with "japan-travel-rag" | Generic with `/mcp` endpoint |
 | 461 | "Your AI-powered travel companion for Japan..." | "Your AI-powered travel companion" |
 | 557, 565, 602 | Sign-up/sign-in titles | `${platformName}` |

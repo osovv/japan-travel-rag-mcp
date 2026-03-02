@@ -1,4 +1,6 @@
-# japan-travel-rag-mcp
+# TravelMind MCP
+
+A curated data source for AI travel agents, delivered as an MCP (Model Context Protocol) server. Multi-region architecture with Japan as the first supported destination.
 
 ## Local Development
 

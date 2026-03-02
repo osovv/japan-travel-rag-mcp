@@ -8,7 +8,7 @@
 # END_MODULE_CONTRACT
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: [v2.0.0 - Rename mcp service to japan-travel-rag-api, add japan-travel-rag-worker service, add proxy env vars for Spider/Voyage API access, add Logto/portal env vars]
+#   LAST_CHANGE: [v2.1.0 - Rebrand to TravelMind: rename services from japan-travel-rag-* to travelmind-*, update traefik labels]
 #   PREVIOUS: [v1.2.0 - Add required ROOT_AUTH_TOKEN and DATABASE_URL env bindings for post-Phase-4 config contract]
 # END_CHANGE_SUMMARY
 
@@ -42,7 +42,7 @@ x-shared-env: &shared-env
 
 services:
   # START_BLOCK_API_SERVICE
-  japan-travel-rag-api:
+  travelmind-api:
     build:
       context: .
       dockerfile: Dockerfile
@@ -51,9 +51,9 @@ services:
     <<: *shared-env
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.japan-mcp.rule=Host(`japan-travel-rag-mcp.osovv.dev`)"
-      - "traefik.http.routers.japan-mcp.entrypoints=http"
-      - "traefik.http.services.japan-mcp.loadbalancer.server.port=3002"
+      - "traefik.http.routers.travelmind.rule=Host(`travelmind.osovv.dev`)"
+      - "traefik.http.routers.travelmind.entrypoints=http"
+      - "traefik.http.services.travelmind.loadbalancer.server.port=3002"
     expose:
       - "3002"
     healthcheck:
@@ -66,7 +66,7 @@ services:
   # END_BLOCK_API_SERVICE
 
   # START_BLOCK_WORKER_SERVICE
-  japan-travel-rag-worker:
+  travelmind-worker:
     build:
       context: .
       dockerfile: Dockerfile

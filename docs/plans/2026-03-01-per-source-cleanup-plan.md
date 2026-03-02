@@ -1,7 +1,7 @@
 # Per-Source Cleanup and Content Quality Plan
 
 Date: 2026-03-01
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 Status: Draft implementation plan
 
 ## 0. Current Progress Snapshot

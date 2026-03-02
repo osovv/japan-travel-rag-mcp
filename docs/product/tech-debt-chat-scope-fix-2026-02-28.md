@@ -1,7 +1,7 @@
 # Tech Debt Backlog: Chat Scope Hardening for MCP Proxy
 
 Date: 2026-02-28
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 Owner: `solo founder`
 Status: Planned
 

@@ -24,10 +24,10 @@
     }
   ],
   "id": null,
-  "uid": "japan-travel-rag-api-keys-usage",
-  "title": "Japan Travel RAG - API Keys & Usage",
+  "uid": "travelmind-api-keys-usage",
+  "title": "TravelMind - API Keys & Usage",
   "description": "API key lifecycle and tool usage monitoring",
-  "tags": ["japan-travel-rag", "api-keys", "usage"],
+  "tags": ["travelmind", "api-keys", "usage"],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,

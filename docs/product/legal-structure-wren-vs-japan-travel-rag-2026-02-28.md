@@ -1,4 +1,4 @@
-# Legal Packaging: `wren-chat` Infra vs `japan-travel-rag-mcp` Product (Draft)
+# Legal Packaging: `wren-chat` Infra vs `travelmind-mcp` Product (Draft)
 
 Date: 2026-02-28
 Owner: `solo founder`
@@ -8,12 +8,12 @@ Status: Working draft (not legal advice)
 
 Чтобы снизить риск и упростить продажи, полезно разделить роли:
 1. `wren-chat` = Dev2Dev инфраструктура (индексация/поиск API).
-2. `japan-travel-rag-mcp` = конечный продукт (B2C/B2B интерфейс и пользовательский UX).
+2. `travelmind-mcp` = конечный продукт (B2C/B2B интерфейс и пользовательский UX).
 
 ## 2. Практичная модель ответственности
 
 1. В `wren-chat` вы предоставляете технологию и policy controls.
-2. В `japan-travel-rag-mcp` вы определяете, какие источники реально включены в продукт и как показывается результат пользователю.
+2. В `travelmind-mcp` вы определяете, какие источники реально включены в продукт и как показывается результат пользователю.
 3. Для B2B (travel agencies) лучше модель BYOS:
    - клиент подключает свои источники/чаты,
    - в договоре клиент подтверждает права на эти источники.
@@ -25,7 +25,7 @@ Status: Working draft (not legal advice)
 2. `Data Processing Addendum (DPA)` для B2B-клиентов.
 3. `Acceptable Use Policy` (запреты на злоупотребления/массовый реэкспорт).
 
-### Для `japan-travel-rag-mcp` (product)
+### Для `travelmind-mcp` (product)
 1. `Privacy Policy`.
 2. `Terms of Use`.
 3. `Source & Takedown Policy` (что индексируете и как обрабатываете удаления).
@@ -56,6 +56,6 @@ Status: Working draft (not legal advice)
 ## 7. Реальные next steps на ближайшие 14 дней
 
 1. Зафиксировать source registry в отдельном внутреннем файле.
-2. Опубликовать короткие `Privacy + Terms + Takedown` для `japan-travel-rag-mcp`.
+2. Опубликовать короткие `Privacy + Terms + Takedown` для `travelmind-mcp`.
 3. Подготовить короткий B2B шаблон (`MSA + DPA lite`) для pilot с travel agency.
 4. Доделать tech debt по chat scope enforcement в proxy.

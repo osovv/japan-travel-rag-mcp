@@ -814,7 +814,7 @@
       </interface>
       <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-COUNTRY-SETTINGS</depends>
       <notes>
-        <note-1>Server name changes from "japan-travel-rag-mcp" to "travel-rag-mcp".</note-1>
+        <note-1>Server name changes from "japan-travel-rag-mcp" to "travelmind-mcp".</note-1>
         <note-2>Tool descriptions become generic: "Search curated travel site pages" instead of "Japan travel site pages".</note-2>
       </notes>
     </M-FASTMCP-RUNTIME>
@@ -1278,7 +1278,7 @@
       <step-6>Update M-SITE-SOURCES getSiteSources to filter by country_code; replace frozen SITE_SOURCES_RESPONSE constant with DB-backed per-country query. Test: get_site_sources returns country-filtered sources, empty for unknown country.</step-6>
       <step-7>Wire country_code through M-FASTMCP-RUNTIME and M-SERVER: load country settings at startup, build countryCache, pass to runtime; resolve country context in tool execute handlers; update tool descriptions to generic multi-destination text; rename server to "travel-rag-mcp". Test: end-to-end tool call with country_code routing.</step-7>
       <step-8>Seed Japan country in M-DB-SITES-BOOTSTRAP: insert country_settings row { jp, active, tg_chat_ids from env }. Migrate existing data (site_sources/usage_counters default to 'jp'). Deprecate TG_CHAT_RAG_CHAT_IDS env var in M-CONFIG (optional, backwards compat). Test: server starts, search_messages with country_code=jp returns same results as before.</step-8>
-      <step-9>Update M-PORTAL-UI for platform branding: replace "Japan Travel RAG" with PLATFORM_NAME, add destination list from country_settings, update MCP setup guide for single-endpoint multi-country usage. Add PLATFORM_NAME to M-CONFIG. Test: portal shows generic branding and destination list.</step-9>
+      <step-9>Update M-PORTAL-UI for platform branding: replace "Japan Travel RAG" with TravelMind / PLATFORM_NAME, add destination list from country_settings, update MCP setup guide for single-endpoint multi-country usage. Add PLATFORM_NAME to M-CONFIG. Test: portal shows generic branding and destination list.</step-9>
       <justification>Single MCP endpoint with country_code parameter enables frictionless multi-destination UX (one OAuth flow, one connector), DB-only country provisioning, per-country analytics, and future per-country pricing — without per-URL routing complexity or multiple FastMCP instances.</justification>
     </Phase-13>
   </ImplementationOrder>

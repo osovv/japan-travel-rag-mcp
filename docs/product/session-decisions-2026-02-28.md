@@ -59,6 +59,6 @@ This decision complements the portal-first planning update from 2026-02-28 and i
 ## Legal packaging decision (infra vs product)
 
 1. `wren-chat` is positioned as Dev2Dev infrastructure layer (index/search API with policy controls).
-2. `japan-travel-rag-mcp` is positioned as end-user product layer (B2C/B2B distribution and UX).
+2. `travelmind-mcp` is positioned as end-user product layer (B2C/B2B distribution and UX).
 3. Reference document:
-   - `docs/product/legal-structure-wren-vs-japan-travel-rag-2026-02-28.md`
+   - `docs/product/legal-structure-wren-vs-travelmind-2026-02-28.md` (file: `legal-structure-wren-vs-japan-travel-rag-2026-02-28.md`)

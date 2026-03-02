@@ -5,7 +5,7 @@
 MCP OAuth flow shows two consent screens:
 
 1. **FastMCP consent** — hardcoded purple gradient HTML, generic "MCP Client requests access"
-2. **Logto consent** — "Authorize Japan Travel MCP Proxy", shows user info, "Powered by Logto"
+2. **Logto consent** — "Authorize TravelMind MCP Proxy", shows user info, "Powered by Logto"
 
 Goal: single custom consent screen in portal visual style.
 
@@ -56,7 +56,7 @@ Portal style: teal accent (`#0d9488`), light blue-gray gradient background, whit
 <div class="portal-center">
   <div class="portal-card">
     <div class="portal-header">
-      <h1>Japan Travel RAG</h1>
+      <h1>TravelMind</h1>
       <p>An application is requesting access to your account</p>
     </div>
 
@@ -80,7 +80,7 @@ Portal style: teal accent (`#0d9488`), light blue-gray gradient background, whit
 
 ### Key decisions
 
-- App name hardcoded "Japan Travel RAG" (not generic "MCP Client")
+- App name hardcoded "TravelMind" (not generic "MCP Client")
 - Buttons: `.btn-primary` (teal) for Approve, `.btn-outline` for Deny
 - Scopes displayed with human-readable labels via `formatScopeLabel()` mapping
 - Background: same gradient as portal (`linear-gradient(135deg, #dbeafe, #f0f4f8, #e2e8f0)`)

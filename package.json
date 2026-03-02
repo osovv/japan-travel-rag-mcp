@@ -1,5 +1,5 @@
 {
-  "name": "japan-travel-rag-mcp",
+  "name": "travelmind-mcp",
   "module": "index.ts",
   "type": "module",
   "private": true,

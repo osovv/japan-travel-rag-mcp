@@ -1,7 +1,7 @@
 # Payment Providers Research
 
 **Date:** 2025-03-01
-**Project:** japan-travel-rag-mcp
+**Project:** travelmind-mcp
 **Business Model:** Credits top-up (usage-based)
 
 ---

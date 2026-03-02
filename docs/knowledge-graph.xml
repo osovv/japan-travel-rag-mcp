@@ -1,5 +1,5 @@
 <KnowledgeGraph>
-  <Project NAME="japan-travel-rag-mcp" VERSION="1.14.0">
+  <Project NAME="travelmind-mcp" VERSION="1.14.0">
     <keywords>multi-country, country-code, country-settings, travel-platform, mcp, fastmcp, oauth-proxy, logto, user-portal, landing, onboarding, root-auth, zod, contract-first, usage-tracking, drizzle, postgresql, site-sources, curated-sites, spider-cloud, voyage-4, tiktoken, worker-runtime, hybrid-search, admin-sites-management, admin-countries-management, per-source-cleanup, quality-gate, source-adapter, cleanup-registry, adapter-matrix, full-adapter-coverage, fixture-matrix-testing, destination-list</keywords>
     <annotation>Multi-country travel platform with single MCP endpoint and country_code tool parameter routing. Seven MCP tools (4 proxied + 3 local) with per-country data filtering, country_settings table for runtime config, shareable onboarding UX with destination list, worker-driven curated-sites crawl/index pipeline with layered per-source cleanup and quality gating, full Layer B adapter coverage for all 12 curated sources, attributed local retrieval, admin sites and countries management CRUD, per-user per-country usage tracking, and persistent OAuth token storage.</annotation>
 

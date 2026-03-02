@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "japan-travel-rag-mcp/contracts/mcp-tools.v1.json",
+  "$id": "travelmind-mcp/contracts/mcp-tools.v1.json",
   "title": "MCP Tool Schemas v1 (Current Proxy Surface)",
   "type": "object",
   "additionalProperties": false,

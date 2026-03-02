@@ -24,10 +24,10 @@
     }
   ],
   "id": null,
-  "uid": "japan-travel-rag-content-pipeline",
-  "title": "Japan Travel RAG - Content Pipeline",
+  "uid": "travelmind-content-pipeline",
+  "title": "TravelMind - Content Pipeline",
   "description": "Crawl and indexing pipeline monitoring",
-  "tags": ["japan-travel-rag", "pipeline"],
+  "tags": ["travelmind", "pipeline"],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,

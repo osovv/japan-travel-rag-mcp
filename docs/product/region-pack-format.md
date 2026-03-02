@@ -1,7 +1,7 @@
 # Region Pack Format and Versioning
 
 Date: 2026-02-21
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 
 ## 1. Purpose
 

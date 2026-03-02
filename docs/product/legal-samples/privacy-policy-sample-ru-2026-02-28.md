@@ -7,7 +7,7 @@ Status: Template for adaptation (not legal advice)
 
 Оператор сервиса: `[ИП/ООО/ФИО]`  
 Email для privacy-вопросов: `[privacy@your-domain]`  
-Сервис: `japan-travel-rag-mcp`
+Сервис: `TravelMind` (`travelmind-mcp`)
 
 ## 2. Что делает сервис
 

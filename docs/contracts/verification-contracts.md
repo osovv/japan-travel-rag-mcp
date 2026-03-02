@@ -1,7 +1,7 @@
 # MCP Verification Contracts (Dropped)
 
 Date: 2026-02-28
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 Status: Dropped (removed from active and deferred product plans)
 
 ## Scope note

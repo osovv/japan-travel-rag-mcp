@@ -1,7 +1,7 @@
 # Telegram Indexing Legal Playbook (RU, Solo Founder, Draft)
 
 Date: 2026-02-28
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 Status: Working draft (not legal advice)
 
 ## 1. Контекст и факты по текущей реализации

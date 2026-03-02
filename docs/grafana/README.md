@@ -1,6 +1,6 @@
 # Grafana Dashboards
 
-Pre-built Grafana dashboards for monitoring the Japan Travel RAG MCP system. All dashboards query PostgreSQL directly.
+Pre-built Grafana dashboards for monitoring the TravelMind MCP system. All dashboards query PostgreSQL directly.
 
 ## Prerequisites
 

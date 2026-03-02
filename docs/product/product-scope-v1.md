@@ -1,11 +1,11 @@
 # Product Scope v1
 
 Date: 2026-02-21
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 
 ## 1. Product thesis
 
-Build a best-in-class MCP retrieval + verification infrastructure for travel agents.
+Build a best-in-class MCP retrieval + verification infrastructure for travel agents across multiple regions. Japan is the first supported destination.
 
 The product does not run autonomous trip planning.
 It returns deterministic evidence and verification primitives.

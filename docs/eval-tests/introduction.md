@@ -1,7 +1,7 @@
 # Evaluation Tests: Introduction
 
 Date: 2026-02-21
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 
 ## 1. v1 quality strategy
 

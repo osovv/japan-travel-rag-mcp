@@ -1,7 +1,7 @@
 # get_site_sources Tool Guide (Lean Draft)
 
 Date: 2026-02-28
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 Status: Working draft
 
 ## 1. Purpose

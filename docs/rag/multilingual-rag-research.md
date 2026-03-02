@@ -1,7 +1,7 @@
 # Multilingual RAG Research Notes
 
 Date: 2026-02-20
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 
 ## 1) Как это обычно делают в проде
 
@@ -31,7 +31,7 @@ Project: `japan-travel-rag-mcp`
    - `retrieval_language` (на каком языке найдено)
    - `response_language` (на каком языке отвечаем пользователю)
 
-## 3) Рекомендованный blueprint для `japan-travel-rag-mcp`
+## 3) Рекомендованный blueprint для `travelmind-mcp`
 
 1. В ingest pipeline добавить этапы:
    - `normalize_text`

@@ -1,7 +1,7 @@
 # Curated Sites Ingestion and Search Implementation Plan
 
 Date: 2026-02-28
-Project: `japan-travel-rag-mcp`
+Project: `travelmind-mcp`
 Status: Draft implementation plan
 
 ## 1. Goal

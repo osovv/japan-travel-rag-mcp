@@ -10,7 +10,7 @@
 
 ### Platform, not single-destination product
 
-The product is **not** "Japan travel MCP server". It's a **multi-destination travel RAG platform** where Japan is the first instance:
+The product is **TravelMind** — a **multi-destination travel RAG platform** where Japan is the first supported region:
 - `/ja/mcp` — Japan
 - `/cn/mcp` — China (future)
 - `/it/mcp` — Italy (future)
@@ -177,7 +177,7 @@ See: `docs/research/payment-providers.md`
 3. **Volume discounts beyond listed tiers?** — Custom pricing for large agencies/devs?
 4. **Multi-destination pricing model** — unified vs per-destination (see section 6)
 5. **Dev2Dev SLA** — What uptime/latency guarantees? Different per tier?
-6. **Legal entity** — Payment processing requires a legal structure. Current constraint: Russian tax resident, no foreign company. See `docs/product/legal-structure-wren-vs-japan-travel-rag-2026-02-28.md`
+6. **Legal entity** — Payment processing requires a legal structure. Current constraint: Russian tax resident, no foreign company. See `docs/product/legal-structure-wren-vs-japan-travel-rag-2026-02-28.md` (TravelMind legal structure)
 
 ---
 

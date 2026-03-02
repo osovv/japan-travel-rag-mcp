@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "japan-travel-rag-mcp/contracts/evidence-object.v1.json",
+  "$id": "travelmind-mcp/contracts/evidence-object.v1.json",
   "title": "Evidence Object v1",
   "type": "object",
   "required": [
