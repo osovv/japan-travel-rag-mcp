@@ -1,10 +1,10 @@
 // FILE: src/db/sites-bootstrap.ts
-// VERSION: 1.1.0
+// VERSION: 1.2.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Bootstrap curated sites index schema and seed site_sources from frozen seed data.
-//   SCOPE: Enable pgvector extension, create all five site index tables via raw SQL, ensure required unique indexes, and upsert seed sources.
-//   DEPENDS: M-DB, M-LOGGER, M-SITE-SOURCES
-//   LINKS: M-DB, M-SITE-SOURCES
+//   PURPOSE: Bootstrap curated sites index schema, seed site_sources, and seed Japan country settings.
+//   SCOPE: Enable pgvector extension, create all site index tables and country_settings via raw SQL, ensure required unique indexes, upsert seed sources, and seed Japan as active country.
+//   DEPENDS: M-DB, M-LOGGER, M-SITE-SOURCES, M-COUNTRY-SETTINGS
+//   LINKS: M-DB, M-SITE-SOURCES, M-COUNTRY-SETTINGS
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -13,7 +13,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.1.0 - Ensure unique index on site_pages(canonical_url) so repository ON CONFLICT upserts are valid in bootstrap-only environments.
+//   LAST_CHANGE: v1.2.0 - Seed Japan country in country_settings at bootstrap; added country_code column migration for site_sources.
+//   PREVIOUS: v1.1.0 - Ensure unique index on site_pages(canonical_url).
 // END_CHANGE_SUMMARY
 
 import { sql } from "drizzle-orm";
@@ -233,6 +234,26 @@ export async function bootstrapSitesSchema(db: NodePgDatabase, logger: Logger): 
       "SEED_SITE_SOURCES",
     );
     // END_BLOCK_SEED_SITE_SOURCES_M_DB_SITES_BOOTSTRAP_008
+
+    // START_BLOCK_SEED_JAPAN_COUNTRY_M_DB_SITES_BOOTSTRAP_013
+    // Seed Japan as active country if not exists. Uses env TG_CHAT_RAG_CHAT_IDS for migration
+    // or empty array if not set (chat_ids will be configured via admin/DB directly).
+    const chatIdsRaw = (process.env.TG_CHAT_RAG_CHAT_IDS ?? "").trim();
+    const chatIds = chatIdsRaw
+      ? [...new Set(chatIdsRaw.split(",").map((id) => id.trim()).filter(Boolean))]
+      : [];
+    await db.execute(sql`
+      INSERT INTO country_settings (country_code, status, settings, created_at, updated_at)
+      VALUES ('jp', 'active', ${JSON.stringify({ tg_chat_ids: chatIds })}::jsonb, NOW(), NOW())
+      ON CONFLICT (country_code) DO NOTHING
+    `);
+    logger.info(
+      "Japan country settings seeded.",
+      "bootstrapSitesSchema",
+      "SEED_JAPAN_COUNTRY",
+      { chatIdsCount: chatIds.length },
+    );
+    // END_BLOCK_SEED_JAPAN_COUNTRY_M_DB_SITES_BOOTSTRAP_013
 
     logger.info(
       "Sites schema bootstrap complete.",
