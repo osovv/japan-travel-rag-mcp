@@ -1,10 +1,10 @@
 // FILE: src/runtime/fastmcp-runtime.ts
-// VERSION: 1.8.0
+// VERSION: 1.9.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface (4 proxied + 3 local) with per-user usage tracking, health endpoint, delegated /admin routes, and portal/landing routes.
-//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools and three local tools (get_site_sources, search_sites, get_page_chunk) with zod schemas and canAccess guards, route tool execution to ToolProxyService or local handler with fire-and-forget usage tracking, mount OAuth diagnostics notFound routes, mount /admin routes, and mount / and /portal/* routes through FastMCP.getApp().
-//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH
-//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH
+//   PURPOSE: Create and configure FastMCP runtime with OAuth metadata, authenticate hook, fixed tool surface (4 proxied + 3 local) with per-user usage tracking and country_code routing, health endpoint, delegated /admin routes, and portal/landing routes.
+//   SCOPE: Instantiate FastMCP, map M-AUTH-PROXY metadata into FastMCP oauth configuration, authenticate /mcp requests through OAuthProxy token loading, register four proxied tools and three local tools (get_site_sources, search_sites, get_page_chunk) with zod schemas and canAccess guards, route tool execution to ToolProxyService or local handler with fire-and-forget usage tracking and per-country context, mount OAuth diagnostics notFound routes, mount /admin routes, and mount / and /portal/* routes through FastMCP.getApp().
+//   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-COUNTRY-SETTINGS
+//   LINKS: M-FASTMCP-RUNTIME, M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-COUNTRY-SETTINGS
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -15,22 +15,24 @@
 //   readUrlOriginIfParseable - Read URL origin from optional URI query values when parseable.
 //   countScopesFromQueryValue - Count normalized scope entries from OAuth scope query value.
 //   mountOauthDiagnosticsNotFoundRoutes - Mount OAuth diagnostics notFound routes to log sanitized authorize/callback query diagnostics.
-//   registerProxyTools - Register fixed four-tool proxy surface on FastMCP.
-//   registerLocalTools - Register local tools (get_site_sources, search_sites, get_page_chunk) with canAccess guard and usage tracking.
+//   registerProxyTools - Register fixed four-tool proxy surface on FastMCP with country_code context extraction and per-country chat ID routing.
+//   registerLocalTools - Register local tools (get_site_sources, search_sites, get_page_chunk) with canAccess guard, country_code extraction, and per-country usage tracking.
 //   mountAdminRoutes - Mount /admin and /admin/* handlers via FastMCP.getApp().
 //   mountPortalRoutes - Mount / landing and /portal/* handlers via FastMCP.getApp().
 //   extractUserIdFromSession - Extract user sub claim from MCP OAuth session JWT tokens for usage tracking.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.8.0 - Registered search_sites and get_page_chunk local tools with SitesSearchService dependency wiring and usage tracking.
-//   PREVIOUS: v1.7.0 - Added registerLocalTools for get_site_sources local registry tool with canAccess guard and usage tracking.
+//   LAST_CHANGE: v1.9.0 - Wired country_code through proxy and local tools: extract from args, resolve CountryContext via CountryCache, pass to proxyService.executeTool and getSiteSources, update recordToolCall with countryCode, genericize tool descriptions.
+//   PREVIOUS: v1.8.0 - Registered search_sites and get_page_chunk local tools with SitesSearchService dependency wiring and usage tracking.
 // END_CHANGE_SUMMARY
 
 import { FastMCP, type ServerOptions } from "fastmcp";
 import type { IncomingMessage } from "node:http";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { OauthProxyContext } from "../auth/oauth-proxy";
 import type { AppConfig } from "../config/index";
+import type { CountryCache } from "../countries/index";
 import type { Logger } from "../logger/index";
 import type { SitesSearchService } from "../sites/search/service";
 import {
@@ -42,11 +44,12 @@ import {
   SearchSitesInputSchema,
   TOOL_INPUT_JSON_SCHEMAS,
 } from "../tools/contracts";
+import type { CountryContext } from "../tools/proxy-service";
 import { ProxyExecutionError, type ToolProxyService } from "../tools/proxy-service";
-import { SITE_SOURCES_RESPONSE, GetSiteSourcesInputSchema } from "../tools/site-sources";
+import { GetSiteSourcesInputSchema, getSiteSources } from "../tools/site-sources";
 import type { UsageTracker } from "../usage/tracker";
 
-const FASTMCP_SERVER_NAME = "japan-travel-rag-mcp";
+const FASTMCP_SERVER_NAME = "travel-rag-mcp";
 const FASTMCP_SERVER_VERSION: `${number}.${number}.${number}` = "0.4.0";
 const FASTMCP_HEALTH_PATH = "/healthz";
 
@@ -171,6 +174,7 @@ type RegisterProxyToolsDependencies = {
   logger: Logger;
   proxyService: ToolProxyService;
   usageTracker: UsageTracker;
+  countryCache: CountryCache;
 };
 
 type MountAdminRoutesDependencies = {
@@ -198,6 +202,8 @@ export type FastMcpRuntimeDependencies = {
   portalHandler: (request: Request) => Promise<Response>;
   usageTracker: UsageTracker;
   sitesSearchService: SitesSearchService;
+  countryCache: CountryCache;
+  db: NodePgDatabase;
 };
 
 export class FastMcpRuntimeError extends Error {
@@ -1003,6 +1009,18 @@ function assertRuntimeDependencies(deps: FastMcpRuntimeDependencies): void {
       field: "deps.sitesSearchService",
     });
   }
+
+  if (!deps.countryCache || typeof deps.countryCache.get !== "function") {
+    throw new FastMcpRuntimeError("CountryCache dependency is required for FastMCP runtime.", {
+      field: "deps.countryCache",
+    });
+  }
+
+  if (!deps.db || typeof deps.db !== "object") {
+    throw new FastMcpRuntimeError("Database dependency is required for FastMCP runtime.", {
+      field: "deps.db",
+    });
+  }
   // END_BLOCK_VALIDATE_FASTMCP_RUNTIME_DEPENDENCIES_M_FASTMCP_RUNTIME_016
 }
 
@@ -1067,18 +1085,24 @@ export function registerProxyTools(
       canAccess: canAccessAuthenticatedProxyTools,
       execute: async (args, context) => {
         try {
-          const result = await deps.proxyService.executeTool(toolName, args ?? {});
+          const typedArgs = (args ?? {}) as Record<string, unknown>;
+          const countryCode = typeof typedArgs.country_code === "string" ? typedArgs.country_code : "";
+          const country = deps.countryCache.get(countryCode);
+          const countryContext: CountryContext = {
+            chatIds: country ? (country.settings.tg_chat_ids as string[] ?? []) : [],
+          };
+          const result = await deps.proxyService.executeTool(toolName, typedArgs, countryContext);
           deps.logger.info(
             "Executed proxied MCP tool through ToolProxyService.",
             "registerProxyTools",
             "REGISTER_FIXED_PROXY_TOOL_SET_ON_FASTMCP",
-            { toolName },
+            { toolName, countryCode: countryCode || "global" },
           );
 
           // Fire-and-forget usage tracking after successful execution
           const userId = extractUserIdFromSession(context.session);
           if (userId !== null) {
-            deps.usageTracker.recordToolCall(userId, toolName);
+            deps.usageTracker.recordToolCall(userId, toolName, countryCode || "global");
           } else {
             deps.logger.warn(
               "Could not extract user ID from session for usage tracking.",
@@ -1131,6 +1155,8 @@ type RegisterLocalToolsDependencies = {
   logger: Logger;
   usageTracker: UsageTracker;
   sitesSearchService: SitesSearchService;
+  countryCache: CountryCache;
+  db: NodePgDatabase;
 };
 
 // START_CONTRACT: registerLocalTools
@@ -1152,14 +1178,15 @@ export function registerLocalTools(
   fastMcpServer.addTool({
     name: "get_site_sources",
     description:
-      "Returns a curated registry of trusted sources for Japan travel research. Metadata-only: domains, tiers, language hints. No page content.",
+      "Returns a curated registry of trusted sources for travel research. Metadata-only: domains, tiers, language hints. No page content. Use country_code to specify destination.",
     parameters: GetSiteSourcesInputSchema,
     canAccess: canAccessAuthenticatedProxyTools,
-    execute: async (_args, context) => {
+    execute: async (args, context) => {
+      const countryCode = typeof args?.country_code === "string" ? args.country_code : "jp";
       // Fire-and-forget usage tracking
       const userId = extractUserIdFromSession(context.session);
       if (userId !== null) {
-        deps.usageTracker.recordToolCall(userId, "get_site_sources");
+        deps.usageTracker.recordToolCall(userId, "get_site_sources", countryCode);
       } else {
         deps.logger.warn(
           "Could not extract user ID from session for usage tracking.",
@@ -1169,28 +1196,31 @@ export function registerLocalTools(
         );
       }
 
+      const result = await getSiteSources(deps.db, deps.logger, countryCode);
+
       deps.logger.info(
         "Executed local MCP tool get_site_sources.",
         "registerLocalTools",
         "REGISTER_LOCAL_TOOLS_ON_FASTMCP",
-        { toolName: "get_site_sources" },
+        { toolName: "get_site_sources", countryCode },
       );
 
-      return JSON.stringify(SITE_SOURCES_RESPONSE);
+      return JSON.stringify(result);
     },
   });
 
   fastMcpServer.addTool({
     name: "search_sites",
     description:
-      "Search curated Japan travel site pages by semantic similarity. Returns ranked snippets with source attribution and links.",
+      "Search curated travel site pages by semantic similarity. Returns ranked snippets with source attribution and links. Use country_code to specify destination.",
     parameters: SearchSitesInputSchema,
     canAccess: canAccessAuthenticatedProxyTools,
     execute: async (args, context) => {
+      const countryCode = typeof args?.country_code === "string" ? args.country_code : "";
       // Fire-and-forget usage tracking
       const userId = extractUserIdFromSession(context.session);
       if (userId !== null) {
-        deps.usageTracker.recordToolCall(userId, "search_sites");
+        deps.usageTracker.recordToolCall(userId, "search_sites", countryCode || "global");
       } else {
         deps.logger.warn(
           "Could not extract user ID from session for usage tracking.",
@@ -1204,6 +1234,7 @@ export function registerLocalTools(
         query: args.query,
         top_k: args.top_k,
         source_ids: args.source_ids,
+        country_code: countryCode || undefined,
       });
 
       deps.logger.info(
@@ -1227,7 +1258,7 @@ export function registerLocalTools(
       // Fire-and-forget usage tracking
       const userId = extractUserIdFromSession(context.session);
       if (userId !== null) {
-        deps.usageTracker.recordToolCall(userId, "get_page_chunk");
+        deps.usageTracker.recordToolCall(userId, "get_page_chunk", "global");
       } else {
         deps.logger.warn(
           "Could not extract user ID from session for usage tracking.",
@@ -1443,12 +1474,15 @@ export function createFastMcpRuntime(
       logger: runtimeLogger.child({ component: "proxyTools" }),
       proxyService: deps.proxyService,
       usageTracker: deps.usageTracker,
+      countryCache: deps.countryCache,
     });
 
     registerLocalTools(fastMcpServer, {
       logger: runtimeLogger.child({ component: "localTools" }),
       usageTracker: deps.usageTracker,
       sitesSearchService: deps.sitesSearchService,
+      countryCache: deps.countryCache,
+      db: deps.db,
     });
 
     mountAdminRoutes(fastMcpServer, {

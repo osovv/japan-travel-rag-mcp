@@ -74,6 +74,7 @@ export type SearchSitesParams = {
   query: string;
   top_k: number;
   source_ids?: string[];
+  country_code?: string;
 };
 
 export type SearchSitesResult = {
@@ -157,6 +158,7 @@ export function createSitesSearchService(deps: SitesSearchDeps): SitesSearchServ
         index_version: INDEX_VERSION,
         top_k: params.top_k,
         source_ids: params.source_ids,
+        country_code: params.country_code,
       });
 
       // Step 3: Map to SearchSitesResult with bounded output

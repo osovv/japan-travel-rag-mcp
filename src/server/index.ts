@@ -1,10 +1,10 @@
 // FILE: src/server/index.ts
-// VERSION: 3.4.0
+// VERSION: 3.5.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Bootstrap runtime dependencies, construct FastMCP server with MCP, admin, and portal surfaces, and start HTTP stream transport on /mcp.
-//   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler/sites search service dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
-//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
-//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP
+//   SCOPE: Load config/logger, initialize database client/OAuth proxy/upstream proxy/portal identity/admin handler/portal handler/sites search service/country cache dependencies, construct FastMCP runtime, start httpStream transport, and manage graceful shutdown.
+//   DEPENDS: M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP, M-COUNTRY-SETTINGS, M-TOOLS-CONTRACTS
+//   LINKS: M-SERVER, M-CONFIG, M-LOGGER, M-DB, M-AUTH-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-FASTMCP-RUNTIME, M-PORTAL-IDENTITY, M-PORTAL-UI, M-USAGE-TRACKER, M-SITES-SEARCH, M-VOYAGE-PROXY-CLIENT, M-SITES-INDEX-REPOSITORY, M-DB-SITES-BOOTSTRAP, M-COUNTRY-SETTINGS, M-TOOLS-CONTRACTS
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -15,9 +15,9 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v3.4.0 - Pass db handle into AdminUiDependencies for sites management routes.
+//   LAST_CHANGE: v3.5.0 - Built country cache and tool schemas at startup, passed countryCache and db into FastMCP runtime dependencies for multi-tenant country routing.
+//   v3.4.0 - Pass db handle into AdminUiDependencies for sites management routes.
 //   v3.3.0 - Wired SitesSearchService (VoyageProxyClient, SitesIndexRepository) into FastMCP runtime dependencies with bootstrapSitesSchema.
-//   v3.2.0 - Wired usageTracker into portal and FastMCP runtime dependencies after DB initialization.
 // END_CHANGE_SUMMARY
 
 import { type FastMCP } from "fastmcp";
@@ -43,8 +43,10 @@ import {
   handlePortalLogoutRoute,
 } from "../portal/ui-routes";
 import type { PortalUiDependencies } from "../portal/ui-routes";
+import { buildCountryCache } from "../countries/index";
 import { bootstrapSitesSchema } from "../db/sites-bootstrap";
 import { createVoyageProxyClient } from "../integrations/voyage-proxy-client";
+import { buildToolSchemas } from "../tools/contracts";
 import { createFastMcpRuntime } from "../runtime/fastmcp-runtime";
 import { createSitesIndexRepository } from "../sites/search/repository";
 import { createSitesSearchService } from "../sites/search/service";
@@ -250,6 +252,21 @@ export async function main(): Promise<FastMCP> {
     });
     // END_BLOCK_BOOTSTRAP_SITES_SEARCH_SERVICE_M_SERVER_109
 
+    // START_BLOCK_BOOTSTRAP_COUNTRY_CACHE_M_SERVER_110
+    const countryCache = await buildCountryCache(
+      dbClient.db,
+      logger.child({ component: "countrySettings" }),
+    );
+    const activeCountryCodes = Array.from(countryCache.keys());
+    const toolSchemas = buildToolSchemas(activeCountryCodes);
+    logger.info(
+      "Built country cache and tool schemas.",
+      "main",
+      "BOOTSTRAP_COUNTRY_CACHE",
+      { activeCountries: activeCountryCodes, toolSchemaCount: Object.keys(toolSchemas).length },
+    );
+    // END_BLOCK_BOOTSTRAP_COUNTRY_CACHE_M_SERVER_110
+
     const tgClient = createTgChatRagClient(config, logger.child({ component: "tgChatRagClient" }));
     const proxyService = createToolProxyService(
       config,
@@ -331,6 +348,8 @@ export async function main(): Promise<FastMCP> {
       portalHandler,
       usageTracker,
       sitesSearchService,
+      countryCache,
+      db: dbClient.db,
     });
     shutdownTarget.fastMcpServer = fastMcpServer;
 
