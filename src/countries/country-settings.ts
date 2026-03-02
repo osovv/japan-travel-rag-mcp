@@ -13,6 +13,8 @@
 //   CountryCache - In-memory Map<string, CountrySettings> for fast runtime lookups.
 //   CountrySettingsError - Typed error with COUNTRY_SETTINGS_ERROR code.
 //   getCountrySettings - Get single country by code; returns null if not found.
+//   getAllCountrySettings - List all countries regardless of status.
+//   deleteCountrySettings - Delete a country settings row by country code.
 //   getCountriesByStatus - List countries filtered by status.
 //   upsertCountrySettings - Create or update country settings row.
 //   buildCountryCache - Load active countries into Map for startup.
@@ -85,6 +87,60 @@ export async function getCountrySettings(
     throw new CountrySettingsError(`Failed to get country settings for ${countryCode}: ${cause}`);
   }
   // END_BLOCK_GET_COUNTRY_SETTINGS_M_COUNTRY_SETTINGS_003
+}
+
+// START_CONTRACT: getAllCountrySettings
+//   PURPOSE: List all countries regardless of status, ordered by country_code.
+//   INPUTS: { db: NodePgDatabase - Drizzle database handle }
+//   OUTPUTS: { Promise<CountrySettings[]> }
+//   SIDE_EFFECTS: [Reads from country_settings table]
+//   LINKS: [M-COUNTRY-SETTINGS, M-DB]
+// END_CONTRACT: getAllCountrySettings
+export async function getAllCountrySettings(
+  db: NodePgDatabase,
+): Promise<CountrySettings[]> {
+  // START_BLOCK_GET_ALL_COUNTRY_SETTINGS_M_COUNTRY_SETTINGS_007
+  try {
+    const rows = await db
+      .select()
+      .from(countrySettingsTable)
+      .orderBy(countrySettingsTable.countryCode);
+
+    return rows.map((row) => ({
+      countryCode: row.countryCode,
+      status: row.status as CountryStatus,
+      settings: (row.settings ?? {}) as Record<string, unknown>,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }));
+  } catch (error: unknown) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new CountrySettingsError(`Failed to get all country settings: ${cause}`);
+  }
+  // END_BLOCK_GET_ALL_COUNTRY_SETTINGS_M_COUNTRY_SETTINGS_007
+}
+
+// START_CONTRACT: deleteCountrySettings
+//   PURPOSE: Delete a country settings row by country code.
+//   INPUTS: { db: NodePgDatabase - Drizzle database handle, countryCode: string - ISO country code to delete }
+//   OUTPUTS: { Promise<void> }
+//   SIDE_EFFECTS: [Deletes from country_settings table]
+//   LINKS: [M-COUNTRY-SETTINGS, M-DB]
+// END_CONTRACT: deleteCountrySettings
+export async function deleteCountrySettings(
+  db: NodePgDatabase,
+  countryCode: string,
+): Promise<void> {
+  // START_BLOCK_DELETE_COUNTRY_SETTINGS_M_COUNTRY_SETTINGS_008
+  try {
+    await db
+      .delete(countrySettingsTable)
+      .where(eq(countrySettingsTable.countryCode, countryCode));
+  } catch (error: unknown) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new CountrySettingsError(`Failed to delete country settings for ${countryCode}: ${cause}`);
+  }
+  // END_BLOCK_DELETE_COUNTRY_SETTINGS_M_COUNTRY_SETTINGS_008
 }
 
 // START_CONTRACT: getCountriesByStatus

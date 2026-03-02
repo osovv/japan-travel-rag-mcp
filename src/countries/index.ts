@@ -1,5 +1,7 @@
 export {
   getCountrySettings,
+  getAllCountrySettings,
+  deleteCountrySettings,
   getCountriesByStatus,
   upsertCountrySettings,
   buildCountryCache,

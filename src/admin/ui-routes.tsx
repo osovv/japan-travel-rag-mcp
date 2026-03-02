@@ -1,10 +1,10 @@
 // FILE: src/admin/ui-routes.tsx
-// VERSION: 2.5.0
+// VERSION: 2.6.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Render admin login, operator diagnostics, and Sites Management surfaces with session-protected routing.
-//   SCOPE: Route /admin/login, /admin/ops, and /admin/sites/* requests, enforce admin session checks, render safe HTML diagnostics and sites CRUD UI from runtime config and database.
-//   DEPENDS: M-ADMIN-AUTH, M-ADMIN-SITES, M-LOGGER, M-CONFIG, M-DB
-//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-ADMIN-SITES, M-LOGGER, M-CONFIG, M-DB
+//   PURPOSE: Render admin login, operator diagnostics, Sites Management, and Countries Management surfaces with session-protected routing.
+//   SCOPE: Route /admin/login, /admin/ops, /admin/sites/*, and /admin/countries/* requests, enforce admin session checks, render safe HTML diagnostics, sites CRUD, and countries CRUD UI from runtime config and database.
+//   DEPENDS: M-ADMIN-AUTH, M-ADMIN-SITES, M-ADMIN-COUNTRIES, M-LOGGER, M-CONFIG, M-DB
+//   LINKS: M-ADMIN-UI, M-ADMIN-AUTH, M-ADMIN-SITES, M-ADMIN-COUNTRIES, M-LOGGER, M-CONFIG, M-DB
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
@@ -16,7 +16,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v2.5.0 - Add purge route handler for Purge & Recrawl admin action.
+//   LAST_CHANGE: v2.6.0 - Add Countries Management tab and /admin/countries/* CRUD routes.
+//   v2.5.0 - Add purge route handler for Purge & Recrawl admin action.
 //   v2.3.0 - Rebased ops diagnostics on AppConfig.logto fields, removed legacy config.oauth references, and masked Logto client secret in rendered status output.
 // END_CHANGE_SUMMARY
 
@@ -38,6 +39,14 @@ import {
   renderSitesContent,
   renderSourceForm,
 } from "./sites-page";
+import {
+  fetchCountriesPageData,
+  handleCreateCountry,
+  handleUpdateCountry,
+  handleDeleteCountry,
+  renderCountriesContent,
+  renderCountryForm,
+} from "./countries-page";
 
 const ADMIN_ROOT_PATH = "/admin";
 const ADMIN_LOGIN_PATH = "/admin/login";
@@ -46,7 +55,7 @@ const HX_REQUEST_HEADER = "HX-Request";
 const HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 const OPS_TAB_LABEL = "Ops Diagnostics";
 
-type ActiveTab = "ops" | "sites";
+type ActiveTab = "ops" | "sites" | "countries";
 
 type RenderAdminLayoutParams = {
   pageTitle: string;
@@ -458,6 +467,7 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
   const escapedPageTitle = escapeHtml(params.pageTitle);
   const opsTabClass = params.activeTab === "ops" ? "nav-link nav-link-active" : "nav-link";
   const sitesTabClass = params.activeTab === "sites" ? "nav-link nav-link-active" : "nav-link";
+  const countriesTabClass = params.activeTab === "countries" ? "nav-link nav-link-active" : "nav-link";
 
   return [
     `<!doctype html>`,
@@ -499,6 +509,7 @@ export function renderAdminLayout(params: RenderAdminLayoutParams): string {
     `<nav>`,
     `<a class="${opsTabClass}" href="${ADMIN_OPS_PATH}">${OPS_TAB_LABEL}</a>`,
     `<a class="${sitesTabClass}" href="/admin/sites">Sites Management</a>`,
+    `<a class="${countriesTabClass}" href="/admin/countries">Countries</a>`,
     `</nav>`,
     `</aside>`,
     `<main class="content">`,
@@ -811,6 +822,153 @@ export async function handleAdminRequest(
     }
 
     // END_BLOCK_HANDLE_ADMIN_SITES_ROUTES_M_ADMIN_UI_130
+
+    // START_BLOCK_HANDLE_ADMIN_COUNTRIES_ROUTES_M_ADMIN_UI_140
+
+    // Guard: countries routes require a database connection
+    if (pathname.startsWith("/admin/countries") && resolvedDeps.db === null) {
+      return buildHtmlResponse(
+        503,
+        renderAdminLayout({
+          pageTitle: "Admin - Countries",
+          activeTab: "countries",
+          contentHtml: `<section class="card"><h2>Unavailable</h2><p class="warning">Countries management requires database connection.</p></section>`,
+        }),
+      );
+    }
+
+    // GET /admin/countries — Show countries list page
+    if (pathname === "/admin/countries" && method === "GET") {
+      const db = resolvedDeps.db!;
+      const data = await fetchCountriesPageData(db, logger);
+      const contentHtml = renderCountriesContent(data);
+      return buildHtmlResponse(
+        200,
+        renderAdminLayout({
+          pageTitle: "Admin - Countries",
+          activeTab: "countries",
+          contentHtml,
+        }),
+      );
+    }
+
+    // GET /admin/countries/new — Show create country form
+    if (pathname === "/admin/countries/new" && method === "GET") {
+      const formHtml = renderCountryForm({ mode: "create" });
+      return buildHtmlResponse(
+        200,
+        renderAdminLayout({
+          pageTitle: "Admin - Add Country",
+          activeTab: "countries",
+          contentHtml: formHtml,
+        }),
+      );
+    }
+
+    // POST /admin/countries — Handle create country submission
+    if (pathname === "/admin/countries" && method === "POST") {
+      const db = resolvedDeps.db!;
+      const formData = await request.formData();
+      const input = {
+        country_code: asFormString(formData.get("country_code")),
+        status: asFormString(formData.get("status")),
+        tg_chat_ids: asFormString(formData.get("tg_chat_ids")),
+      };
+      const result = await handleCreateCountry(db, logger, input);
+      if (!result.success) {
+        const formHtml = renderCountryForm({ mode: "create", errors: result.errors });
+        return buildHtmlResponse(
+          400,
+          renderAdminLayout({
+            pageTitle: "Admin - Add Country",
+            activeTab: "countries",
+            contentHtml: formHtml,
+          }),
+        );
+      }
+      return buildRedirectResponse("/admin/countries");
+    }
+
+    // Routes with :code parameter — /admin/countries/:code/(edit|delete)
+    const countriesMatch = pathname.match(/^\/admin\/countries\/([^/]+)\/(edit|delete)$/);
+    if (countriesMatch && countriesMatch[1] && countriesMatch[2]) {
+      const countryCode = decodeURIComponent(countriesMatch[1]);
+      const action = countriesMatch[2];
+      const db = resolvedDeps.db!;
+
+      // GET /admin/countries/:code/edit — Show edit country form
+      if (action === "edit" && method === "GET") {
+        const data = await fetchCountriesPageData(db, logger);
+        const country = data.countries.find((c) => c.country_code === countryCode);
+        if (!country) {
+          return buildHtmlResponse(
+            404,
+            renderAdminLayout({
+              pageTitle: "Admin - Country Not Found",
+              activeTab: "countries",
+              contentHtml: `<section class="card"><h2>Not Found</h2><p class="warning">Country <code>${escapeHtml(countryCode)}</code> does not exist.</p></section>`,
+            }),
+          );
+        }
+        const formHtml = renderCountryForm({ mode: "edit", country });
+        return buildHtmlResponse(
+          200,
+          renderAdminLayout({
+            pageTitle: "Admin - Edit Country",
+            activeTab: "countries",
+            contentHtml: formHtml,
+          }),
+        );
+      }
+
+      // POST /admin/countries/:code/edit — Handle edit country submission
+      if (action === "edit" && method === "POST") {
+        const formData = await request.formData();
+        const input = {
+          status: asFormString(formData.get("status")),
+          tg_chat_ids: asFormString(formData.get("tg_chat_ids")),
+        };
+        const result = await handleUpdateCountry(db, logger, countryCode, input);
+        if (!result.success) {
+          const data = await fetchCountriesPageData(db, logger);
+          const country = data.countries.find((c) => c.country_code === countryCode);
+          const formHtml = renderCountryForm({ mode: "edit", country, errors: result.errors });
+          return buildHtmlResponse(
+            400,
+            renderAdminLayout({
+              pageTitle: "Admin - Edit Country",
+              activeTab: "countries",
+              contentHtml: formHtml,
+            }),
+          );
+        }
+        return buildRedirectResponse("/admin/countries");
+      }
+
+      // POST /admin/countries/:code/delete — Handle delete country
+      if (action === "delete" && method === "POST") {
+        const result = await handleDeleteCountry(db, logger, countryCode);
+        if (!result.success) {
+          // Re-render list with error flash
+          const data = await fetchCountriesPageData(db, logger);
+          const contentHtml = [
+            `<div class="flash flash-error">${escapeHtml(result.error ?? "Delete failed.")}</div>`,
+            renderCountriesContent(data),
+          ].join("");
+          return buildHtmlResponse(
+            400,
+            renderAdminLayout({
+              pageTitle: "Admin - Countries",
+              activeTab: "countries",
+              contentHtml,
+            }),
+          );
+        }
+        return buildRedirectResponse("/admin/countries");
+      }
+    }
+
+    // END_BLOCK_HANDLE_ADMIN_COUNTRIES_ROUTES_M_ADMIN_UI_140
 
     // START_BLOCK_RETURN_ADMIN_ROUTE_ERRORS_M_ADMIN_UI_120
     return buildHtmlResponse(404, "<h1>Not Found</h1>");
