@@ -1,5 +1,5 @@
 // FILE: src/config/index.ts
-// VERSION: 1.11.0
+// VERSION: 1.12.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Load and validate runtime configuration for FastMCP OAuth Proxy, tg-chat-rag proxy calls, admin root auth, portal session/identity settings, database connection, and unified proxy for Spider/Voyage API access.
 //   SCOPE: Parse required env values for tg-chat-rag integration, root-token admin auth, public base URL, Logto tenant/client credentials with derived OIDC endpoints, portal session/identity config, M2M provisioning credentials for self-serve onboarding, DATABASE_URL for PostgreSQL connectivity, and proxy settings.
@@ -14,11 +14,12 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.11.0 - Removed PLATFORM_NAME env var (hardcoded in portal); removed TG_CHAT_RAG_CHAT_IDS from config (chat_ids live in country_settings only).
-//   PREVIOUS: v1.10.0 - Made TG_CHAT_RAG_CHAT_IDS optional (deprecated, moved to country_settings); added PLATFORM_NAME env var for portal branding.
+//   LAST_CHANGE: v1.12.0 - Add DEV_MODE support: when true, external service env vars (Logto, proxy, Spider, Voyage, tg-chat-rag) get placeholder defaults so the app starts with only DATABASE_URL and ROOT_AUTH_TOKEN.
+//   PREVIOUS: v1.11.0 - Removed PLATFORM_NAME env var (hardcoded in portal); removed TG_CHAT_RAG_CHAT_IDS from config (chat_ids live in country_settings only).
 // END_CHANGE_SUMMARY
 
 export type AppConfig = {
+  devMode: boolean;
   port: number;
   publicUrl: string;
   rootAuthToken: string;
@@ -74,31 +75,57 @@ export class ConfigValidationError extends Error {
 // END_CONTRACT: loadConfig
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const errors: string[] = [];
+  const devMode = (env.DEV_MODE ?? "").trim().toLowerCase() === "true";
 
   // START_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
-  const baseUrlRaw = (env.TG_CHAT_RAG_BASE_URL ?? "").trim();
-  const bearerToken = (env.TG_CHAT_RAG_BEARER_TOKEN ?? "").trim();
+  const DEV_PLACEHOLDER_URL = "https://placeholder.dev.local";
+  const DEV_PLACEHOLDER = "dev-placeholder";
+
+  let baseUrlRaw = (env.TG_CHAT_RAG_BASE_URL ?? "").trim();
+  let bearerToken = (env.TG_CHAT_RAG_BEARER_TOKEN ?? "").trim();
   const portRaw = (env.PORT ?? "").trim();
   const timeoutRaw = (env.TG_CHAT_RAG_TIMEOUT_MS ?? "").trim();
   const rootAuthToken = (env.ROOT_AUTH_TOKEN ?? "").trim();
-  const publicUrlRaw = (env.PUBLIC_URL ?? "").trim();
-  const logtoTenantUrlRaw = (env.LOGTO_TENANT_URL ?? "").trim();
-  const logtoClientId = (env.LOGTO_CLIENT_ID ?? "").trim();
-  const logtoClientSecret = (env.LOGTO_CLIENT_SECRET ?? "").trim();
-  const portalSessionSecret = (env.PORTAL_SESSION_SECRET ?? "").trim();
-  const portalLogtoAppId = (env.LOGTO_PORTAL_APP_ID ?? "").trim();
-  const portalLogtoAppSecret = (env.LOGTO_PORTAL_APP_SECRET ?? "").trim();
-  const portalLogtoM2mAppId = (env.LOGTO_M2M_APP_ID ?? "").trim();
-  const portalLogtoM2mAppSecret = (env.LOGTO_M2M_APP_SECRET ?? "").trim();
-  const portalLogtoManagementApiResource = (env.LOGTO_MANAGEMENT_API_RESOURCE ?? "").trim();
-  const portalMcpUserRoleId = (env.LOGTO_MCP_USER_ROLE_ID ?? "").trim();
+  let publicUrlRaw = (env.PUBLIC_URL ?? "").trim();
+  let logtoTenantUrlRaw = (env.LOGTO_TENANT_URL ?? "").trim();
+  let logtoClientId = (env.LOGTO_CLIENT_ID ?? "").trim();
+  let logtoClientSecret = (env.LOGTO_CLIENT_SECRET ?? "").trim();
+  let portalSessionSecret = (env.PORTAL_SESSION_SECRET ?? "").trim();
+  let portalLogtoAppId = (env.LOGTO_PORTAL_APP_ID ?? "").trim();
+  let portalLogtoAppSecret = (env.LOGTO_PORTAL_APP_SECRET ?? "").trim();
+  let portalLogtoM2mAppId = (env.LOGTO_M2M_APP_ID ?? "").trim();
+  let portalLogtoM2mAppSecret = (env.LOGTO_M2M_APP_SECRET ?? "").trim();
+  let portalLogtoManagementApiResource = (env.LOGTO_MANAGEMENT_API_RESOURCE ?? "").trim();
+  let portalMcpUserRoleId = (env.LOGTO_MCP_USER_ROLE_ID ?? "").trim();
   const portalSessionTtlRaw = (env.PORTAL_SESSION_TTL_SECONDS ?? "").trim();
   const databaseUrlRaw = (env.DATABASE_URL ?? "").trim();
-  const proxyBaseUrlRaw = (env.PROXY_BASE_URL ?? "").trim();
-  const proxySecret = (env.PROXY_SECRET ?? "").trim();
-  const voyageApiKey = (env.VOYAGE_API_KEY ?? "").trim();
-  const spiderApiKey = (env.SPIDER_API_KEY ?? "").trim();
-  const oauthSessionSecret = (env.OAUTH_SESSION_SECRET ?? "").trim();
+  let proxyBaseUrlRaw = (env.PROXY_BASE_URL ?? "").trim();
+  let proxySecret = (env.PROXY_SECRET ?? "").trim();
+  let voyageApiKey = (env.VOYAGE_API_KEY ?? "").trim();
+  let spiderApiKey = (env.SPIDER_API_KEY ?? "").trim();
+  let oauthSessionSecret = (env.OAUTH_SESSION_SECRET ?? "").trim();
+
+  // In DEV_MODE, fill missing external service values with placeholders
+  if (devMode) {
+    if (!baseUrlRaw) baseUrlRaw = "http://localhost:8787";
+    if (!bearerToken) bearerToken = DEV_PLACEHOLDER;
+    if (!publicUrlRaw) publicUrlRaw = `http://localhost:${portRaw || "3000"}`;
+    if (!logtoTenantUrlRaw) logtoTenantUrlRaw = DEV_PLACEHOLDER_URL;
+    if (!logtoClientId) logtoClientId = DEV_PLACEHOLDER;
+    if (!logtoClientSecret) logtoClientSecret = DEV_PLACEHOLDER;
+    if (!portalSessionSecret) portalSessionSecret = DEV_PLACEHOLDER;
+    if (!portalLogtoAppId) portalLogtoAppId = DEV_PLACEHOLDER;
+    if (!portalLogtoAppSecret) portalLogtoAppSecret = DEV_PLACEHOLDER;
+    if (!portalLogtoM2mAppId) portalLogtoM2mAppId = DEV_PLACEHOLDER;
+    if (!portalLogtoM2mAppSecret) portalLogtoM2mAppSecret = DEV_PLACEHOLDER;
+    if (!portalLogtoManagementApiResource) portalLogtoManagementApiResource = DEV_PLACEHOLDER_URL;
+    if (!portalMcpUserRoleId) portalMcpUserRoleId = DEV_PLACEHOLDER;
+    if (!proxyBaseUrlRaw) proxyBaseUrlRaw = DEV_PLACEHOLDER_URL;
+    if (!proxySecret) proxySecret = DEV_PLACEHOLDER;
+    if (!voyageApiKey) voyageApiKey = DEV_PLACEHOLDER;
+    if (!spiderApiKey) spiderApiKey = DEV_PLACEHOLDER;
+    if (!oauthSessionSecret) oauthSessionSecret = "dev-oauth-session-secret-placeholder-32chars-min";
+  }
   // END_BLOCK_NORMALIZE_ENV_INPUT_VALUES_M_CONFIG_001
 
   // START_BLOCK_VALIDATE_TG_CHAT_RAG_BASE_URL_M_CONFIG_002
@@ -293,6 +320,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   // START_BLOCK_BUILD_APP_CONFIG_RESULT_M_CONFIG_008
   return {
+    devMode,
     port,
     publicUrl,
     rootAuthToken,

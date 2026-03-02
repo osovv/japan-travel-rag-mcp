@@ -1,32 +1,36 @@
 # FILE: docker-compose.yaml
-# VERSION: 1.2.0
+# VERSION: 2.0.0
 # START_MODULE_CONTRACT
-#   PURPOSE: Development compose stack for a single MCP HTTP service
-#   SCOPE: Runs the Bun-based MCP server with local source mounted and env loaded from .env
+#   PURPOSE: Development compose stack with PostgreSQL (pgvector) and MCP app for local development
+#   SCOPE: Runs a pgvector-enabled PostgreSQL instance and the Bun-based MCP server with local source mounted
 #   DEPENDS: (none - standalone orchestration)
-#   LINKS: M-DOCKER-DEV -> M-DOCKER-IMAGE, M-DOCKER-DEV -> M-SERVER, M-DOCKER-DEV -> M-CONFIG
+#   LINKS: M-DOCKER-DEV -> M-DOCKER-IMAGE, M-DOCKER-DEV -> M-SERVER, M-DOCKER-DEV -> M-CONFIG, M-DOCKER-DEV -> M-DB
 # END_MODULE_CONTRACT
 
 # START_CHANGE_SUMMARY
-#   LAST_CHANGE: [v1.2.0 - Add required ROOT_AUTH_TOKEN and DATABASE_URL env bindings for post-Phase-4 config contract]
-#   PREVIOUS: [v1.1.0 - Switch mcp service to build-based image while keeping source bind mount for development]
-#   PREVIOUS: [v1.0.0 - Initial development compose definition for single mcp service]
+#   LAST_CHANGE: [v2.0.0 - Add postgres service with pgvector, wire mcp app to depend on it, enable DEV_MODE by default]
+#   PREVIOUS: [v1.2.0 - Add required ROOT_AUTH_TOKEN and DATABASE_URL env bindings for post-Phase-4 config contract]
 # END_CHANGE_SUMMARY
 
-x-shared-env: &shared-env
-  env_file: .env
-  environment:
-    TG_CHAT_RAG_BASE_URL: ${TG_CHAT_RAG_BASE_URL:-http://localhost:8787}
-    TG_CHAT_RAG_BEARER_TOKEN: ${TG_CHAT_RAG_BEARER_TOKEN:-dev-token}
-    TG_CHAT_RAG_CHAT_IDS: ${TG_CHAT_RAG_CHAT_IDS:-}
-    ROOT_AUTH_TOKEN: ${ROOT_AUTH_TOKEN:?}
-    DATABASE_URL: ${DATABASE_URL:?}
-    PORT: ${PORT:-3000}
-    TG_CHAT_RAG_TIMEOUT_MS: ${TG_CHAT_RAG_TIMEOUT_MS:-15000}
-    OAUTH_SESSION_SECRET: ${OAUTH_SESSION_SECRET:-dev-oauth-session-secret-minimum-32chars}
-
 services:
-  # START_BLOCK_MCP_SERVICE
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: japan_travel_rag
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d japan_travel_rag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   mcp:
     build:
       context: .
@@ -34,15 +38,25 @@ services:
     working_dir: /app
     volumes:
       - ./:/app
-    command: ["bun", "run", "index.ts"]
-    <<: *shared-env
+      - /app/node_modules
+    command: ["bun", "--hot", "run", "index.ts"]
+    environment:
+      DEV_MODE: "true"
+      DATABASE_URL: postgresql://dev:dev@postgres:5432/japan_travel_rag
+      ROOT_AUTH_TOKEN: dev-root-token
+      PORT: "3000"
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "bun", "-e", "fetch('http://localhost:' + (process.env.PORT || 3000) + '/healthz').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/healthz').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
     restart: unless-stopped
-  # END_BLOCK_MCP_SERVICE
+
+volumes:
+  pgdata:

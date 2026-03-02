@@ -1,16 +1,53 @@
 # japan-travel-rag-mcp
 
-## Install dependencies
+## Local Development
+
+Everything runs in Docker. **Do NOT run `bun run index.ts`, `bun --hot`, or any dev server manually** — the Docker Compose stack already handles the app with hot reload.
+
+### Quick start
 
 ```bash
-bun install
+bun install              # install dependencies (needed for IDE support)
+docker compose up        # starts Postgres (pgvector) + app with hot reload
+docker compose down      # stops everything
 ```
 
-## Run API runtime
+The app starts at `http://localhost:3000` with `DEV_MODE=true`. Admin UI is at `/admin` with token `dev-root-token`.
+
+Source code is mounted into the container — edit files on your host and the app reloads automatically inside Docker.
+
+### Local database
+
+Postgres runs on **port 5433** (not 5432, to avoid conflicts with SSH tunnels or local installs).
 
 ```bash
-bun run index.ts
+# Connect via psql
+docker compose exec postgres psql -U dev -d japan_travel_rag
+
+# Or connect from host
+psql postgresql://dev:dev@localhost:5433/japan_travel_rag
+
+# Drizzle Studio (visual DB browser)
+DATABASE_URL=postgresql://dev:dev@localhost:5433/japan_travel_rag bun run db:studio
 ```
+
+DB data persists in a Docker volume (`pgdata`) across restarts. To reset it:
+
+```bash
+docker compose down -v   # removes volumes too
+docker compose up        # fresh database, re-bootstrapped from scratch
+```
+
+### Logs
+
+```bash
+docker compose logs -f       # all services
+docker compose logs -f mcp   # app only
+```
+
+## Production
+
+Production uses a separate `docker-compose.prod.yaml` with Coolify/Traefik. See that file for details.
 
 ## Fixture collection scripts (direct Spider API, no proxy)
 

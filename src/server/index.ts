@@ -221,11 +221,20 @@ export async function main(): Promise<FastMCP> {
     const config = loadConfig();
     logger = createLogger(config, "ServerMain");
 
+    if (config.devMode) {
+      logger.warn(
+        "Running in DEV_MODE — external service configs use placeholders. Portal, auth, and ingestion features will not work.",
+        "main",
+        "DEV_MODE_ACTIVE",
+        {},
+      );
+    }
+
     logger.info(
       "Loaded runtime config and logger; initializing dependencies.",
       "main",
       "BOOTSTRAP_FASTMCP_SERVER_RUNTIME",
-      { port: config.port },
+      { port: config.port, devMode: config.devMode },
     );
 
     // START_BLOCK_BOOTSTRAP_DATABASE_CLIENT_M_SERVER_107
