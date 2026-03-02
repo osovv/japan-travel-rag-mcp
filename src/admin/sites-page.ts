@@ -1,5 +1,5 @@
 // FILE: src/admin/sites-page.ts
-// VERSION: 1.3.0
+// VERSION: 1.4.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Query curated site source data with per-source index statistics and recent crawl job summaries for the Sites Management admin page, and render HTML views for the sites list and source create/edit forms.
 //   SCOPE: Define page data types (SiteSourceRow, CrawlJobRow, SitesPageData), fetch aggregated stats via Drizzle raw SQL, return structured page model, and render server-side HTML for sites management UI.
@@ -26,7 +26,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Add handlePurgeSourceIndex function and Purge & Recrawl button to sites management UI.
+//   LAST_CHANGE: v1.4.0 - Group site sources by country_code in collapsible accordion sections; add country_code to SiteSourceRow, SQL query, CreateSourceInputSchema, and create/edit form.
+//   v1.3.0 - Add handlePurgeSourceIndex function and Purge & Recrawl button to sites management UI.
 //   v1.1.0 - Add CRUD operations (handleCreateSource, handleUpdateSource, handleDeleteSource, handleToggleSourceStatus) with Zod validation schemas.
 //   v1.0.0 - Initial creation with data layer types and fetchSitesPageData for M-ADMIN-SITES.
 // END_CHANGE_SUMMARY
@@ -49,6 +50,7 @@ export type SiteSourceRow = {
   status: string;
   crawl_interval_minutes: number;
   max_pages: number;
+  country_code: string;
   page_count: number;
   chunk_count: number;
   embedding_count: number;
@@ -180,6 +182,7 @@ function mapSourceRow(row: Record<string, unknown>): SiteSourceRow {
     status: String(row.status ?? ""),
     crawl_interval_minutes: parseIntOrZero(row.crawl_interval_minutes),
     max_pages: parseIntOrZero(row.max_pages),
+    country_code: String(row.country_code ?? ""),
     page_count: parseIntOrZero(row.page_count),
     chunk_count: parseIntOrZero(row.chunk_count),
     embedding_count: parseIntOrZero(row.embedding_count),
@@ -239,6 +242,7 @@ export async function fetchSitesPageData(
         ss.status,
         ss.crawl_interval_minutes,
         ss.max_pages,
+        ss.country_code,
         COALESCE(page_stats.page_count, 0) AS page_count,
         COALESCE(chunk_stats.chunk_count, 0) AS chunk_count,
         COALESCE(emb_stats.embedding_count, 0) AS embedding_count,
@@ -267,7 +271,7 @@ export async function fetchSitesPageData(
         FROM site_pages sp4
         WHERE sp4.source_id = ss.source_id
       ) crawl_stats ON true
-      ORDER BY ss.tier ASC, ss.name ASC
+      ORDER BY ss.country_code ASC, ss.tier ASC, ss.name ASC
     `);
 
     const sources = sourcesResult.rows.map((row) =>
@@ -346,6 +350,11 @@ export const CreateSourceInputSchema = z.object({
     .min(3, "source_id must be at least 3 characters")
     .max(50, "source_id must be at most 50 characters")
     .regex(/^[a-z0-9_]+$/, "source_id must be lowercase alphanumeric with underscores only"),
+  country_code: z
+    .string()
+    .min(2, "country_code must be at least 2 characters")
+    .max(10, "country_code must be at most 10 characters")
+    .regex(/^[a-z]+$/, "country_code must be lowercase letters only"),
   name: z
     .string()
     .min(1, "name is required")
@@ -468,10 +477,11 @@ export async function handleCreateSource(
   try {
     await db.execute(sql`
       INSERT INTO site_sources (
-        source_id, name, domain, tier, language, focus,
+        source_id, country_code, name, domain, tier, language, focus,
         crawl_interval_minutes, max_pages
       ) VALUES (
         ${data.source_id},
+        ${data.country_code},
         ${data.name},
         ${data.domain},
         ${data.tier},
@@ -889,12 +899,21 @@ const SITES_PAGE_STYLES = [
   `.field-error { color:var(--danger, #991b1b); font-size:0.82rem; }`,
   `.form-actions { display:flex; gap:0.5rem; margin-top:0.5rem; }`,
   `.crawl-error-cell { max-width:20rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.82rem; color:var(--danger, #991b1b); }`,
+  `.country-group { border:1px solid var(--line, #e2e8f0); border-radius:0.5rem; overflow:hidden; }`,
+  `.country-group summary { cursor:pointer; padding:0.65rem 1rem; background:#f8fafc; font-weight:600; font-size:0.95rem; display:flex; align-items:center; gap:0.5rem; user-select:none; list-style:none; }`,
+  `.country-group summary::-webkit-details-marker { display:none; }`,
+  `.country-group summary::before { content:"\\25B6"; font-size:0.7rem; transition:transform 0.15s; display:inline-block; }`,
+  `.country-group[open] summary::before { transform:rotate(90deg); }`,
+  `.country-group summary .country-stats { font-weight:400; font-size:0.82rem; color:#64748b; margin-left:auto; }`,
+  `.country-group .country-body { padding:0; }`,
+  `.country-group .country-body .diag-table { border:none; border-radius:0; }`,
+  `.country-code-label { text-transform:uppercase; letter-spacing:0.05em; }`,
   `</style>`,
 ].join("");
 // END_BLOCK_DEFINE_SITES_PAGE_STYLES_M_ADMIN_SITES_022
 
 // START_CONTRACT: renderSitesContent
-//   PURPOSE: Render the main sites management page content with sources table (columns: Source ID, Name, Domain, Tier, Language, Status, Pages, Chunks, Embeddings, Last Crawl, Actions), recent crawl jobs table, and an Add Source button.
+//   PURPOSE: Render the main sites management page content with sources grouped by country_code in collapsible accordion sections, each containing a sources table (columns: Source ID, Name, Domain, Tier, Language, Status, Pages, Chunks, Embeddings, Last Crawl, Actions), followed by a recent crawl jobs table and an Add Source button.
 //   INPUTS: { data: SitesPageData - Page data model with sources and recentCrawlJobs arrays }
 //   OUTPUTS: { string - HTML content fragment for the sites management page }
 //   SIDE_EFFECTS: [none]
@@ -902,41 +921,98 @@ const SITES_PAGE_STYLES = [
 // END_CONTRACT: renderSitesContent
 export function renderSitesContent(data: SitesPageData): string {
   // START_BLOCK_RENDER_SITES_MANAGEMENT_PAGE_CONTENT_M_ADMIN_SITES_023
-  const sourceRows = data.sources
-    .map((s) => {
-      const statusClass = s.status === "active" ? "badge-active" : "badge-paused";
-      const toggleTarget = s.status === "active" ? "paused" : "active";
-      const toggleLabel = s.status === "active" ? "Pause" : "Resume";
-      const sid = escapeHtml(s.source_id);
+
+  // Group sources by country_code preserving query order
+  const grouped = new Map<string, SiteSourceRow[]>();
+  for (const s of data.sources) {
+    const cc = s.country_code || "unknown";
+    const list = grouped.get(cc);
+    if (list) {
+      list.push(s);
+    } else {
+      grouped.set(cc, [s]);
+    }
+  }
+
+  const tableHeader = [
+    `<thead>`,
+    `<tr>`,
+    `<th>Source ID</th>`,
+    `<th>Name</th>`,
+    `<th>Domain</th>`,
+    `<th>Tier</th>`,
+    `<th>Language</th>`,
+    `<th>Status</th>`,
+    `<th>Pages</th>`,
+    `<th>Chunks</th>`,
+    `<th>Embeddings</th>`,
+    `<th>Last Crawl</th>`,
+    `<th>Actions</th>`,
+    `</tr>`,
+    `</thead>`,
+  ].join("");
+
+  const renderSourceRow = (s: SiteSourceRow): string => {
+    const statusClass = s.status === "active" ? "badge-active" : "badge-paused";
+    const toggleTarget = s.status === "active" ? "paused" : "active";
+    const toggleLabel = s.status === "active" ? "Pause" : "Resume";
+    const sid = escapeHtml(s.source_id);
+
+    return [
+      `<tr>`,
+      `<td><code>${sid}</code></td>`,
+      `<td>${escapeHtml(s.name)}</td>`,
+      `<td>${escapeHtml(s.domain)}</td>`,
+      `<td>${s.tier}</td>`,
+      `<td>${escapeHtml(s.language)}</td>`,
+      `<td><span class="badge ${statusClass}">${escapeHtml(s.status)}</span></td>`,
+      `<td>${s.page_count}</td>`,
+      `<td>${s.chunk_count}</td>`,
+      `<td>${s.embedding_count}</td>`,
+      `<td>${escapeHtml(formatDate(s.last_crawl_at))}</td>`,
+      `<td>`,
+      `<div class="actions-cell">`,
+      `<a href="/admin/sites/${sid}/edit" class="btn btn-accent btn-sm">Edit</a>`,
+      `<form method="post" action="/admin/sites/${sid}/toggle">`,
+      `<input type="hidden" name="status" value="${escapeHtml(toggleTarget)}" />`,
+      `<button type="submit" class="btn btn-warning btn-sm">${escapeHtml(toggleLabel)}</button>`,
+      `</form>`,
+      `<form method="post" action="/admin/sites/${sid}/purge" onsubmit="return confirm('Purge all chunks and embeddings for ${sid}? The worker will re-crawl on next tick.')">`,
+      `<button type="submit" class="btn btn-warning btn-sm">Purge &amp; Recrawl</button>`,
+      `</form>`,
+      `<form method="post" action="/admin/sites/${sid}/delete" onsubmit="return confirm('Delete source ${sid} and ALL its pages, chunks, and embeddings? This cannot be undone.')">`,
+      `<button type="submit" class="btn btn-danger btn-sm">Delete</button>`,
+      `</form>`,
+      `</div>`,
+      `</td>`,
+      `</tr>`,
+    ].join("");
+  };
+
+  const countryAccordions = Array.from(grouped.entries())
+    .map(([cc, sources]) => {
+      const totalPages = sources.reduce((sum, s) => sum + s.page_count, 0);
+      const totalChunks = sources.reduce((sum, s) => sum + s.chunk_count, 0);
+      const totalEmbeddings = sources.reduce((sum, s) => sum + s.embedding_count, 0);
+      const rows = sources.map(renderSourceRow).join("");
 
       return [
-        `<tr>`,
-        `<td><code>${sid}</code></td>`,
-        `<td>${escapeHtml(s.name)}</td>`,
-        `<td>${escapeHtml(s.domain)}</td>`,
-        `<td>${s.tier}</td>`,
-        `<td>${escapeHtml(s.language)}</td>`,
-        `<td><span class="badge ${statusClass}">${escapeHtml(s.status)}</span></td>`,
-        `<td>${s.page_count}</td>`,
-        `<td>${s.chunk_count}</td>`,
-        `<td>${s.embedding_count}</td>`,
-        `<td>${escapeHtml(formatDate(s.last_crawl_at))}</td>`,
-        `<td>`,
-        `<div class="actions-cell">`,
-        `<a href="/admin/sites/${sid}/edit" class="btn btn-accent btn-sm">Edit</a>`,
-        `<form method="post" action="/admin/sites/${sid}/toggle">`,
-        `<input type="hidden" name="status" value="${escapeHtml(toggleTarget)}" />`,
-        `<button type="submit" class="btn btn-warning btn-sm">${escapeHtml(toggleLabel)}</button>`,
-        `</form>`,
-        `<form method="post" action="/admin/sites/${sid}/purge" onsubmit="return confirm('Purge all chunks and embeddings for ${sid}? The worker will re-crawl on next tick.')">`,
-        `<button type="submit" class="btn btn-warning btn-sm">Purge &amp; Recrawl</button>`,
-        `</form>`,
-        `<form method="post" action="/admin/sites/${sid}/delete" onsubmit="return confirm('Delete source ${sid} and ALL its pages, chunks, and embeddings? This cannot be undone.')">`,
-        `<button type="submit" class="btn btn-danger btn-sm">Delete</button>`,
-        `</form>`,
+        `<details class="country-group" open>`,
+        `<summary>`,
+        `<span class="country-code-label">${escapeHtml(cc)}</span>`,
+        `<span class="country-stats">${sources.length} source${sources.length !== 1 ? "s" : ""} &middot; ${totalPages} pages &middot; ${totalChunks} chunks &middot; ${totalEmbeddings} embeddings</span>`,
+        `</summary>`,
+        `<div class="country-body">`,
+        `<div class="table-wrap">`,
+        `<table class="diag-table">`,
+        tableHeader,
+        `<tbody>`,
+        rows,
+        `</tbody>`,
+        `</table>`,
         `</div>`,
-        `</td>`,
-        `</tr>`,
+        `</div>`,
+        `</details>`,
       ].join("");
     })
     .join("");
@@ -971,30 +1047,12 @@ export function renderSitesContent(data: SitesPageData): string {
     `<section id="sites-management" class="stack">`,
     `<section class="card">`,
     `<h2>Sites Management</h2>`,
-    `<p class="muted">Manage curated site sources, view index statistics, and monitor crawl jobs.</p>`,
+    `<p class="muted">Manage curated site sources grouped by country. ${data.sources.length} total source${data.sources.length !== 1 ? "s" : ""} across ${grouped.size} countr${grouped.size !== 1 ? "ies" : "y"}.</p>`,
     `</section>`,
-    `<section class="card table-wrap">`,
-    `<h3>Site Sources (${data.sources.length})</h3>`,
-    `<table class="diag-table">`,
-    `<thead>`,
-    `<tr>`,
-    `<th>Source ID</th>`,
-    `<th>Name</th>`,
-    `<th>Domain</th>`,
-    `<th>Tier</th>`,
-    `<th>Language</th>`,
-    `<th>Status</th>`,
-    `<th>Pages</th>`,
-    `<th>Chunks</th>`,
-    `<th>Embeddings</th>`,
-    `<th>Last Crawl</th>`,
-    `<th>Actions</th>`,
-    `</tr>`,
-    `</thead>`,
-    `<tbody>`,
-    sourceRows || `<tr><td colspan="11" class="muted" style="text-align:center;">No site sources configured.</td></tr>`,
-    `</tbody>`,
-    `</table>`,
+    `<section class="card">`,
+    grouped.size > 0
+      ? `<div class="stack">${countryAccordions}</div>`
+      : `<p class="muted" style="text-align:center;">No site sources configured.</p>`,
     `<div style="margin-top:0.75rem;">`,
     `<a href="/admin/sites/new" class="btn btn-accent">Add Source</a>`,
     `</div>`,
@@ -1085,6 +1143,15 @@ export function renderSourceForm(params: {
       ? `<input type="text" id="source_id" name="source_id" value="${val("source_id")}" readonly />`
       : `<input type="text" id="source_id" name="source_id" value="${val("source_id")}" required placeholder="e.g. japan_guide" pattern="^[a-z0-9_]+$" minlength="3" maxlength="50" />`,
     fieldErrors("source_id"),
+    `</div>`,
+
+    // country_code field
+    `<div class="form-group">`,
+    `<label for="country_code">Country Code</label>`,
+    isEdit
+      ? `<input type="text" id="country_code" name="country_code" value="${val("country_code")}" readonly />`
+      : `<input type="text" id="country_code" name="country_code" value="${val("country_code") || "jp"}" required placeholder="e.g. jp" pattern="^[a-z]+$" minlength="2" maxlength="10" />`,
+    fieldErrors("country_code"),
     `</div>`,
 
     // name field

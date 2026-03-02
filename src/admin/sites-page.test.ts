@@ -78,6 +78,7 @@ function createTestSitesPageData(): SitesPageData {
         status: "active",
         crawl_interval_minutes: 1440,
         max_pages: 100,
+        country_code: "jp",
         page_count: 50,
         chunk_count: 200,
         embedding_count: 200,
@@ -93,6 +94,7 @@ function createTestSitesPageData(): SitesPageData {
         status: "paused",
         crawl_interval_minutes: 4320,
         max_pages: 50,
+        country_code: "jp",
         page_count: 20,
         chunk_count: 80,
         embedding_count: 80,
@@ -118,6 +120,7 @@ function createTestSitesPageData(): SitesPageData {
 function createValidCreateInput() {
   return {
     source_id: "japan_guide",
+    country_code: "jp",
     name: "Japan Guide",
     domain: "https://www.japan-guide.com",
     tier: 0,
@@ -218,7 +221,7 @@ describe("M-ADMIN-SITES test suite", () => {
   // START_BLOCK_RENDERING_TESTS_M_ADMIN_SITES_TEST_006
   describe("Rendering", () => {
     describe("renderSitesContent", () => {
-      it("produces HTML with source table rows for provided data", () => {
+      it("produces HTML with source table rows grouped by country", () => {
         const data = createTestSitesPageData();
         const html = renderSitesContent(data);
 
@@ -235,6 +238,11 @@ describe("M-ADMIN-SITES test suite", () => {
         expect(html).toContain("/admin/sites/tokyo_metro/edit");
         expect(html).toContain("/admin/sites/japan_guide/toggle");
         expect(html).toContain("/admin/sites/japan_guide/delete");
+        // Accordion structure
+        expect(html).toContain("country-group");
+        expect(html).toContain("<details");
+        expect(html).toContain("<summary>");
+        expect(html).toContain("country-code-label");
       });
 
       it("shows empty state when no sources", () => {
@@ -257,6 +265,7 @@ describe("M-ADMIN-SITES test suite", () => {
               status: "active",
               crawl_interval_minutes: 1440,
               max_pages: 100,
+              country_code: "jp",
               page_count: 0,
               chunk_count: 0,
               embedding_count: 0,
@@ -424,6 +433,7 @@ describe("M-ADMIN-SITES test suite", () => {
                   status: "active",
                   crawl_interval_minutes: 1440,
                   max_pages: 100,
+                  country_code: "jp",
                   page_count: 50,
                   chunk_count: 200,
                   embedding_count: 200,
