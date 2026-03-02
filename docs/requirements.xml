@@ -1,10 +1,10 @@
-<RequirementsAnalysis VERSION="0.9.0">
+<RequirementsAnalysis VERSION="0.10.0">
   <UseCases>
     <UC-001>
       <Actor>External MCP Client</Actor>
-      <Action>Calls MCP tool `search_messages` with query and optional filters (without `filters.chat_ids`)</Action>
-      <Goal>Search tg-chat-rag corpus through MCP with deterministic proxy behavior</Goal>
-      <AcceptanceCriteria>Request with nested `filters.chat_ids` is rejected; request without it gets internal chat scope injected from env</AcceptanceCriteria>
+      <Action>Calls MCP tool `search_messages` with query, `country_code`, and optional filters (without `filters.chat_ids`)</Action>
+      <Goal>Search tg-chat-rag corpus through MCP with deterministic proxy behavior scoped to a specific country</Goal>
+      <AcceptanceCriteria>Request with nested `filters.chat_ids` is rejected; `country_code` is required and selects per-country `tg_chat_ids` from `country_settings` table; request without explicit chat_ids gets internal country-scoped chat scope injected</AcceptanceCriteria>
     </UC-001>
 
     <UC-002>
@@ -23,9 +23,9 @@
 
     <UC-004>
       <Actor>External MCP Client</Actor>
-      <Action>Calls MCP tool `list_sources(message_uids[])`</Action>
-      <Goal>Resolve source metadata for message identifiers</Goal>
-      <AcceptanceCriteria>`message_uids` is required, min=1, max=100; invalid payloads fail deterministically</AcceptanceCriteria>
+      <Action>Calls MCP tool `list_sources(message_uids[], country_code)`</Action>
+      <Goal>Resolve source metadata for message identifiers scoped to a specific country</Goal>
+      <AcceptanceCriteria>`message_uids` is required, min=1, max=100; `country_code` is required; invalid payloads fail deterministically</AcceptanceCriteria>
     </UC-004>
 
     <UC-005>
@@ -114,23 +114,23 @@
 
     <UC-017>
       <Actor>System</Actor>
-      <Action>Tracks per-user MCP tool call counts in PostgreSQL during tool execution and exposes usage statistics to the portal</Action>
-      <Goal>Provide visibility into individual user MCP usage for portal display and future analytics</Goal>
-      <AcceptanceCriteria>Each successful MCP tool call increments a per-user per-tool counter in PostgreSQL; user identity is extracted from OAuth session JWT `sub` claim; portal home page displays per-tool call counts and total for the authenticated user; tracking failures never block tool execution</AcceptanceCriteria>
+      <Action>Tracks per-user per-country MCP tool call counts in PostgreSQL during tool execution and exposes usage statistics to the portal</Action>
+      <Goal>Provide visibility into individual user MCP usage per country for portal display and future analytics</Goal>
+      <AcceptanceCriteria>Each successful MCP tool call increments a per-user per-tool per-country counter in PostgreSQL with composite key `(user_id, tool_name, country_code)`; user identity is extracted from OAuth session JWT `sub` claim; portal home page displays per-tool call counts and total for the authenticated user; tracking failures never block tool execution</AcceptanceCriteria>
     </UC-017>
 
     <UC-018>
       <Actor>External MCP Client</Actor>
-      <Action>Calls MCP tool `get_site_sources` with no parameters</Action>
-      <Goal>Retrieve curated source registry metadata for agent search orchestration without fetching page content</Goal>
-      <AcceptanceCriteria>`get_site_sources` returns `description_and_tiers` and active registry `sources` from `site_sources` table (seeded by bootstrap constant); tool is metadata-only and never returns page content; tool requires OAuth authentication</AcceptanceCriteria>
+      <Action>Calls MCP tool `get_site_sources(country_code)`</Action>
+      <Goal>Retrieve curated source registry metadata for a specific country for agent search orchestration without fetching page content</Goal>
+      <AcceptanceCriteria>`get_site_sources` requires `country_code` parameter and returns `description_and_tiers` and active registry `sources` from `site_sources` table filtered by `country_code`; tool is metadata-only and never returns page content; tool requires OAuth authentication</AcceptanceCriteria>
     </UC-018>
 
     <UC-019>
       <Actor>External MCP Client</Actor>
-      <Action>Calls MCP tool `search_sites(query, top_k?, source_ids?)`</Action>
-      <Goal>Find relevant evidence snippets across curated travel websites with strict attribution</Goal>
-      <AcceptanceCriteria>Response includes ranked hits with `source_id`, `tier`, `domain`, `original_page_url`, `snippet`, `chunk_id`, `score`; retrieval uses local index only and never fetches live pages in request path</AcceptanceCriteria>
+      <Action>Calls MCP tool `search_sites(query, country_code, top_k?, source_ids?)`</Action>
+      <Goal>Find relevant evidence snippets across curated travel websites for a specific country with strict attribution</Goal>
+      <AcceptanceCriteria>`country_code` is required; response includes ranked hits with `source_id`, `tier`, `domain`, `original_page_url`, `snippet`, `chunk_id`, `score` filtered to sources belonging to the specified country; retrieval uses local index only and never fetches live pages in request path</AcceptanceCriteria>
     </UC-019>
 
     <UC-020>
@@ -166,6 +166,27 @@
       <Goal>Remove domain-specific crawl noise (navigation, social widgets, newsletter promos, image placeholders) to improve chunk quality and retrieval relevance without changing MCP tool contracts</Goal>
       <AcceptanceCriteria>Cleanup pipeline runs deterministically and rule-based in parser stage; source adapters are selected by `source_id`; quality gate skips low-value pages as structured non-fatal outcomes with reason codes; `pages_skipped` counter is tracked in IngestionResult separately from `errors[]`; first adapter covers `wrenjapan`; existing MCP tool inputs/outputs remain unchanged</AcceptanceCriteria>
     </UC-024>
+
+    <UC-025>
+      <Actor>System</Actor>
+      <Action>Routes tool calls to country-specific data sources using `country_code` parameter and per-country configuration from `country_settings` table</Action>
+      <Goal>Enable single MCP endpoint to serve multiple country destinations without per-country URL routing or multiple OAuth flows</Goal>
+      <AcceptanceCriteria>Tools that accept `country_code` resolve per-country `tg_chat_ids` and site source filtering from `country_settings` row; `country_code` enum is built dynamically from countries with `status='active'`; adding a new country requires only DB inserts and server restart, no code changes</AcceptanceCriteria>
+    </UC-025>
+
+    <UC-026>
+      <Actor>Platform Operator</Actor>
+      <Action>Manages country settings (status lifecycle: draft → active → coming_soon → maintenance) and per-country configuration via `country_settings` table</Action>
+      <Goal>Control country availability and per-country runtime configuration without code changes</Goal>
+      <AcceptanceCriteria>`country_settings` table stores `country_code` (ISO 3166-1 alpha-2 PK), `status`, and `settings` JSONB; status determines tool accessibility (`active` = tool calls allowed) and portal visibility; `settings` JSONB holds `tg_chat_ids` and extensible per-country config</AcceptanceCriteria>
+    </UC-026>
+
+    <UC-027>
+      <Actor>System</Actor>
+      <Action>Tracks per-user per-tool per-country MCP usage with `country_code` as part of the usage counter composite key</Action>
+      <Goal>Enable per-country usage analytics and future per-country pricing differentiation</Goal>
+      <AcceptanceCriteria>`usage_counters` composite PK is `(user_id, tool_name, country_code)`; tools without `country_code` use default `'jp'` during migration; portal stats can be grouped by country</AcceptanceCriteria>
+    </UC-027>
   </UseCases>
 
   <DeferredUseCases>

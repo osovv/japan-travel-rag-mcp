@@ -1,7 +1,7 @@
-<DevelopmentPlan VERSION="1.5.0">
+<DevelopmentPlan VERSION="1.6.0">
   <Context>
-    <purpose>Deliver a shareable end-to-end onboarding flow plus curated-site retrieval: portal onboarding, fixed MCP tool surface (4 proxied + 3 local), worker-based crawl/index pipeline, and attributed evidence retrieval for travel agents.</purpose>
-    <scope>Keep existing proxied tg-chat tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`), keep `/admin/*` root-token protected, keep portal-first onboarding on `/` and `/portal/*`, add local curated-site tools (`get_site_sources`, `search_sites`, `get_page_chunk`) backed by PostgreSQL index refreshed by worker crawl/index jobs, and improve indexing quality with layered per-source cleanup pipeline and quality gating in the parser stage.</scope>
+    <purpose>Deliver a multi-country travel platform with single MCP endpoint, shareable onboarding, curated-site retrieval, and per-country data routing: portal onboarding with platform branding, fixed MCP tool surface (4 proxied + 3 local) with `country_code` parameter, worker-based crawl/index pipeline, and attributed evidence retrieval for travel agents across multiple destinations.</purpose>
+    <scope>Transform single-destination Japan server into multi-country platform with `country_code` tool parameter routing; keep existing proxied tg-chat tools (`search_messages`, `get_message_context`, `get_related_messages`, `list_sources`) and local tools (`get_site_sources`, `search_sites`, `get_page_chunk`); add `country_settings` table for per-country runtime config; add `country_code` columns to `site_sources` and `usage_counters`; keep `/admin/*` root-token protected; keep portal-first onboarding on `/` and `/portal/*` with platform branding and destination list; maintain layered per-source cleanup pipeline and quality gating.</scope>
     <constraints>
       <constraint-1>Public MCP surface remains exactly seven tools: `search_messages`, `get_message_context`, `get_related_messages`, `list_sources` (proxied to upstream), and `get_site_sources`, `search_sites`, `get_page_chunk` (local).</constraint-1>
       <constraint-2>`search_context`, `validate_google_map_link`, and `verify_tabelog` are removed from active and deferred implementation plans.</constraint-2>
@@ -22,13 +22,18 @@
       <constraint-17>Curated crawling in v1 is crawl-only (scheduled + internal targeted recrawl), with no public manual-refresh endpoint.</constraint-17>
       <constraint-18>Parser cleanup is deterministic and rule-based, runs before chunking/embedding, and uses layered pipeline (global → source adapter → quality gate); cleanup results are discriminated union (accepted vs skipped) with structured skip reasons.</constraint-18>
       <constraint-19>Layer B source adapters must cover all active curated `source_id` values from `site_sources`; after `wrenjapan`, rollout continues for insidekyoto, trulytokyo, kansai_odyssey, invisible_tourist, japan_unravelled, japan_guide, reddit_japantravel, navitime, jorudan, jreast, and smart_ex.</constraint-19>
+      <constraint-20>Single MCP endpoint `/mcp` serves all countries; tools that touch country-specific data require `country_code` parameter (ISO 3166-1 alpha-2); `country_code` enum is built dynamically from `country_settings` rows with `status='active'` at startup.</constraint-20>
+      <constraint-21>`country_settings` table is the single source of truth for per-country runtime config; `TG_CHAT_RAG_CHAT_IDS` env var is deprecated and replaced by `country_settings.settings.tg_chat_ids`.</constraint-21>
+      <constraint-22>Adding a new country requires only DB inserts (`country_settings` + `site_sources` rows) and server restart; no code changes needed.</constraint-22>
+      <constraint-23>Tools without country-specific data (`get_message_context`, `get_related_messages`, `get_page_chunk`) do NOT get `country_code` parameter — they use entity UIDs that are already scoped.</constraint-23>
+      <constraint-24>Portal branding uses generic platform name from `PLATFORM_NAME` env var; portal shows destination list from `country_settings` with status-appropriate display (active = shown, coming_soon = teaser, draft/maintenance = hidden or notice).</constraint-24>
     </constraints>
   </Context>
 
   <Modules>
     <M-CONFIG NAME="Config" TYPE="UTILITY" LAYER="0" ORDER="1">
       <contract>
-        <purpose>Load and validate runtime configuration for MCP proxy auth/routes, admin auth, portal auth/session, upstream integrations, and database connection.</purpose>
+        <purpose>Load and validate runtime configuration for MCP proxy auth/routes, admin auth, portal auth/session, upstream integrations, database connection, and platform branding.</purpose>
         <inputs>
           <param-1 name="env" type="NodeJS.ProcessEnv" />
         </inputs>
@@ -41,11 +46,11 @@
       </contract>
       <interface>
         <export-loadConfig PURPOSE="Validate env and return typed AppConfig." />
-        <type-AppConfig PURPOSE="Typed runtime config for MCP OAuth, portal session, admin auth, upstream clients, and database URL." />
+        <type-AppConfig PURPOSE="Typed runtime config for MCP OAuth, portal session, admin auth, upstream clients, database URL, and PLATFORM_NAME." />
       </interface>
       <depends>none</depends>
       <notes>
-        <note-1>Required env includes existing MCP/admin/logto values plus `PORTAL_SESSION_SECRET`, `LOGTO_M2M_APP_ID`, `LOGTO_M2M_APP_SECRET`, `LOGTO_MCP_USER_ROLE_ID`, `DATABASE_URL`, `VOYAGE_API_KEY`, `SPIDER_API_KEY`, `PROXY_BASE_URL`, and `PROXY_SECRET`.</note-1>
+        <note-1>Required env includes existing MCP/admin/logto values plus `PORTAL_SESSION_SECRET`, `LOGTO_M2M_APP_ID`, `LOGTO_M2M_APP_SECRET`, `LOGTO_MCP_USER_ROLE_ID`, `DATABASE_URL`, `VOYAGE_API_KEY`, `SPIDER_API_KEY`, `PROXY_BASE_URL`, `PROXY_SECRET`, and `PLATFORM_NAME`. `TG_CHAT_RAG_CHAT_IDS` is deprecated (optional, backwards compat during migration).</note-1>
       </notes>
     </M-CONFIG>
 
@@ -70,29 +75,33 @@
 
     <M-TOOLS-CONTRACTS NAME="ToolContracts" TYPE="UTILITY" LAYER="1" ORDER="1">
       <contract>
-        <purpose>Define deterministic Zod schemas and tool contracts for proxied tg-chat tools and local curated-site tools.</purpose>
+        <purpose>Define deterministic Zod schemas and tool contracts for proxied tg-chat tools and local curated-site tools, with dynamic `country_code` enum for country-scoped tools.</purpose>
         <inputs>
           <param-1 name="rawArgs" type="unknown" />
           <param-2 name="toolName" type="string" />
+          <param-3 name="activeCountryCodes" type="string[]" />
         </inputs>
         <outputs>
           <param-1 name="validatedArgs" type="object" />
           <param-2 name="allowlist" type="readonly string[]" />
           <param-3 name="toolDescriptions" type="record" />
+          <param-4 name="toolSchemas" type="ToolSchemas" />
         </outputs>
         <errors>
           <error-SCHEMA_VALIDATION_ERROR code="SCHEMA_VALIDATION_ERROR" />
         </errors>
       </contract>
       <interface>
-        <export-SearchMessagesInputPublic PURPOSE="Public input schema for search_messages with forbidden filters.chat_ids path." />
+        <export-SearchMessagesInputPublic PURPOSE="Public input schema for search_messages with country_code and forbidden filters.chat_ids path." />
         <export-GetMessageContextInput PURPOSE="Input schema for get_message_context." />
         <export-GetRelatedMessagesInput PURPOSE="Input schema for get_related_messages." />
-        <export-ListSourcesInput PURPOSE="Input schema for list_sources." />
-        <export-SearchSitesInput PURPOSE="Input schema for search_sites (query, top_k, source_ids)." />
+        <export-ListSourcesInput PURPOSE="Input schema for list_sources with country_code." />
+        <export-SearchSitesInput PURPOSE="Input schema for search_sites (query, country_code, top_k, source_ids)." />
         <export-GetPageChunkInput PURPOSE="Input schema for get_page_chunk (chunk_id, include_neighbors)." />
         <export-PROXIED_TOOL_NAMES PURPOSE="Stable allowlist for tool registration and proxy dispatch." />
         <export-TOOL_INPUT_JSON_SCHEMAS PURPOSE="Tool descriptions used by FastMCP addTool metadata." />
+        <export-buildToolSchemas PURPOSE="Build tool schemas with dynamic country_code enum from active country codes at startup." />
+        <type-ToolSchemas PURPOSE="Record of per-tool JSON schemas with injected country_code enum." />
       </interface>
       <depends>M-LOGGER</depends>
     </M-TOOLS-CONTRACTS>
@@ -186,10 +195,11 @@
 
     <M-TOOL-PROXY NAME="ToolProxyService" TYPE="CORE_LOGIC" LAYER="3" ORDER="1">
       <contract>
-        <purpose>Validate tool input, apply policy normalization, execute upstream methods, and map deterministic MCP tool responses.</purpose>
+        <purpose>Validate tool input, apply policy normalization with per-country context, execute upstream methods, and map deterministic MCP tool responses.</purpose>
         <inputs>
           <param-1 name="toolName" type="string" />
           <param-2 name="rawArgs" type="unknown" />
+          <param-3 name="countryContext" type="CountryContext" />
         </inputs>
         <outputs>
           <param-1 name="McpToolResult" type="object" />
@@ -201,9 +211,13 @@
         </errors>
       </contract>
       <interface>
-        <export-executeTool PURPOSE="Main proxy entrypoint for all registered tools." />
+        <export-executeTool PURPOSE="Main proxy entrypoint for all registered tools; accepts CountryContext with per-country chatIds." />
+        <type-CountryContext PURPOSE="Per-country context: { chatIds: string[] } resolved from country_settings at runtime." />
       </interface>
       <depends>M-CONFIG, M-TOOLS-CONTRACTS, M-TG-CHAT-RAG-CLIENT, M-LOGGER</depends>
+      <notes>
+        <note-1>buildUpstreamPayloadWithPolicy uses countryContext.chatIds instead of config.tgChatRag.chatIds for search_messages.</note-1>
+      </notes>
     </M-TOOL-PROXY>
 
     <M-ADMIN-AUTH NAME="AdminAuth" TYPE="CORE_LOGIC" LAYER="3" ORDER="2">
@@ -296,13 +310,14 @@
 
     <M-USAGE-TRACKER NAME="UsageTracker" TYPE="DATA_LAYER" LAYER="2" ORDER="4">
       <contract>
-        <purpose>Track per-user MCP tool call counts in PostgreSQL and expose query interface for portal display.</purpose>
+        <purpose>Track per-user per-country MCP tool call counts in PostgreSQL and expose query interface for portal display.</purpose>
         <inputs>
           <param-1 name="userId" type="string" />
           <param-2 name="toolName" type="string" />
+          <param-3 name="countryCode" type="string" />
         </inputs>
         <outputs>
-          <param-1 name="UserUsageStats" type="{ tools: { toolName: string; callCount: number; lastCalledAt: Date | null }[]; total: number }" />
+          <param-1 name="UserUsageStats" type="{ tools: { toolName: string; countryCode: string; callCount: number; lastCalledAt: Date | null }[]; total: number }" />
         </outputs>
         <errors>
           <error-USAGE_TRACKER_ERROR code="USAGE_TRACKER_ERROR" />
@@ -310,24 +325,24 @@
       </contract>
       <interface>
         <export-createUsageTracker PURPOSE="Build usage tracker backed by Drizzle PostgreSQL with auto-schema bootstrap." />
-        <export-recordToolCall PURPOSE="Increment per-user per-tool counter via UPSERT; fire-and-forget with warning on failure." />
-        <export-getUserStats PURPOSE="Query all per-tool counters and total for a given user ID." />
+        <export-recordToolCall PURPOSE="Increment per-user per-tool per-country counter via UPSERT; fire-and-forget with warning on failure." />
+        <export-getUserStats PURPOSE="Query all per-tool per-country counters and total for a given user ID, with optional countryCode filter." />
         <type-UsageTracker PURPOSE="Usage tracking interface for tool call recording and stats queries." />
-        <type-UserUsageStats PURPOSE="Per-user usage statistics payload for portal rendering." />
-        <schema-usageCountersTable PURPOSE="Drizzle pg-core schema: usage_counters(user_id, tool_name, call_count, last_called_at) with composite PK." />
+        <type-UserUsageStats PURPOSE="Per-user usage statistics payload for portal rendering with country breakdown." />
+        <schema-usageCountersTable PURPOSE="Drizzle pg-core schema: usage_counters(user_id, tool_name, country_code, call_count, last_called_at) with composite PK." />
       </interface>
-      <depends>M-DB, M-LOGGER</depends>
+      <depends>M-DB, M-DB-SCHEMA, M-LOGGER</depends>
       <notes>
-        <note-1>Schema uses composite primary key (user_id, tool_name) with UPSERT for atomic counter increment.</note-1>
+        <note-1>Schema uses composite primary key (user_id, tool_name, country_code) with UPSERT for atomic counter increment.</note-1>
         <note-2>recordToolCall is designed to never throw to callers; failures are caught internally and logged as warnings.</note-2>
       </notes>
     </M-USAGE-TRACKER>
 
     <M-SITE-SOURCES NAME="SiteSources" TYPE="DATA_LAYER" LAYER="1" ORDER="3">
       <contract>
-        <purpose>Serve curated source registry from `site_sources` table with bootstrap seed fallback for initialization/migrations.</purpose>
+        <purpose>Serve curated source registry from `site_sources` table filtered by country_code, with bootstrap seed fallback for initialization/migrations.</purpose>
         <inputs>
-          <param-1 name="filters" type="{ sourceIds?: string[]; status?: string }" />
+          <param-1 name="filters" type="{ sourceIds?: string[]; status?: string; countryCode?: string }" />
         </inputs>
         <outputs>
           <param-1 name="SiteSourcesResponse" type="{ description_and_tiers: DescriptionAndTiers; sources: SiteSource[] }" />
@@ -338,21 +353,55 @@
       </contract>
       <interface>
         <export-SITE_SOURCES_RESPONSE PURPOSE="Bootstrap-only seed constant for initialization/tests (not runtime source of truth)." />
-        <export-getSiteSources PURPOSE="Read registry rows from `site_sources` table for local get_site_sources tool." />
+        <export-getSiteSources PURPOSE="Read registry rows from `site_sources` table filtered by country_code for local get_site_sources tool." />
         <export-upsertSiteSourcesSeed PURPOSE="Seed/update initial `site_sources` rows from bootstrap constant." />
-        <export-GetSiteSourcesInputSchema PURPOSE="Empty z.object({}) schema for FastMCP tool registration." />
+        <export-GetSiteSourcesInputSchema PURPOSE="Schema with required country_code for FastMCP tool registration." />
         <type-SiteSourcesResponse PURPOSE="Typed output: description_and_tiers + sources array." />
         <type-SiteSource PURPOSE="Individual source entry: source_id, name, domain, tier, language, focus, status, crawl_interval_minutes, max_pages." />
         <type-TierDescription PURPOSE="Tier metadata: tier number, name, focus description." />
         <type-DescriptionAndTiers PURPOSE="Description text + tiers array." />
       </interface>
-      <depends>M-DB, M-LOGGER</depends>
+      <depends>M-DB, M-DB-SCHEMA, M-LOGGER</depends>
       <notes>
         <note-1>Runtime source of truth is PostgreSQL `site_sources`; bootstrap constant is seed-only.</note-1>
         <note-2>Tool takes no input parameters; returns registry metadata only (no page/chunk content).</note-2>
         <note-3>This is a local tool and must not be added to proxied allowlist.</note-3>
       </notes>
     </M-SITE-SOURCES>
+
+    <M-COUNTRY-SETTINGS NAME="CountrySettings" TYPE="DATA_LAYER" LAYER="1" ORDER="4">
+      <contract>
+        <purpose>Manage country_settings table CRUD and provide in-memory cache of active countries for tool schema construction and runtime routing.</purpose>
+        <inputs>
+          <param-1 name="countryCode" type="string" />
+          <param-2 name="status" type="CountryStatus" />
+          <param-3 name="settings" type="Record&lt;string, unknown&gt;" />
+        </inputs>
+        <outputs>
+          <param-1 name="CountrySettings" type="{ countryCode: string; status: CountryStatus; settings: Record&lt;string, unknown&gt; } | null" />
+          <param-2 name="countries" type="CountrySettings[]" />
+          <param-3 name="countryCache" type="Map&lt;string, CountrySettings&gt;" />
+        </outputs>
+        <errors>
+          <error-COUNTRY_SETTINGS_ERROR code="COUNTRY_SETTINGS_ERROR" />
+        </errors>
+      </contract>
+      <interface>
+        <export-getCountrySettings PURPOSE="Get single country settings by country_code; returns null if not found." />
+        <export-getCountriesByStatus PURPOSE="List countries filtered by status (draft/active/coming_soon/maintenance)." />
+        <export-upsertCountrySettings PURPOSE="Create or update country settings row with onConflictDoNothing for seed." />
+        <export-buildCountryCache PURPOSE="Load active countries into in-memory Map for startup initialization and tool schema enum construction." />
+        <type-CountrySettings PURPOSE="Country config record: countryCode, status, settings (JSONB with tg_chat_ids etc)." />
+        <type-CountryStatus PURPOSE="String union: 'draft' | 'active' | 'coming_soon' | 'maintenance'." />
+        <type-CountryCache PURPOSE="In-memory Map&lt;string, CountrySettings&gt; for fast runtime lookups." />
+      </interface>
+      <depends>M-DB, M-DB-SCHEMA, M-LOGGER</depends>
+      <notes>
+        <note-1>Cache is built at server startup from getCountriesByStatus("active"); adding a new country requires restart.</note-1>
+        <note-2>settings JSONB holds tg_chat_ids array and future per-country config (display prefs, crawl overrides, etc.).</note-2>
+        <note-3>Status lifecycle: draft → active (tool calls allowed), coming_soon (portal teaser), maintenance (temporarily down).</note-3>
+      </notes>
+    </M-COUNTRY-SETTINGS>
 
     <M-SPIDER-CLOUD-CLIENT NAME="SpiderCloudClient" TYPE="INTEGRATION" LAYER="2" ORDER="5">
       <contract>
@@ -412,7 +461,7 @@
         <export-upsertPage PURPOSE="Insert/update normalized page by canonical URL + content hash." />
         <export-upsertChunks PURPOSE="Insert/update deterministic chunks with chunking/index versions." />
         <export-upsertEmbeddings PURPOSE="Store chunk embeddings and embedding metadata for active index version." />
-        <export-searchHybrid PURPOSE="Execute vector + FTS retrieval with active index_version filter." />
+        <export-searchHybrid PURPOSE="Execute vector + FTS retrieval with active index_version filter and optional country_code filter via site_sources join." />
         <export-getChunkWithNeighbors PURPOSE="Fetch bounded chunk excerpt and optional neighbors by chunk_id." />
       </interface>
       <depends>M-DB, M-LOGGER</depends>
@@ -697,7 +746,7 @@
 
     <M-PORTAL-UI NAME="PortalUiRoutes" TYPE="UI_COMPONENT" LAYER="4" ORDER="2">
       <contract>
-        <purpose>Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, render MCP setup instructions, and display per-user usage statistics on portal home.</purpose>
+        <purpose>Render public landing and user-portal pages with platform branding (PLATFORM_NAME), per-page route handlers, expose social OAuth entrypoints/callback flow, render MCP setup instructions with single-endpoint multi-country guidance, display per-user usage statistics, and show destination list from country_settings on portal home.</purpose>
         <inputs>
           <param-1 name="request" type="Request" />
         </inputs>
@@ -715,13 +764,14 @@
         <export-handlePortalLoginRoute PURPOSE="Handle `GET /portal/login` social-provider login page without password fields." />
         <export-handlePortalOauthStartRoute PURPOSE="Handle `GET /portal/auth/start` and redirect to Logto social OAuth authorization endpoint." />
         <export-handlePortalOauthCallbackRoute PURPOSE="Handle `GET /portal/auth/callback` code exchange, provisioning, and portal session creation." />
-        <export-handlePortalHomeRoute PURPOSE="Handle `GET /portal/home` authenticated onboarding page with per-user usage statistics." />
+        <export-handlePortalHomeRoute PURPOSE="Handle `GET /portal/home` authenticated onboarding page with per-user usage statistics and available destinations list." />
         <export-handlePortalAgentSetupRoute PURPOSE="Handle `GET /portal/integrations/agent-setup` detailed MCP setup guide page." />
         <export-handlePortalLogoutRoute PURPOSE="Handle `POST /portal/logout` and clear portal session." />
         <export-renderPortalLayout PURPOSE="Render shared portal shell and include compiled Tailwind CSS asset." />
-        <export-renderPortalConnectionGuide PURPOSE="Render MCP endpoint/auth setup instructions for external AI agents." />
+        <export-renderPortalConnectionGuide PURPOSE="Render single-endpoint MCP setup instructions with country_code parameter guidance for external AI agents." />
+        <export-renderDestinationList PURPOSE="Render available destinations from country_settings with status-appropriate display (active, coming_soon teaser)." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER</depends>
+      <depends>M-CONFIG, M-LOGGER, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-IDENTITY, M-USAGE-TRACKER, M-COUNTRY-SETTINGS</depends>
       <notes>
         <note-1>Invite-link flow is intentionally excluded in this phase.</note-1>
         <note-2>Portal UI stack is Bun JSX SSR + Tailwind + HTMX, with Alpine.js only for optional local micro-interactions.</note-2>
@@ -732,7 +782,7 @@
 
     <M-FASTMCP-RUNTIME NAME="FastMcpRuntime" TYPE="ENTRY_POINT" LAYER="5" ORDER="1">
       <contract>
-        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set (4 proxied + 3 local) with per-user usage tracking, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
+        <purpose>Create FastMCP server with OAuth Proxy for `/mcp`, register fixed tool set (4 proxied + 3 local) with per-user per-country usage tracking and country_code routing, and mount admin + portal HTTP routes on underlying Hono app.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
           <param-2 name="logger" type="Logger" />
@@ -744,6 +794,8 @@
           <param-8 name="usageTracker" type="UsageTracker" />
           <param-9 name="sitesSearchService" type="SitesSearchService" />
           <param-10 name="siteSourcesRepository" type="SiteSourcesRepository" />
+          <param-11 name="countryCache" type="CountryCache" />
+          <param-12 name="toolSchemas" type="ToolSchemas" />
         </inputs>
         <outputs>
           <param-1 name="fastMcpServer" type="FastMCP" />
@@ -754,18 +806,22 @@
       </contract>
       <interface>
         <export-createFastMcpRuntime PURPOSE="Build FastMCP with oauth.enabled=true and mount non-MCP HTTP routes via getApp()." />
-        <export-registerProxyTools PURPOSE="Register the four proxied tools with described schemas, canAccess guards, and per-user usage tracking via context.session JWT sub extraction." />
-        <export-registerLocalTools PURPOSE="Register local tools (`get_site_sources`, `search_sites`, `get_page_chunk`) with canAccess guards and per-user usage tracking." />
+        <export-registerProxyTools PURPOSE="Register the four proxied tools with country_code-aware schemas, canAccess guards, per-country chat_id resolution from countryCache, and per-user per-country usage tracking." />
+        <export-registerLocalTools PURPOSE="Register local tools (`get_site_sources`, `search_sites`, `get_page_chunk`) with country_code-aware schemas, canAccess guards, and per-user per-country usage tracking." />
         <export-extractUserIdFromSession PURPOSE="Decode JWT sub claim from RuntimeOauthSession idToken or accessToken for usage tracking." />
         <export-mountAdminRoutes PURPOSE="Mount `/admin` and `/admin/*` handlers via getApp()." />
         <export-mountPortalRoutes PURPOSE="Mount `/`, `/portal`, and `/portal/*` handlers via getApp()." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TOOLS-CONTRACTS, M-TOOL-PROXY, M-ADMIN-UI, M-PORTAL-UI, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-COUNTRY-SETTINGS</depends>
+      <notes>
+        <note-1>Server name changes from "japan-travel-rag-mcp" to "travel-rag-mcp".</note-1>
+        <note-2>Tool descriptions become generic: "Search curated travel site pages" instead of "Japan travel site pages".</note-2>
+      </notes>
     </M-FASTMCP-RUNTIME>
 
     <M-SERVER NAME="ServerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="1">
       <contract>
-        <purpose>Bootstrap API runtime dependencies and start FastMCP HTTP stream server with MCP, admin, portal, and local curated-site tools.</purpose>
+        <purpose>Bootstrap API runtime dependencies including country settings cache, build dynamic tool schemas, and start FastMCP HTTP stream server with MCP, admin, portal, and local curated-site tools.</purpose>
         <inputs>
           <param-1 name="none" type="void" />
         </inputs>
@@ -777,9 +833,12 @@
         </errors>
       </contract>
       <interface>
-        <export-main PURPOSE="Load config, create API dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
+        <export-main PURPOSE="Load config, load country settings cache, build dynamic tool schemas, create API dependencies, mount route handlers, start FastMCP runtime, install graceful shutdown." />
       </interface>
-      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT</depends>
+      <depends>M-CONFIG, M-LOGGER, M-AUTH-PROXY, M-TG-CHAT-RAG-CLIENT, M-TOOL-PROXY, M-ADMIN-UI, M-ADMIN-SITES, M-PORTAL-IDENTITY, M-PORTAL-AUTH, M-PORTAL-PROVISIONING, M-PORTAL-UI, M-FASTMCP-RUNTIME, M-DB, M-USAGE-TRACKER, M-SITE-SOURCES, M-SITES-SEARCH, M-SITES-INDEX-REPOSITORY, M-VOYAGE-PROXY-CLIENT, M-COUNTRY-SETTINGS, M-DB-SITES-BOOTSTRAP</depends>
+      <notes>
+        <note-1>After DB bootstrap, loads country settings cache and builds dynamic tool schemas before passing to runtime.</note-1>
+      </notes>
     </M-SERVER>
 
     <M-WORKER-ENTRYPOINT NAME="WorkerMain" TYPE="ENTRY_POINT" LAYER="6" ORDER="2">
@@ -861,17 +920,18 @@
       <step-3>Tool execution proceeds only for authenticated OAuth session.</step-3>
     </DF-MCP-OAUTH>
 
-    <DF-TOOL-PROXY NAME="tool proxy flow">
-      <step-1>Tool call enters M-FASTMCP-RUNTIME.</step-1>
-      <step-2>M-TOOLS-CONTRACTS validates payload.</step-2>
-      <step-3>M-TOOL-PROXY applies policy and calls M-TG-CHAT-RAG-CLIENT.</step-3>
-      <step-4>Normalized result is returned via MCP transport.</step-4>
+    <DF-TOOL-PROXY NAME="tool proxy flow with country routing">
+      <step-1>Tool call enters M-FASTMCP-RUNTIME with country_code in args.</step-1>
+      <step-2>M-TOOLS-CONTRACTS validates payload including country_code enum membership.</step-2>
+      <step-3>M-FASTMCP-RUNTIME resolves CountryContext (tg_chat_ids) from M-COUNTRY-SETTINGS cache.</step-3>
+      <step-4>M-TOOL-PROXY applies policy with country-specific chatIds and calls M-TG-CHAT-RAG-CLIENT.</step-4>
+      <step-5>Normalized result is returned via MCP transport.</step-5>
     </DF-TOOL-PROXY>
 
-    <DF-USAGE-TRACKING NAME="per-user tool call usage tracking flow">
+    <DF-USAGE-TRACKING NAME="per-user per-country tool call usage tracking flow">
       <step-1>MCP tool call enters execute handler in M-FASTMCP-RUNTIME with context.session containing RuntimeOauthSession.</step-1>
       <step-2>extractUserIdFromSession decodes idToken (or accessToken) JWT payload and extracts `sub` claim as userId.</step-2>
-      <step-3>After successful tool execution, M-USAGE-TRACKER.recordToolCall(userId, toolName) performs UPSERT on usage_counters table.</step-3>
+      <step-3>After successful tool execution, M-USAGE-TRACKER.recordToolCall(userId, toolName, countryCode) performs UPSERT on usage_counters table with composite PK (user_id, tool_name, country_code).</step-3>
       <step-4>If userId extraction or recording fails, tool result is still returned; failure is logged as warning.</step-4>
     </DF-USAGE-TRACKING>
 
@@ -882,12 +942,12 @@
       <step-4>If stats query fails, portal home renders gracefully without usage section or with error placeholder.</step-4>
     </DF-PORTAL-USAGE-DISPLAY>
 
-    <DF-SITE-SOURCES NAME="get_site_sources local tool flow">
-      <step-1>Authenticated MCP client calls get_site_sources with no parameters.</step-1>
+    <DF-SITE-SOURCES NAME="get_site_sources local tool flow with country filtering">
+      <step-1>Authenticated MCP client calls get_site_sources with country_code parameter.</step-1>
       <step-2>canAccess guard validates OAuth session (same as proxied tools).</step-2>
-      <step-3>Execute handler reads curated source registry from `site_sources` table (seed constant is bootstrap-only).</step-3>
-      <step-4>Usage tracking fires with userId + "get_site_sources" (fire-and-forget).</step-4>
-      <step-5>Client receives description_and_tiers + sources registry.</step-5>
+      <step-3>Execute handler reads curated source registry from `site_sources` table filtered by country_code.</step-3>
+      <step-4>Usage tracking fires with userId + "get_site_sources" + countryCode (fire-and-forget).</step-4>
+      <step-5>Client receives description_and_tiers + sources registry for specified country.</step-5>
     </DF-SITE-SOURCES>
 
     <DF-SITES-INGESTION NAME="curated sites crawl ingestion flow">
@@ -906,11 +966,11 @@
       <step-4>Fixture-matrix tests validate noise removal and content preservation per source before rollout recrawl.</step-4>
     </DF-CLEANUP-ADAPTER-MATRIX>
 
-    <DF-SITES-SEARCH NAME="search_sites local tool flow">
-      <step-1>Authenticated MCP client calls `search_sites` with query and optional filters.</step-1>
+    <DF-SITES-SEARCH NAME="search_sites local tool flow with country filtering">
+      <step-1>Authenticated MCP client calls `search_sites` with query, country_code, and optional filters.</step-1>
       <step-2>M-SITES-SEARCH builds query embedding via M-VOYAGE-PROXY-CLIENT (`voyage-4`, query mode).</step-2>
-      <step-3>M-SITES-INDEX-REPOSITORY runs hybrid search (vector + FTS simple config) filtered by active `index_version`.</step-3>
-      <step-4>Runtime returns ranked snippets with attribution (`source_id`, `tier`, `original_page_url`, `chunk_id`).</step-4>
+      <step-3>M-SITES-INDEX-REPOSITORY runs hybrid search (vector + FTS simple config) filtered by active `index_version` and `country_code` via site_sources join.</step-3>
+      <step-4>Runtime returns ranked snippets with attribution (`source_id`, `tier`, `original_page_url`, `chunk_id`) scoped to the requested country.</step-4>
     </DF-SITES-SEARCH>
 
     <DF-PAGE-CHUNK NAME="get_page_chunk local tool flow">
@@ -934,6 +994,21 @@
       <step-6>Pause/Resume: operator clicks action button, POST to `/admin/sites/:id/pause` or `/admin/sites/:id/resume`, UPDATE site_sources.status, redirect to list.</step-6>
       <step-7>Delete: operator clicks delete with confirmation, POST to `/admin/sites/:id/delete`, cascade DELETE (embeddings → chunks → pages → crawl_jobs → source), redirect to list.</step-7>
     </DF-ADMIN-SITES-CRUD>
+    <DF-COUNTRY-BOOTSTRAP NAME="country settings startup flow">
+      <step-1>M-SERVER bootstraps DB and runs schema migrations including country_settings table.</step-1>
+      <step-2>M-DB-SITES-BOOTSTRAP seeds Japan country row if not exists: { country_code: "jp", status: "active", settings: { tg_chat_ids: [...] } }.</step-2>
+      <step-3>M-COUNTRY-SETTINGS.buildCountryCache() loads all active countries into in-memory Map.</step-3>
+      <step-4>M-TOOLS-CONTRACTS.buildToolSchemas(activeCountryCodes) creates tool schemas with dynamic country_code enum.</step-4>
+      <step-5>CountryCache and ToolSchemas are passed to M-FASTMCP-RUNTIME for tool registration.</step-5>
+    </DF-COUNTRY-BOOTSTRAP>
+
+    <DF-COUNTRY-TOOL-ROUTING NAME="country-aware tool execution flow">
+      <step-1>Tool call arrives at M-FASTMCP-RUNTIME with country_code in validated args.</step-1>
+      <step-2>Execute handler resolves CountrySettings from countryCache.get(countryCode).</step-2>
+      <step-3>For proxied tools: extracts tg_chat_ids from country.settings and passes CountryContext to M-TOOL-PROXY.</step-3>
+      <step-4>For local tools: passes country_code to M-SITE-SOURCES or M-SITES-SEARCH for per-country data filtering.</step-4>
+      <step-5>Usage tracking records (userId, toolName, countryCode) via M-USAGE-TRACKER.</step-5>
+    </DF-COUNTRY-TOOL-ROUTING>
   </DataFlows>
 
   <MentalTests>
@@ -1062,6 +1137,31 @@
       <step-4>Compare pre/post clean_text lengths and ensure reductions are significant for noisy sources but bounded for low-noise official/reference pages.</step-4>
       <result>Pass when all remaining source adapters demonstrate deterministic noise reduction without content loss regressions.</result>
     </MT-16>
+
+    <MT-17 NAME="multi-country search flow test">
+      <step-1>User connects ONE MCP client to `/mcp` and authenticates via OAuth.</step-1>
+      <step-2>User asks about ramen in Tokyo; AI sends search_messages({ query: "ramen Tokyo", country_code: "jp" }).</step-2>
+      <step-3>M-FASTMCP-RUNTIME resolves "jp" from countryCache, gets tg_chat_ids from country_settings.</step-3>
+      <step-4>M-TOOL-PROXY injects per-country chatIds into upstream call; results come back.</step-4>
+      <step-5>M-USAGE-TRACKER.recordToolCall(userId, "search_messages", "jp") records country-specific usage.</step-5>
+      <result>Pass when single MCP connection routes correctly to country-specific data sources and usage is tracked per-country.</result>
+    </MT-17>
+
+    <MT-18 NAME="unknown/inactive country rejection test">
+      <step-1>Client calls search_messages({ query: "test", country_code: "zz" }).</step-1>
+      <step-2>country_code "zz" is not in dynamic enum → Zod validation rejects before reaching execute handler.</step-2>
+      <step-3>Even if enum bypass attempted, countryCache.get("zz") returns null → deterministic error result returned.</step-3>
+      <result>Pass when invalid country codes are rejected at schema validation level and unknown countries produce deterministic errors.</result>
+    </MT-18>
+
+    <MT-19 NAME="add new country without code changes test">
+      <step-1>Operator inserts country_settings row: { country_code: "it", status: "active", settings: { tg_chat_ids: [...] } }.</step-1>
+      <step-2>Operator adds site_sources rows with country_code = "it".</step-2>
+      <step-3>Server restart loads Italy into countryCache and rebuilds country_code enum.</step-3>
+      <step-4>AI sends search_sites({ query: "pasta Rome", country_code: "it" }) → returns Italian site results.</step-4>
+      <step-5>Portal destination list shows Italy as active destination.</step-5>
+      <result>Pass when new country is fully functional with only DB inserts and server restart, no code changes.</result>
+    </MT-19>
   </MentalTests>
 
   <ImplementationOrder>
@@ -1168,6 +1268,19 @@
       <step-6>Run phased rollout recrawl (editorial sources first, transit/community second, official/reference last) and monitor pages_skipped deltas before broad backfill.</step-6>
       <justification>Wren-only adapter coverage is insufficient for current curated registry breadth; full source coverage is required to reduce cross-domain crawl noise while keeping deterministic, auditable parser behavior.</justification>
     </Phase-12>
+
+    <Phase-13 name="MultiTenantCountryArchitecture" status="pending">
+      <step-1>Add country_settings table to M-DB-SCHEMA and implement M-COUNTRY-SETTINGS repository (getCountrySettings, getCountriesByStatus, upsertCountrySettings, buildCountryCache). Test: CRUD operations, status filtering, cache construction.</step-1>
+      <step-2>Add country_code column to site_sources table (M-DB-SCHEMA) with FK to country_settings and default 'jp'. Update M-SITES-INDEX-REPOSITORY searchHybrid to filter by country_code via site_sources join. Test: search filtering by country_code.</step-2>
+      <step-3>Add country_code column to usage_counters table (M-DB-SCHEMA), extending composite PK to (user_id, tool_name, country_code). Update M-USAGE-TRACKER recordToolCall and getUserStats signatures. Test: per-country usage recording and stats filtering.</step-3>
+      <step-4>Add country_code parameter to tool schemas in M-TOOLS-CONTRACTS: buildToolSchemas(activeCountryCodes) factory, country_code enum on search_messages, list_sources, get_site_sources, search_sites. Test: schema validation, enum membership, absence on get_page_chunk/get_message_context/get_related_messages.</step-4>
+      <step-5>Update M-TOOL-PROXY executeTool to accept CountryContext { chatIds } parameter; buildUpstreamPayloadWithPolicy uses countryContext.chatIds instead of config.tgChatRag.chatIds. Test: upstream payload uses per-country chatIds.</step-5>
+      <step-6>Update M-SITE-SOURCES getSiteSources to filter by country_code; replace frozen SITE_SOURCES_RESPONSE constant with DB-backed per-country query. Test: get_site_sources returns country-filtered sources, empty for unknown country.</step-6>
+      <step-7>Wire country_code through M-FASTMCP-RUNTIME and M-SERVER: load country settings at startup, build countryCache, pass to runtime; resolve country context in tool execute handlers; update tool descriptions to generic multi-destination text; rename server to "travel-rag-mcp". Test: end-to-end tool call with country_code routing.</step-7>
+      <step-8>Seed Japan country in M-DB-SITES-BOOTSTRAP: insert country_settings row { jp, active, tg_chat_ids from env }. Migrate existing data (site_sources/usage_counters default to 'jp'). Deprecate TG_CHAT_RAG_CHAT_IDS env var in M-CONFIG (optional, backwards compat). Test: server starts, search_messages with country_code=jp returns same results as before.</step-8>
+      <step-9>Update M-PORTAL-UI for platform branding: replace "Japan Travel RAG" with PLATFORM_NAME, add destination list from country_settings, update MCP setup guide for single-endpoint multi-country usage. Add PLATFORM_NAME to M-CONFIG. Test: portal shows generic branding and destination list.</step-9>
+      <justification>Single MCP endpoint with country_code parameter enables frictionless multi-destination UX (one OAuth flow, one connector), DB-only country provisioning, per-country analytics, and future per-country pricing — without per-URL routing complexity or multiple FastMCP instances.</justification>
+    </Phase-13>
   </ImplementationOrder>
 
   <RiskAssessment>
@@ -1187,6 +1300,9 @@
     <risk-14 severity="medium">Source website layout changes break source adapter pattern rules (wrenjapan nav structure changes). Mitigation: composable rules, raw-content fallback, adapter versioning strategy.</risk-14>
     <risk-15 severity="low">Quality gate false positives skip legitimate short-form pages (e.g., glossary entries, FAQ items). Mitigation: reason-coded logs enable threshold tuning with sampled page review.</risk-15>
     <risk-16 severity="medium">Adapter matrix growth across 12 sources can create maintenance drift and inconsistent cleanup semantics. Mitigation: shared common/profile modules, fixture matrix CI, and rollout by source group with monitored regressions.</risk-16>
+    <risk-17 severity="medium">Adding country_code as required tool parameter is a breaking change for existing MCP clients that don't send it. Mitigation: transition period with optional country_code defaulting to "jp"; communicate schema change to users.</risk-17>
+    <risk-18 severity="low">Country cache is loaded at startup only; newly added countries require server restart. Mitigation: acceptable for current scale; future hot-reload via cache invalidation endpoint if needed.</risk-18>
+    <risk-19 severity="medium">Composite PK migration on usage_counters (adding country_code) requires careful handling of existing rows. Mitigation: column default 'jp' ensures existing data is preserved; migration is backwards-compatible.</risk-19>
   </RiskAssessment>
 
   <DeprecatedModules>
