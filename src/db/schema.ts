@@ -1,7 +1,7 @@
 // FILE: src/db/schema.ts
 // VERSION: 1.0.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Unified Drizzle pgTable schemas for the entire application: API keys, curated site indexing pipeline, usage tracking, and country settings.
+//   PURPOSE: Unified Drizzle pgTable schemas for the entire application: API keys, country settings, curated site indexing pipeline, and usage tracking.
 //   SCOPE: Pure schema definitions and inferred types; no runtime SQL execution.
 //   DEPENDS: (none — schema-only module)
 //   LINKS: M-DB, M-API-KEY-REPOSITORY, M-SITE-SOURCES, M-USAGE-TRACKER, M-COUNTRY-SETTINGS
@@ -11,12 +11,12 @@
 //   countrySettingsTable - Per-country runtime config (country_code PK, status, JSONB settings, timestamps).
 //   CountrySettingSelect/Insert (type) - Inferred types for country_settings.
 //   apiKeysTable - API key persistence table for Bearer authentication (id PK, key_hash, label, expiry/revocation timestamps).
-//   siteSourcesTable - Curated site source registry (source_id PK, tier, domain, crawl config).
+//   siteSourcesTable - Curated site source registry (source_id PK, tier, domain, crawl config, country_code).
 //   sitePagesTable - Fetched pages linked to a source (page_id PK, source_id FK).
 //   siteChunksTable - Text chunks derived from pages (chunk_id PK, page_id FK).
 //   siteChunkEmbeddingsTable - Embedding vectors for chunks (chunk_id PK+FK, pgvector column).
 //   siteCrawlJobsTable - Crawl job tracking (crawl_job_id PK, source_id FK).
-//   usageCountersTable - Per-user per-tool call counters with composite PK.
+//   usageCountersTable - Per-user per-tool per-country call counters with composite PK (user_id, tool_name, country_code).
 //   SiteSource (type) - Inferred insert/select types for site_sources.
 //   SitePage (type) - Inferred insert/select types for site_pages.
 //   SiteChunk (type) - Inferred insert/select types for site_chunks.
@@ -25,7 +25,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Consolidated from api-key-repository.ts, sites-schema.ts, and tracker.ts into unified schema. Replaced custom vector type with built-in drizzle-orm/pg-core vector.
+//   LAST_CHANGE: v1.1.0 - Added countrySettingsTable, countryCode column to siteSourcesTable and usageCountersTable for multi-tenant country architecture (Phase 13, Steps 1-3).
 // END_CHANGE_SUMMARY
 
 import { integer, jsonb, pgTable, primaryKey, text, timestamp, vector } from "drizzle-orm/pg-core";
@@ -65,6 +65,7 @@ export const siteSourcesTable = pgTable("site_sources", {
   status: text("status").notNull().default("active"),
   crawlIntervalMinutes: integer("crawl_interval_minutes").notNull(),
   maxPages: integer("max_pages").notNull(),
+  countryCode: text("country_code").notNull().default("jp"),
 });
 
 // ─── Site Pages ─────────────────────────────────────────────────────────────
@@ -138,10 +139,11 @@ export const usageCountersTable = pgTable(
   {
     userId: text("user_id").notNull(),
     toolName: text("tool_name").notNull(),
+    countryCode: text("country_code").notNull().default("jp"),
     callCount: integer("call_count").notNull().default(0),
     lastCalledAt: timestamp("last_called_at", { withTimezone: true }),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.toolName] })],
+  (table) => [primaryKey({ columns: [table.userId, table.toolName, table.countryCode] })],
 );
 
 // ─── OAuth Token Store ──────────────────────────────────────────────────────

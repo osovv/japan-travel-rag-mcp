@@ -78,8 +78,13 @@ export async function bootstrapSitesSchema(db: NodePgDatabase, logger: Logger): 
         focus                 TEXT NOT NULL,
         status                TEXT NOT NULL DEFAULT 'active',
         crawl_interval_minutes INTEGER NOT NULL,
-        max_pages             INTEGER NOT NULL
+        max_pages             INTEGER NOT NULL,
+        country_code          TEXT NOT NULL DEFAULT 'jp'
       )
+    `);
+    // Migrate existing tables: add country_code column if missing.
+    await db.execute(sql`
+      ALTER TABLE site_sources ADD COLUMN IF NOT EXISTS country_code TEXT NOT NULL DEFAULT 'jp'
     `);
     logger.info(
       "site_sources table ensured.",

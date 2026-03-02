@@ -1,22 +1,22 @@
 // FILE: src/usage/tracker.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Track per-user MCP tool call counts in PostgreSQL and expose query interface for portal display.
+//   PURPOSE: Track per-user per-country MCP tool call counts in PostgreSQL and expose query interface for portal display.
 //   SCOPE: Define Drizzle schema for usage_counters table, provide atomic UPSERT recording with fire-and-forget semantics, and expose per-user stats query.
 //   DEPENDS: M-DB, M-LOGGER
 //   LINKS: M-USAGE-TRACKER, M-DB, M-LOGGER
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   usageCountersTable - Drizzle pg-core schema: usage_counters(user_id, tool_name, call_count, last_called_at) with composite PK.
-//   UsageTracker - Usage tracking interface for tool call recording and stats queries.
+//   usageCountersTable - Drizzle pg-core schema: usage_counters(user_id, tool_name, country_code, call_count, last_called_at) with composite PK.
+//   UsageTracker - Usage tracking interface for tool call recording (with countryCode) and stats queries.
 //   UserUsageStats - Per-user usage statistics payload for portal rendering.
 //   UsageTrackerError - Typed usage tracker error with USAGE_TRACKER_ERROR code.
 //   createUsageTracker - Build usage tracker backed by Drizzle PostgreSQL with auto-schema bootstrap.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial generation from development plan for M-USAGE-TRACKER.
+//   LAST_CHANGE: v1.1.0 - Added countryCode parameter to recordToolCall and updated bootstrap schema with country_code column and composite PK migration.
 // END_CHANGE_SUMMARY
 
 import { eq, sql } from "drizzle-orm";
@@ -33,7 +33,7 @@ export type UserUsageStats = {
 };
 
 export type UsageTracker = {
-  recordToolCall(userId: string, toolName: string): void;
+  recordToolCall(userId: string, toolName: string, countryCode: string): void;
   getUserStats(userId: string): Promise<UserUsageStats>;
 };
 // END_BLOCK_DEFINE_TYPES_M_USAGE_TRACKER_002
@@ -63,10 +63,26 @@ async function bootstrapSchema(db: NodePgDatabase, logger: Logger): Promise<void
       CREATE TABLE IF NOT EXISTS usage_counters (
         user_id    TEXT NOT NULL,
         tool_name  TEXT NOT NULL,
+        country_code TEXT NOT NULL DEFAULT 'jp',
         call_count INTEGER NOT NULL DEFAULT 0,
         last_called_at TIMESTAMPTZ,
-        PRIMARY KEY (user_id, tool_name)
+        PRIMARY KEY (user_id, tool_name, country_code)
       )
+    `);
+
+    // Migrate existing tables: add country_code column and recreate PK if needed.
+    await db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'usage_counters' AND column_name = 'country_code'
+        ) THEN
+          ALTER TABLE usage_counters ADD COLUMN country_code TEXT NOT NULL DEFAULT 'jp';
+          ALTER TABLE usage_counters DROP CONSTRAINT IF EXISTS usage_counters_pkey;
+          ALTER TABLE usage_counters ADD PRIMARY KEY (user_id, tool_name, country_code);
+        END IF;
+      END $$
     `);
 
     logger.info(
@@ -82,8 +98,8 @@ async function bootstrapSchema(db: NodePgDatabase, logger: Logger): Promise<void
 }
 
 // START_CONTRACT: recordToolCallImpl
-//   PURPOSE: Increment per-user per-tool counter via UPSERT; fire-and-forget with warning on failure.
-//   INPUTS: { db: NodePgDatabase, logger: Logger, userId: string, toolName: string }
+//   PURPOSE: Increment per-user per-tool per-country counter via UPSERT; fire-and-forget with warning on failure.
+//   INPUTS: { db: NodePgDatabase, logger: Logger, userId: string, toolName: string, countryCode: string }
 //   OUTPUTS: { void - Fire-and-forget; never throws to callers }
 //   SIDE_EFFECTS: [Writes to usage_counters table, logs warning on failure]
 //   LINKS: [M-USAGE-TRACKER, M-DB]
@@ -93,6 +109,7 @@ function recordToolCallImpl(
   logger: Logger,
   userId: string,
   toolName: string,
+  countryCode: string,
 ): void {
   // START_BLOCK_FIRE_AND_FORGET_UPSERT_M_USAGE_TRACKER_005
   const operation = db
@@ -100,11 +117,12 @@ function recordToolCallImpl(
     .values({
       userId,
       toolName,
+      countryCode,
       callCount: 1,
       lastCalledAt: new Date(),
     })
     .onConflictDoUpdate({
-      target: [usageCountersTable.userId, usageCountersTable.toolName],
+      target: [usageCountersTable.userId, usageCountersTable.toolName, usageCountersTable.countryCode],
       set: {
         callCount: sql`${usageCountersTable.callCount} + 1`,
         lastCalledAt: new Date(),
@@ -115,7 +133,7 @@ function recordToolCallImpl(
         "Tool call recorded.",
         "recordToolCall",
         "FIRE_AND_FORGET_UPSERT",
-        { userId, toolName },
+        { userId, toolName, countryCode },
       );
     })
     .catch((error: unknown) => {
@@ -124,7 +142,7 @@ function recordToolCallImpl(
         "Failed to record tool call; continuing without persistence.",
         "recordToolCall",
         "FIRE_AND_FORGET_UPSERT",
-        { userId, toolName, cause },
+        { userId, toolName, countryCode, cause },
       );
     });
 
@@ -185,8 +203,8 @@ export async function createUsageTracker(deps: {
   await bootstrapSchema(db, logger);
 
   const tracker: UsageTracker = {
-    recordToolCall(userId: string, toolName: string): void {
-      recordToolCallImpl(db, logger, userId, toolName);
+    recordToolCall(userId: string, toolName: string, countryCode: string): void {
+      recordToolCallImpl(db, logger, userId, toolName, countryCode);
     },
 
     async getUserStats(userId: string): Promise<UserUsageStats> {

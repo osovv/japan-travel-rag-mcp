@@ -191,6 +191,7 @@ describe("inferred types", () => {
       status: "active",
       crawlIntervalMinutes: 1440,
       maxPages: 100,
+      countryCode: "jp",
     };
     expect(_sample.sourceId).toBe("test");
   });

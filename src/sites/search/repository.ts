@@ -1,5 +1,5 @@
 // FILE: src/sites/search/repository.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Data access layer for persisting curated-site pages, chunks, and embeddings, and for serving hybrid search and chunk lookup queries.
 //   SCOPE: Upsert pages/chunks/embeddings via ON CONFLICT, execute hybrid vector+FTS search, and retrieve chunks with neighbors.
@@ -12,7 +12,7 @@
 //   UpsertPageInput - Input for upserting a page record.
 //   UpsertChunkInput - Input for upserting a chunk record.
 //   UpsertEmbeddingInput - Input for upserting an embedding record.
-//   HybridSearchParams - Parameters for hybrid vector+FTS search.
+//   HybridSearchParams - Parameters for hybrid vector+FTS search (includes optional country_code filter).
 //   SearchResult - Single result from hybrid search.
 //   ChunkWithNeighbors - Chunk with optional neighbor chunk texts.
 //   SitesIndexRepository - Repository type with upsert, search, and lookup methods.
@@ -20,7 +20,7 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial implementation with upsert, hybrid search, and chunk neighbor lookup.
+//   LAST_CHANGE: v1.1.0 - Added optional country_code filter to HybridSearchParams and searchHybrid query.
 // END_CHANGE_SUMMARY
 
 import { sql } from "drizzle-orm";
@@ -78,6 +78,7 @@ export type HybridSearchParams = {
   index_version: string;
   top_k: number;
   source_ids?: string[];
+  country_code?: string;
 };
 // END_BLOCK_DEFINE_INPUT_TYPES_M_SITES_INDEX_REPOSITORY_002
 
@@ -317,10 +318,11 @@ export function createSitesIndexRepository(db: NodePgDatabase, logger: Logger): 
     try {
       const vectorLiteral = toVectorLiteral(params.query_embedding);
       const hasSourceFilter = params.source_ids && params.source_ids.length > 0;
+      const hasCountryFilter = !!params.country_code;
 
       let result;
 
-      if (hasSourceFilter) {
+      if (hasSourceFilter && hasCountryFilter) {
         result = await db.execute(sql`
           SELECT
             sc.chunk_id,
@@ -339,6 +341,51 @@ export function createSitesIndexRepository(db: NodePgDatabase, logger: Logger): 
           JOIN site_sources ss ON ss.source_id = sp.source_id
           WHERE sc.index_version = ${params.index_version}
             AND sp.source_id = ANY(${params.source_ids!})
+            AND ss.country_code = ${params.country_code!}
+          ORDER BY combined_score DESC
+          LIMIT ${params.top_k}
+        `);
+      } else if (hasSourceFilter) {
+        result = await db.execute(sql`
+          SELECT
+            sc.chunk_id,
+            sp.source_id,
+            sp.url AS page_url,
+            sp.title,
+            sc.chunk_text,
+            (1 - (sce.embedding <=> ${vectorLiteral}::vector)) AS vector_score,
+            ts_rank(to_tsvector('simple', sc.chunk_text), plainto_tsquery('simple', ${params.query_text})) AS fts_score,
+            (0.7 * (1 - (sce.embedding <=> ${vectorLiteral}::vector)) + 0.3 * ts_rank(to_tsvector('simple', sc.chunk_text), plainto_tsquery('simple', ${params.query_text}))) AS combined_score,
+            ss.tier,
+            ss.domain
+          FROM site_chunks sc
+          JOIN site_chunk_embeddings sce ON sce.chunk_id = sc.chunk_id
+          JOIN site_pages sp ON sp.page_id = sc.page_id
+          JOIN site_sources ss ON ss.source_id = sp.source_id
+          WHERE sc.index_version = ${params.index_version}
+            AND sp.source_id = ANY(${params.source_ids!})
+          ORDER BY combined_score DESC
+          LIMIT ${params.top_k}
+        `);
+      } else if (hasCountryFilter) {
+        result = await db.execute(sql`
+          SELECT
+            sc.chunk_id,
+            sp.source_id,
+            sp.url AS page_url,
+            sp.title,
+            sc.chunk_text,
+            (1 - (sce.embedding <=> ${vectorLiteral}::vector)) AS vector_score,
+            ts_rank(to_tsvector('simple', sc.chunk_text), plainto_tsquery('simple', ${params.query_text})) AS fts_score,
+            (0.7 * (1 - (sce.embedding <=> ${vectorLiteral}::vector)) + 0.3 * ts_rank(to_tsvector('simple', sc.chunk_text), plainto_tsquery('simple', ${params.query_text}))) AS combined_score,
+            ss.tier,
+            ss.domain
+          FROM site_chunks sc
+          JOIN site_chunk_embeddings sce ON sce.chunk_id = sc.chunk_id
+          JOIN site_pages sp ON sp.page_id = sc.page_id
+          JOIN site_sources ss ON ss.source_id = sp.source_id
+          WHERE sc.index_version = ${params.index_version}
+            AND ss.country_code = ${params.country_code!}
           ORDER BY combined_score DESC
           LIMIT ${params.top_k}
         `);
