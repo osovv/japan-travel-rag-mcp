@@ -1,8 +1,8 @@
 // FILE: src/auth/consent-patch.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Replace FastMCP's built-in consent screen with portal-styled HTML that matches the TravelMind MCP portal design.
-//   SCOPE: Provide generatePortalConsentScreen, formatScopeLabel, portalConsentStyles, escapeHtml, and patchOAuthProxyConsent.
+//   PURPOSE: Patch FastMCP OAuthProxy to preserve a portal-styled consent UX while enforcing OIDC-compatible upstream consent prompts.
+//   SCOPE: Provide generatePortalConsentScreen, formatScopeLabel, portalConsentStyles, escapeHtml, prompt-aware redirect rewriting, and patchOAuthProxyConsent.
 //   DEPENDS: M-AUTH-PROXY
 //   LINKS: M-AUTH-CONSENT-PATCH, M-AUTH-PROXY
 // END_MODULE_CONTRACT
@@ -12,11 +12,13 @@
 //   formatScopeLabel - Map OAuth scope strings to human-readable labels.
 //   portalConsentStyles - Return inline CSS string with portal CSS variables and classes.
 //   generatePortalConsentScreen - Return full HTML document for consent screen with portal styling.
-//   patchOAuthProxyConsent - Replace oauthProxy.consentManager.generateConsentScreen with portal version.
+//   rewriteAuthorizeRedirectWithPromptConsent - Force upstream authorize redirects to carry prompt=consent.
+//   patchOAuthProxyConsent - Replace oauthProxy.consentManager.generateConsentScreen with portal version and patch upstream authorize redirects to request consent.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial implementation of portal-styled consent screen patch.
+//   LAST_CHANGE: v1.1.0 - Added redirect patching so upstream authorize redirects always include prompt=consent for OIDC-compatible offline_access refresh-token issuance.
+//   PREVIOUS: v1.0.0 - Initial implementation of portal-styled consent screen patch.
 // END_CHANGE_SUMMARY
 
 import type { OAuthProxy } from "fastmcp/auth";
@@ -41,6 +43,7 @@ type ConsentScreenData = {
 
 const SCOPE_LABELS: Record<string, string> = {
   "mcp:access": "Access MCP tools",
+  "offline_access": "Stay signed in across longer-lived MCP sessions",
   openid: "Verify your identity",
   profile: "View your basic profile",
   email: "Access your email address",
@@ -257,15 +260,42 @@ ${scopeItems}
 }
 
 // ---------------------------------------------------------------------------
+// rewriteAuthorizeRedirectWithPromptConsent
+// ---------------------------------------------------------------------------
+
+function rewriteAuthorizeRedirectWithPromptConsent(response: Response): Response {
+  const location = response.headers.get("Location");
+
+  if (!location) {
+    return response;
+  }
+
+  const redirectUrl = new URL(location);
+  redirectUrl.searchParams.set("prompt", "consent");
+
+  const rewrittenHeaders = new Headers(response.headers);
+  rewrittenHeaders.set("Location", redirectUrl.toString());
+
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: rewrittenHeaders,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // patchOAuthProxyConsent
 // ---------------------------------------------------------------------------
 
 export function patchOAuthProxyConsent(oauthProxy: OAuthProxy): void {
-  // OAuthProxy.consentManager is a private member; we access it via an unsafe
-  // cast so we can replace the default consent screen with portal-styled HTML.
-  // The runtime guard below ensures we fail loudly if FastMCP internals change.
+  // START_BLOCK_PATCH_OAUTH_PROXY_PORTAL_CONSENT_AND_REDIRECT_M_AUTH_CONSENT_PATCH_001
+  // OAuthProxy.consentManager and redirectToUpstream are private members; we
+  // access them via an unsafe cast so we can preserve the portal UX while
+  // forcing upstream consent for OIDC-compatible offline_access issuance.
+  // The runtime guards below ensure we fail loudly if FastMCP internals change.
   const proxy = oauthProxy as unknown as {
     consentManager?: { generateConsentScreen?: (data: any) => string };
+    redirectToUpstream?: (transaction: any) => Response;
   };
 
   if (
@@ -278,6 +308,13 @@ export function patchOAuthProxyConsent(oauthProxy: OAuthProxy): void {
     );
   }
 
+  if (typeof proxy.redirectToUpstream !== "function") {
+    throw new Error(
+      "patchOAuthProxyConsent: OAuthProxy.redirectToUpstream not found. " +
+        "FastMCP internals may have changed.",
+    );
+  }
+
   proxy.consentManager.generateConsentScreen = (data: any) =>
     generatePortalConsentScreen({
       clientName: data.clientName,
@@ -285,4 +322,11 @@ export function patchOAuthProxyConsent(oauthProxy: OAuthProxy): void {
       scope: data.scope,
       transactionId: data.transactionId,
     });
+
+  const originalRedirectToUpstream = proxy.redirectToUpstream;
+  proxy.redirectToUpstream = (transaction: any) => {
+    const response = originalRedirectToUpstream.call(oauthProxy, transaction);
+    return rewriteAuthorizeRedirectWithPromptConsent(response);
+  };
+  // END_BLOCK_PATCH_OAUTH_PROXY_PORTAL_CONSENT_AND_REDIRECT_M_AUTH_CONSENT_PATCH_001
 }

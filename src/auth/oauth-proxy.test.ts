@@ -1,21 +1,22 @@
 // FILE: src/auth/oauth-proxy.test.ts
-// VERSION: 1.3.0
+// VERSION: 1.4.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Verify OAuth proxy initialization exposes exact single-scope policy in authorization metadata.
-//   SCOPE: Build deterministic logger/config fixtures, call createOauthProxy, and assert authorizationServerMetadata.scopesSupported equals ["mcp:access"].
+//   PURPOSE: Verify OAuth proxy initialization exposes the exact OIDC-compatible upstream scope policy in authorization metadata.
+//   SCOPE: Build deterministic logger/config fixtures, call createOauthProxy, and assert authorizationServerMetadata.scopesSupported equals ["mcp:access", "offline_access"].
 //   DEPENDS: M-AUTH-PROXY, M-CONFIG, M-LOGGER
 //   LINKS: M-AUTH-PROXY
 // END_MODULE_CONTRACT
 //
 // START_MODULE_MAP
-//   EXPECTED_SCOPES_SUPPORTED - Canonical single-scope policy expected from oauth-proxy metadata.
+//   EXPECTED_SCOPES_SUPPORTED - Canonical offline-access scope policy expected from oauth-proxy metadata.
 //   createNoopLogger - Build deterministic inert logger dependency for oauth-proxy tests.
 //   createMockAppConfig - Build deterministic AppConfig fixture with required Logto/public URL values.
 //   OauthProxyTests - Focused coverage for exact scopesSupported propagation into authorization metadata.
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Updated oauth-proxy metadata assertion to enforce exact scopesSupported policy ["mcp:access"].
+//   LAST_CHANGE: v1.4.0 - Updated oauth-proxy metadata assertion to enforce exact scopesSupported policy ["mcp:access", "offline_access"].
+//   PREVIOUS: v1.3.0 - Updated oauth-proxy metadata assertion to enforce exact scopesSupported policy ["mcp:access"].
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -23,7 +24,7 @@ import type { AppConfig } from "../config/index";
 import type { Logger } from "../logger/index";
 import { createOauthProxy } from "./oauth-proxy";
 
-const EXPECTED_SCOPES_SUPPORTED = ["mcp:access"];
+const EXPECTED_SCOPES_SUPPORTED = ["mcp:access", "offline_access"];
 
 // START_CONTRACT: createNoopLogger
 //   PURPOSE: Provide deterministic no-op Logger dependency for unit tests.
@@ -96,7 +97,7 @@ function createMockAppConfig(): AppConfig {
 }
 
 describe("M-AUTH-PROXY createOauthProxy", () => {
-  it('returns authorization metadata with exact scopesSupported ["mcp:access"]', () => {
+  it('returns authorization metadata with exact scopesSupported ["mcp:access", "offline_access"]', () => {
     const oauthProxyContext = createOauthProxy({
       config: createMockAppConfig(),
       logger: createNoopLogger(),

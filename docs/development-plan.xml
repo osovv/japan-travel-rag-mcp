@@ -130,7 +130,7 @@
 
     <M-AUTH-CONSENT-PATCH NAME="ConsentPatch" TYPE="UI_COMPONENT" LAYER="2" ORDER="2">
       <contract>
-        <purpose>Replace FastMCP built-in consent screen with portal-styled HTML via monkey-patching OAuthProxy.consentManager.</purpose>
+        <purpose>Replace FastMCP built-in consent screen with portal-styled HTML and force upstream authorize redirects to request consent for OIDC-compatible offline_access flows.</purpose>
         <inputs>
           <param-1 name="oauthProxy" type="OAuthProxy" />
         </inputs>
@@ -142,15 +142,16 @@
         </errors>
       </contract>
       <interface>
-        <export-patchOAuthProxyConsent PURPOSE="Monkey-patch OAuthProxy.consentManager.generateConsentScreen with portal-styled HTML renderer." />
+        <export-patchOAuthProxyConsent PURPOSE="Monkey-patch OAuthProxy consent rendering and upstream authorize redirects so portal UI stays custom while Logto receives prompt=consent." />
         <export-generatePortalConsentScreen PURPOSE="Render portal-styled consent HTML with scope labels, XSS escaping, and form POST to /oauth/consent." />
+        <export-rewriteAuthorizeRedirectWithPromptConsent PURPOSE="Rewrite upstream authorize redirects to include prompt=consent for offline_access refresh-token issuance." />
       </interface>
       <depends>M-AUTH-PROXY</depends>
     </M-AUTH-CONSENT-PATCH>
 
     <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" LAYER="2" ORDER="3">
       <contract>
-        <purpose>Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for `/mcp` authentication.</purpose>
+        <purpose>Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for `/mcp` authentication with offline_access scope support.</purpose>
         <inputs>
           <param-1 name="config" type="AppConfig" />
         </inputs>
@@ -163,7 +164,7 @@
         </errors>
       </contract>
       <interface>
-        <export-createOauthProxy PURPOSE="Instantiate OAuthProxy with Logto auth/token endpoints, configured scopes, and portal consent patch." />
+        <export-createOauthProxy PURPOSE="Instantiate OAuthProxy with Logto auth/token endpoints, configured scopes including offline_access, and portal consent patch." />
       </interface>
       <depends>M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH</depends>
     </M-AUTH-PROXY>

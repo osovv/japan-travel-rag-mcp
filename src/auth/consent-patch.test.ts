@@ -1,14 +1,15 @@
 // FILE: src/auth/consent-patch.test.ts
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 // START_MODULE_CONTRACT
-//   PURPOSE: Verify portal-styled consent screen generation, scope label formatting, XSS escaping, and OAuthProxy monkey-patching.
+//   PURPOSE: Verify portal-styled consent screen generation, scope label formatting, XSS escaping, and OAuthProxy monkey-patching for consent-compatible upstream redirects.
 //   SCOPE: Unit tests for generatePortalConsentScreen, formatScopeLabel, escapeHtml, and patchOAuthProxyConsent.
 //   DEPENDS: M-AUTH-CONSENT-PATCH
 //   LINKS: M-AUTH-CONSENT-PATCH
 // END_MODULE_CONTRACT
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.0.0 - Initial test suite for consent-patch module.
+//   LAST_CHANGE: v1.1.0 - Added coverage for offline_access scope labels and prompt=consent redirect patching.
+//   PREVIOUS: v1.0.0 - Initial test suite for consent-patch module.
 // END_CHANGE_SUMMARY
 
 import { describe, expect, it } from "bun:test";
@@ -29,6 +30,12 @@ describe("formatScopeLabel", () => {
 
   it("maps openid to human-readable label", () => {
     expect(formatScopeLabel("openid")).toBe("Verify your identity");
+  });
+
+  it("maps offline_access to human-readable label", () => {
+    expect(formatScopeLabel("offline_access")).toBe(
+      "Stay signed in across longer-lived MCP sessions",
+    );
   });
 
   it("maps profile to human-readable label", () => {
@@ -101,10 +108,11 @@ describe("generatePortalConsentScreen", () => {
   it("renders all provided scopes", () => {
     const data = {
       ...baseData,
-      scope: ["mcp:access", "openid", "profile", "email"],
+      scope: ["mcp:access", "offline_access", "openid", "profile", "email"],
     };
     const html = generatePortalConsentScreen(data);
     expect(html).toContain("Access MCP tools");
+    expect(html).toContain("Stay signed in across longer-lived MCP sessions");
     expect(html).toContain("Verify your identity");
     expect(html).toContain("View your basic profile");
     expect(html).toContain("Access your email address");
@@ -208,6 +216,18 @@ describe("patchOAuthProxyConsent", () => {
     );
   });
 
+  it("throws when redirectToUpstream is missing", () => {
+    const mockProxy = {
+      consentManager: {
+        generateConsentScreen: (_data?: unknown) => "<p>original</p>",
+      },
+    } as any;
+
+    expect(() => patchOAuthProxyConsent(mockProxy)).toThrow(
+      "patchOAuthProxyConsent: OAuthProxy.redirectToUpstream not found.",
+    );
+  });
+
   it("replaces generateConsentScreen on consentManager", () => {
     // Create a mock OAuthProxy-like object with consentManager
     const originalFn = () => "<p>original</p>";
@@ -215,6 +235,8 @@ describe("patchOAuthProxyConsent", () => {
       consentManager: {
         generateConsentScreen: originalFn,
       },
+      redirectToUpstream: (_transaction?: unknown) =>
+        new Response(null, { status: 302, headers: { Location: "https://issuer.example.com/oidc/auth" } }),
     };
 
     patchOAuthProxyConsent(mockProxy as any);
@@ -227,6 +249,8 @@ describe("patchOAuthProxyConsent", () => {
       consentManager: {
         generateConsentScreen: (_data?: unknown) => "<p>original</p>",
       },
+      redirectToUpstream: (_transaction?: unknown) =>
+        new Response(null, { status: 302, headers: { Location: "https://issuer.example.com/oidc/auth" } }),
     };
 
     patchOAuthProxyConsent(mockProxy as any);
@@ -242,5 +266,31 @@ describe("patchOAuthProxyConsent", () => {
     expect(html).toContain("portal-card");
     expect(html).toContain("Access MCP tools");
     expect(html).toContain('value="txn-123"');
+  });
+
+  it("patched redirectToUpstream injects prompt=consent into authorize redirects", () => {
+    const mockProxy = {
+      consentManager: {
+        generateConsentScreen: (_data?: unknown) => "<p>original</p>",
+      },
+      redirectToUpstream: (_transaction?: unknown) =>
+        new Response(null, {
+          status: 302,
+          headers: {
+            Location:
+              "https://issuer.example.com/oidc/auth?client_id=test-client&scope=mcp%3Aaccess%20offline_access",
+          },
+        }),
+    };
+
+    patchOAuthProxyConsent(mockProxy as any);
+
+    const response = mockProxy.redirectToUpstream({ id: "txn-123" });
+    const location = response.headers.get("Location");
+
+    expect(location).not.toBeNull();
+    const redirectUrl = new URL(location!);
+    expect(redirectUrl.searchParams.get("prompt")).toBe("consent");
+    expect(redirectUrl.searchParams.get("scope")).toBe("mcp:access offline_access");
   });
 });

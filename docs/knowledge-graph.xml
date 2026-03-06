@@ -323,13 +323,14 @@
     </M-TG-CHAT-RAG-CLIENT>
 
     <M-AUTH-CONSENT-PATCH NAME="ConsentPatch" TYPE="UI_COMPONENT" STATUS="active">
-      <purpose>Replace FastMCP built-in consent screen with portal-styled HTML via monkey-patching OAuthProxy.consentManager.</purpose>
+      <purpose>Replace FastMCP built-in consent screen with portal-styled HTML and force upstream authorize redirects to request consent for OIDC-compatible offline_access flows.</purpose>
       <path>src/auth/consent-patch.ts</path>
       <depends>M-AUTH-PROXY</depends>
       <annotations>
-        <fn-patchOAuthProxyConsent description="Monkey-patch OAuthProxy.consentManager.generateConsentScreen with portal-styled HTML renderer." />
+        <fn-patchOAuthProxyConsent description="Monkey-patch OAuthProxy consent rendering and upstream authorize redirects so portal UI stays custom while Logto receives prompt=consent." />
         <fn-generatePortalConsentScreen description="Render portal-styled consent HTML with scope labels, XSS escaping, and form POST to /oauth/consent." />
         <fn-formatScopeLabel description="Map OAuth scope strings to human-readable labels." />
+        <fn-rewriteAuthorizeRedirectWithPromptConsent description="Rewrite upstream authorize redirects to include prompt=consent for offline_access refresh-token issuance." />
       </annotations>
     </M-AUTH-CONSENT-PATCH>
 
@@ -343,11 +344,11 @@
     </M-AUTH-PG-TOKEN-STORAGE>
 
     <M-AUTH-PROXY NAME="FastMcpOauthProxy" TYPE="INTEGRATION" STATUS="active">
-      <purpose>FastMCP OAuthProxy integration for /mcp authentication backed by Logto OIDC upstream endpoints.</purpose>
+      <purpose>FastMCP OAuthProxy integration for /mcp authentication backed by Logto OIDC upstream endpoints with offline_access scope support.</purpose>
       <path>src/auth/oauth-proxy.ts</path>
       <depends>M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH, M-AUTH-PG-TOKEN-STORAGE</depends>
       <annotations>
-        <fn-createOauthProxy description="Create OAuthProxy, apply portal consent patch, and provide authorization-server metadata for FastMCP oauth config." />
+        <fn-createOauthProxy description="Create OAuthProxy, apply portal consent patch, request offline_access, and provide authorization-server metadata for FastMCP oauth config." />
         <type-OauthProxyDeps description="Validated dependency bundle for proxy construction." />
       </annotations>
     </M-AUTH-PROXY>

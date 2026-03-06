@@ -1,8 +1,8 @@
 // FILE: src/auth/oauth-proxy.ts
-// VERSION: 1.8.0
+// VERSION: 1.9.0
 // START_MODULE_CONTRACT
 //   PURPOSE: Create and configure FastMCP OAuthProxy bound to Logto OIDC endpoints for /mcp authentication.
-//   SCOPE: Validate runtime config/logger dependencies, build deterministic OAuthProxy configuration from AppConfig Logto/public URL fields, instantiate OAuthProxy, expose authorization server metadata, and map init failures to OAUTH_PROXY_INIT_ERROR.
+//   SCOPE: Validate runtime config/logger dependencies, build deterministic OAuthProxy configuration from AppConfig Logto/public URL fields, request OIDC-compatible offline access scopes for refresh-token issuance, instantiate OAuthProxy, expose authorization server metadata, and map init failures to OAUTH_PROXY_INIT_ERROR.
 //   DEPENDS: M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH
 //   LINKS: M-AUTH-PROXY, M-CONFIG, M-LOGGER, M-AUTH-CONSENT-PATCH
 // END_MODULE_CONTRACT
@@ -16,7 +16,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.8.0 - Integrated patchOAuthProxyConsent from M-AUTH-CONSENT-PATCH to replace default consent screen with portal-styled HTML after OAuthProxy construction.
+//   LAST_CHANGE: v1.9.0 - Expanded default /mcp upstream scopes to include offline_access so Logto can issue refresh tokens through the OIDC-compatible flow.
+//   PREVIOUS: v1.8.0 - Integrated patchOAuthProxyConsent from M-AUTH-CONSENT-PATCH to replace default consent screen with portal-styled HTML after OAuthProxy construction.
 // END_CHANGE_SUMMARY
 
 import { createHmac } from "node:crypto";
@@ -41,7 +42,7 @@ type ResolvedOauthProxyConfig = {
   scopes: string[];
 };
 
-const DEFAULT_OAUTH_PROXY_SCOPES = Object.freeze(["mcp:access"]);
+const DEFAULT_OAUTH_PROXY_SCOPES = Object.freeze(["mcp:access", "offline_access"]);
 
 export type OauthProxyDeps = {
   config: AppConfig;
