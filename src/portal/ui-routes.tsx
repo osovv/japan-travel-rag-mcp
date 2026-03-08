@@ -1,5 +1,5 @@
 // FILE: src/portal/ui-routes.tsx
-// VERSION: 1.2.0
+// VERSION: 1.3.1
 // START_MODULE_CONTRACT
 //   PURPOSE: Render public landing and user-portal pages with per-page route handlers, expose social OAuth entrypoints/callback flow, render MCP setup instructions for testers, and display available destinations from country_settings.
 //   SCOPE: Route /portal/* requests, render landing, login/register social-only auth pages, handle OAuth start/callback flow, render authenticated portal home with destination list and agent setup guide, and manage portal session lifecycle.
@@ -11,6 +11,7 @@
 //   PortalUiError - Typed portal UI error wrapper with PORTAL_UI_ERROR code.
 //   PortalUiDependencies - Dependency contract for identity client, config, logger, usage tracker, and database handle.
 //   getCountryDisplayName - Map country code to human-readable display name.
+//   LandingPageContent - Build a full public landing page for mixed-audience onboarding.
 //   handleLandingRequest - Serve / landing with primary redirect action to /portal.
 //   handlePortalRootRoute - Handle GET /portal and route to login/home by session state.
 //   handlePortalRegisterRoute - Handle GET /portal/register social-provider page (no password).
@@ -25,7 +26,8 @@
 // END_MODULE_MAP
 //
 // START_CHANGE_SUMMARY
-//   LAST_CHANGE: v1.3.0 - Hardcode platform name "TravelMind MCP" as constant, remove config.platformName dependency.
+//   LAST_CHANGE: v1.3.1 - Redesign public landing page into onboarding flow with hero, problem framing, benefit cards, audience strip, and repeated `/portal` CTA.
+//   v1.3.0 - Hardcode platform name "TravelMind MCP" as constant, remove config.platformName dependency.
 //   v1.2.0 - Replace hardcoded "Japan Travel RAG" with config.platformName, add destination list from country_settings to portal home, update MCP setup guide for single-endpoint multi-country usage, add db to PortalUiDependencies.
 //   v1.1.0 - Add per-user usage statistics display to portal home with graceful degradation on stats query failure.
 //   v1.0.0 - Initial generation from development plan for M-PORTAL-UI with social-only OAuth pages, landing, portal home, agent setup guide, and session lifecycle handlers.
@@ -209,6 +211,35 @@ function PortalStyles() {
       .portal-nav { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--line); }
       .portal-nav-brand { font-weight: 700; font-size: 1.1rem; color: var(--accent); text-decoration: none; }
       .portal-nav-actions { display: flex; gap: 0.75rem; align-items: center; }
+      .landing-shell { max-width: 52rem; margin: 0 auto; padding: 2.5rem 1rem 3rem; }
+      .landing-main { display: grid; gap: 1rem; }
+      .landing-hero { background: linear-gradient(160deg, #ffffff 0%, #f8fafc 100%); border-radius: 1rem; }
+      .landing-eyebrow { display: inline-block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; margin-bottom: 0.65rem; }
+      .landing-title { font-size: clamp(1.8rem, 4vw, 2.5rem); line-height: 1.12; margin-bottom: 0.85rem; max-width: 28rem; }
+      .landing-subtitle { color: var(--muted); font-size: 1rem; max-width: 32rem; line-height: 1.7; }
+      .landing-cta-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 1rem; }
+      .landing-hero .btn { margin-top: 0.75rem; }
+      .landing-signals { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+      .landing-signal { background: #ffffff; border: 1px solid var(--line); border-radius: 0.75rem; padding: 0.85rem 0.95rem; }
+      .landing-signal strong { display: block; color: var(--fg); margin-bottom: 0.35rem; font-size: 0.9rem; }
+      .landing-signal span { color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
+      .landing-section { background: var(--card); border: 1px solid var(--line); border-radius: 0.9rem; padding: 1.35rem; }
+      .landing-section h2 { font-size: 1.15rem; margin-bottom: 0.55rem; }
+      .landing-section p { color: var(--muted); line-height: 1.7; }
+      .landing-benefits { display: grid; gap: 0.7rem; }
+      .landing-benefit { border-left: 3px solid var(--accent); background: #f8fafc; border-radius: 0.6rem; padding: 0.75rem 0.95rem; }
+      .landing-benefit h3 { font-size: 0.95rem; margin-bottom: 0.35rem; }
+      .landing-benefit p { margin: 0; font-size: 0.9rem; }
+      .landing-steps { list-style: decimal; padding-left: 1.2rem; margin: 0.6rem 0 0.75rem; }
+      .landing-steps li { margin: 0 0 0.45rem 0; }
+      .landing-audience { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.7rem; }
+      .landing-audience-card { border: 1px solid var(--line); border-radius: 0.7rem; padding: 0.9rem; background: #ffffff; }
+      .landing-audience-card h3 { font-size: 0.95rem; margin-bottom: 0.35rem; }
+      .landing-audience-card p { font-size: 0.86rem; margin: 0; }
+      .landing-final { text-align: center; display: grid; place-items: center; gap: 0.7rem; }
+      .landing-final p { max-width: 26rem; }
+      .landing-final .btn { width: auto; min-width: 14rem; }
+      .landing-title, .landing-section h2, .landing-final h2, .landing-final h3 { font-family: Georgia, "Times New Roman", serif; }
       .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.7rem 1.25rem; border-radius: 0.5rem; font-size: 0.95rem; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
       .btn-primary { background: var(--accent); color: #fff; }
       .btn-primary:hover { background: var(--accent-hover); }
@@ -258,10 +289,95 @@ function PortalStyles() {
       .badge-enterprise { background: #ede9fe; color: #5b21b6; }
       .badge-soon { background: #f1f5f9; color: var(--muted); }
       .agent-note { font-size: 0.82rem; color: var(--muted); font-style: italic; margin-top: 0.5rem; }
-      @media (max-width: 640px) { .portal-card { padding: 1.5rem 1rem; } .portal-wrapper { padding: 1rem 0.5rem; } }
+      @media (max-width: 640px) {
+        .portal-card { padding: 1.5rem 1rem; }
+        .portal-wrapper { padding: 1rem 0.5rem; }
+        .landing-shell { padding: 1.25rem 0.75rem 2rem; }
+        .landing-cta-row { width: 100%; }
+        .landing-cta-row .btn { width: 100%; }
+      }
     `}</style>
   );
   // END_BLOCK_DEFINE_PORTAL_CSS_STYLES_M_PORTAL_UI_006
+}
+
+// START_CONTRACT: LandingPageContent
+//   PURPOSE: Build the public landing page onboarding content for first-time visitors.
+//   INPUTS: {}
+//   OUTPUTS: { string - Public landing page HTML fragment }
+//   SIDE_EFFECTS: [none]
+//   LINKS: [M-PORTAL-UI]
+// END_CONTRACT: LandingPageContent
+function LandingPageContent() {
+  // START_BLOCK_RENDER_LANDING_PAGE_CONTENT_M_PORTAL_UI_021
+  return (
+    <div class="landing-shell">
+      <main class="landing-main">
+        <section class="landing-section landing-hero">
+          <div class="landing-eyebrow">Curated travel knowledge for Japan</div>
+          <h1 class="landing-title">Understand Japan faster with trusted travel context</h1>
+          <p class="landing-subtitle">TravelMind brings useful travel knowledge into one place, so you can explore food, neighborhoods, transport, and trip ideas with more confidence.</p>
+          <div class="landing-cta-row">
+            <a href="/portal" class="btn btn-primary">Connect and explore</a>
+            <a href="#how-it-works" class="btn btn-outline">See how it works</a>
+          </div>
+
+          <div class="landing-signals">
+            <div class="landing-signal"><strong>Curated sources</strong><span>From trusted contributors and verified travel references.</span></div>
+            <div class="landing-signal"><strong>Clearer answers</strong><span>Better signal-to-noise before you decide.</span></div>
+            <div class="landing-signal"><strong>Useful local context</strong><span>Food, neighborhoods, and practical trip details in one place.</span></div>
+            <div class="landing-signal"><strong>Built for modern AI tools</strong><span>Connected quickly from assistants and workflows.</span></div>
+          </div>
+        </section>
+
+        <section class="landing-section">
+          <h2>Travel advice is everywhere. Clarity is not.</h2>
+          <p>Great travel tips are often buried in long threads, scattered guides, and mixed-quality recommendations. TravelMind helps turn that noise into a clearer starting point.</p>
+        </section>
+
+        <section class="landing-section">
+          <h2>What you get</h2>
+          <div class="landing-benefits">
+            <article class="landing-benefit"><h3>Curated knowledge</h3><p>Start from selected travel sources instead of searching from scratch.</p></article>
+            <article class="landing-benefit"><h3>Better context</h3><p>Get practical guidance that helps you understand places, not just list them.</p></article>
+            <article class="landing-benefit"><h3>Faster research</h3><p>Compare options and explore ideas without digging through endless tabs.</p></article>
+            <article class="landing-benefit"><h3>Easy to connect</h3><p>Move from landing page to working setup in just a few steps.</p></article>
+          </div>
+        </section>
+
+        <section id="how-it-works" class="landing-section">
+          <h2>How it works</h2>
+          <ol class="landing-steps">
+            <li>Open the portal</li>
+            <li>Connect in a few minutes</li>
+            <li>Start exploring Japan with clearer travel context</li>
+          </ol>
+          <p>Simple flow, no complicated setup language on the landing page.</p>
+        </section>
+
+        <section class="landing-section">
+          <h2>Who it's for</h2>
+          <div class="landing-audience">
+            <article class="landing-audience-card"><h3>AI users</h3><p>A better travel knowledge starting point for modern AI workflows.</p></article>
+            <article class="landing-audience-card"><h3>Travel researchers</h3><p>A faster way to compare areas, food spots, and practical trip details.</p></article>
+            <article class="landing-audience-card"><h3>Agencies and teams</h3><p>A shared layer of travel context for client and internal research.</p></article>
+          </div>
+        </section>
+
+        <section class="landing-section">
+          <h2>Start with Japan</h2>
+          <p>TravelMind starts with Japan and is designed to grow over time. The goal is simple: help you explore travel questions with more confidence and less noise.</p>
+        </section>
+
+        <section class="landing-section landing-final">
+          <h2>Ready to explore?</h2>
+          <p>Open the portal, connect, and start with Japan.</p>
+          <a href="/portal" class="btn btn-primary">Connect and explore</a>
+        </section>
+      </main>
+    </div>
+  );
+  // END_BLOCK_RENDER_LANDING_PAGE_CONTENT_M_PORTAL_UI_021
 }
 
 // START_CONTRACT: PortalLayout
@@ -474,15 +590,7 @@ export async function handleLandingRequest(
   );
 
   const body = (
-    <div class="portal-center">
-      <div class="portal-card" style="text-align: center;">
-        <div class="portal-header">
-          <h1 style="font-size: 2rem; margin-bottom: 0.75rem;" safe>{PLATFORM_NAME}</h1>
-          <p style="font-size: 1rem; max-width: 24rem; margin: 0 auto;">Your AI-powered travel companion. Get curated recommendations, cultural insights, and local knowledge from real traveler conversations.</p>
-        </div>
-        <a href="/portal" class="btn btn-primary btn-full" style="margin-top: 1rem; font-size: 1.05rem; padding: 0.85rem 1.5rem;">Get Started</a>
-      </div>
-    </div>
+    LandingPageContent()
   );
 
   return buildHtmlResponse(200, PortalLayout(PLATFORM_NAME, body));
